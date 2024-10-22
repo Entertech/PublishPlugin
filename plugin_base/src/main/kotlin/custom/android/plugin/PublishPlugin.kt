@@ -152,25 +152,25 @@ open class PublishPlugin : Plugin<Project> {
         val properties = Properties()// local.properties file in the root director
         properties.load(project.rootProject.file("local.properties").inputStream())
         PluginLogUtil.printlnDebugInScreen("properties: $properties")
-        var publishUrl = properties.getProperty("publishUrl", "")
-        if (publishUrl.isNullOrEmpty()) {
-            publishUrl = publishInfo.publishUrl
+        var publishUrl = publishInfo.publishUrl
+        if (publishUrl.isEmpty()) {
+            publishUrl = properties.getProperty("publishUrl", "")
         }
-        var publishUserName = properties.getProperty("publishUserName", "")
-        if (publishUserName.isNullOrEmpty()) {
-            publishUserName = publishInfo.publishUserName
+        var publishUserName = publishInfo.publishUserName
+        if (publishUserName.isEmpty()) {
+            publishUserName = properties.getProperty("publishUserName", "")
         }
-        var publishPassword = properties.getProperty("publishPassword", "")
-        if (publishPassword.isNullOrEmpty()) {
-            publishPassword = publishInfo.publishPassword
+        var publishPassword = publishInfo.publishPassword
+        if (publishPassword.isEmpty()) {
+            publishPassword = properties.getProperty("publishPassword", "")
         }
         PluginLogUtil.printlnDebugInScreen("$TAG publishUrl is $publishUrl")
         PluginLogUtil.printlnDebugInScreen("$TAG publishUserName is $publishUserName  publishPassword is $publishPassword")
         if (publishUrl.isNotEmpty()) {
             publishing.repositories { artifactRepositories ->
                 artifactRepositories.maven { mavenArtifactRepository ->
-                    mavenArtifactRepository.url =
-                        URI(publishUrl)
+                    mavenArtifactRepository.url = URI(publishUrl)
+                    mavenArtifactRepository.isAllowInsecureProtocol = true
                     mavenArtifactRepository.credentials { credentials ->
                         credentials.username = publishUserName
                         credentials.password = publishPassword

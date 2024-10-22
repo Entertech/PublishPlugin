@@ -19,7 +19,7 @@ abstract class BasePublishTask : DefaultTask() {
 
     companion object {
         private const val TAG = "BasePublishTask"
-        const val MAVEN_PUBLICATION_NAME = "myRelease"
+        const val MAVEN_PUBLICATION_NAME = "EnterPublish"
     }
 
     init {
