@@ -13,6 +13,7 @@ import org.gradle.api.tasks.TaskContainer
 import org.gradle.jvm.tasks.Jar
 import org.gradle.plugin.devel.GradlePluginDevelopmentExtension
 import java.net.URI
+import java.util.Properties
 
 /**
  * 执行publishToMavenLocal
@@ -147,22 +148,35 @@ open class PublishPlugin : Plugin<Project> {
                 publication.from(softwareComponent)
             }
         }
-        val publishUrl = publishInfo.publishUrl
 
+        val properties = Properties()// local.properties file in the root director
+        properties.load(project.rootProject.file("local.properties").inputStream())
+        PluginLogUtil.printlnDebugInScreen("properties: $properties")
+        var publishUrl = properties.getProperty("publishUrl", "")
+        if (publishUrl.isNullOrEmpty()) {
+            publishUrl = publishInfo.publishUrl
+        }
+        var publishUserName = properties.getProperty("publishUserName", "")
+        if (publishUserName.isNullOrEmpty()) {
+            publishUserName = publishInfo.publishUserName
+        }
+        var publishPassword = properties.getProperty("publishPassword", "")
+        if (publishPassword.isNullOrEmpty()) {
+            publishPassword = publishInfo.publishPassword
+        }
+        PluginLogUtil.printlnDebugInScreen("$TAG publishUrl is $publishUrl")
+        PluginLogUtil.printlnDebugInScreen("$TAG publishUserName is $publishUserName  publishPassword is $publishPassword")
         if (publishUrl.isNotEmpty()) {
             publishing.repositories { artifactRepositories ->
                 artifactRepositories.maven { mavenArtifactRepository ->
                     mavenArtifactRepository.url =
-                        URI(publishInfo.publishUrl)
+                        URI(publishUrl)
                     mavenArtifactRepository.credentials { credentials ->
-                        credentials.username = publishInfo.publishUserName
-                        credentials.password =
-                            publishInfo.publishPassword
+                        credentials.username = publishUserName
+                        credentials.password = publishPassword
                     }
                 }
             }
-        } else {
-            PluginLogUtil.printlnErrorInScreen("$TAG publishUrl is null")
         }
     }
 

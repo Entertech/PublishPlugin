@@ -31,7 +31,7 @@ publishing {
         plugin(MavenPublication){
             groupId ='cn.entertech.android'
             artifactId = 'publish'
-            version = '1.0.2'
+            version = '1.0.3'
             from components.java
         }
     }
@@ -39,8 +39,8 @@ publishing {
 
     repositories {
         maven {
-            def userName = "2nqgfmsz"
-            def passWord = "5k1Kj4x6We/bPKTS7Ni/6ZZwL2FGnTNCkgNFlhWzXz6D"
+            def userName = "REMOVED_ACCOUNT"
+            def passWord = "REMOVED_PASSWORD"
             //允许使用 http
             setAllowInsecureProtocol(true)
             setUrl("https://s01.oss.sonatype.org/content/repositories/releases/")
