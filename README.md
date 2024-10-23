@@ -7,7 +7,7 @@ repositories {
 }
 
 dependencies {
-    classpath("cn.entertech.android:publish:1.0.4")
+    classpath("cn.entertech.android:publish:1.0.5")
 }
 ```
 
