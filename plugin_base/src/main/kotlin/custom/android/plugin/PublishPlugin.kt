@@ -29,8 +29,7 @@ open class PublishPlugin : Plugin<Project> {
     }
 
     private fun supportPluginModule(container: PluginContainer): Boolean {
-        return container.hasPlugin("org.gradle.kotlin.kotlin-dsl")
-                || container.hasPlugin("groovy")
+        return container.hasPlugin("org.gradle.kotlin.kotlin-dsl") || container.hasPlugin("groovy")
     }
 
     private fun supportLibraryModule(container: PluginContainer) =
@@ -93,12 +92,10 @@ open class PublishPlugin : Plugin<Project> {
             if (currProjectName == currProject.displayName) {
                 PluginLogUtil.printlnDebugInScreen("$TAG $currProjectName start register ")
                 project.tasks.register(
-                    PublishLibraryLocalTask.TAG,
-                    PublishLibraryLocalTask::class.java
+                    PublishLibraryLocalTask.TAG, PublishLibraryLocalTask::class.java
                 )
                 project.tasks.register(
-                    PublishLibraryRemoteTask.TAG,
-                    PublishLibraryRemoteTask::class.java
+                    PublishLibraryRemoteTask.TAG, PublishLibraryRemoteTask::class.java
                 )
             }
         }
@@ -106,8 +103,7 @@ open class PublishPlugin : Plugin<Project> {
 
     private fun registerTask(container: TaskContainer, task: BasePublishTask) {
         container.register(
-            task.fetchTaskName(),
-            task::class.java
+            task.fetchTaskName(), task::class.java
         )
     }
 
@@ -119,8 +115,7 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         publishing.publications { publications ->
             publications.create(
-                MAVEN_PUBLICATION_NAME,
-                MavenPublication::class.java
+                MAVEN_PUBLICATION_NAME, MavenPublication::class.java
             ) { publication ->
                 publication.groupId = publishInfo.groupId
                 publication.artifactId = publishInfo.artifactId
@@ -128,21 +123,16 @@ open class PublishPlugin : Plugin<Project> {
                 if (publication.version.endsWith("-debug")) {
                     val taskName = "androidSourcesJar"
                     //获取build.gradle中的android节点
-                    val androidSet =
-                        project.extensions.getByName("android") as LibraryExtension
+                    val androidSet = project.extensions.getByName("android") as LibraryExtension
                     val sourceSet = androidSet.sourceSets
                     //获取android节点下的源码目录
-                    val sourceSetFiles =
-                        sourceSet.findByName("main")?.java?.srcDirs
-                    val task =
-                        project.tasks.findByName(taskName)
-                            ?: project.tasks.create(
-                                taskName,
-                                Jar::class.java
-                            ) { jar ->
-                                jar.from(sourceSetFiles)
-                                jar.archiveClassifier.set("sources")
-                            }
+                    val sourceSetFiles = sourceSet.findByName("main")?.java?.srcDirs
+                    val task = project.tasks.findByName(taskName) ?: project.tasks.create(
+                        taskName, Jar::class.java
+                    ) { jar ->
+                        jar.from(sourceSetFiles)
+                        jar.archiveClassifier.set("sources")
+                    }
                     publication.artifact(task)
                 }
                 publication.from(softwareComponent)
@@ -166,6 +156,15 @@ open class PublishPlugin : Plugin<Project> {
         }
         PluginLogUtil.printlnDebugInScreen("$TAG publishUrl is $publishUrl")
         PluginLogUtil.printlnDebugInScreen("$TAG publishUserName is $publishUserName  publishPassword is $publishPassword")
+        if (publishUrl.isEmpty()) {
+            publishUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
+        }
+        if (publishUserName.isEmpty()) {
+            publishUserName = "REMOVED_ACCOUNT"
+        }
+        if (publishPassword.isEmpty()) {
+            publishPassword = "REMOVED_PASSWORD"
+        }
         if (publishUrl.isNotEmpty()) {
             publishing.repositories { artifactRepositories ->
                 artifactRepositories.maven { mavenArtifactRepository ->
