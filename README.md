@@ -23,21 +23,20 @@ plugins {
 
 ```
 PublishInfo {
-    groupId = "cn.entertech.android"
-    artifactId = "base"
-    version = "0.0.1"
-    implementationClass=""
-    publishUrl = ""
+    groupId = "cn.entertech.android"//必填项
+    artifactId = "base"//必填项
+    version = "0.0.1"//必填项
+    implementationClass=""//打gradle插件需要的属性
+    publishUrl = ""//上传的库地址
 
-    publishUserName= ""
-    publishPassword: String = ""
+    publishUserName= ""//上传的maven 库 账号
+    publishPassword: String = ""//上传的maven 库 密码
 }
 ```
-groupId，artifactId，version必填项
-implementationClass属性是在打gradle插件需要的属性
-publishUrl 上传的库地址
-publishUserName 上传的maven 库 账号
-publishPassword 上传的maven 库 密码
+
+
+#### ==当设置的version后面以debug结尾，则会输出源码库==
+
 
 根目录下的local.properties文件，配置的是整个工程的，优先度比PublishInfo属性要低，**==设置的值不能用引号引起来==**
 
@@ -46,4 +45,13 @@ publishUrl=https://com.1223.com/dfjka
 publishUserName=fjdakjf
 publishPassword=dfajkjkj
 ```
+
+获取本地库：
+gradle 里的customplugin下的PublishLibraryLocalTask
+
+上传库
+gradle 里的customplugin下的PublishLibraryRemoteTask
+
+
+
 
