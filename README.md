@@ -28,7 +28,7 @@ PublishInfo {
     version = "0.0.1"//必填项
     implementationClass=""//打gradle插件需要的属性
     publishUrl = ""//上传的库地址
-
+    pluginId=""//上传的插件名，打gradle插件需要的属性
     publishUserName= ""//上传的maven 库 账号
     publishPassword: String = ""//上传的maven 库 密码
 }
