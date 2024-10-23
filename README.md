@@ -35,7 +35,7 @@ PublishInfo {
 ```
 
 
-#### ==当设置的version后面以debug结尾，则会输出源码库==
+#### ==当设置的version后面以-debug结尾，则会输出源码库==
 
 
 根目录下的local.properties文件，配置的是整个工程的，优先度比PublishInfo属性要低，**==设置的值不能用引号引起来==**
