@@ -31,7 +31,7 @@ publishing {
         plugin(MavenPublication){
             groupId ='cn.entertech.android'
             artifactId = 'publish'
-            version = '1.0.4'
+            version = '1.0.5'
             from components.java
         }
     }
