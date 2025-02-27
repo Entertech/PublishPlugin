@@ -18,6 +18,10 @@ plugins {
     id("custom.android.plugin")
 }
 ```
+或者 在需要打包的library｜gradle插件目录下的  **build.gradle** 文件添加下面的插件
+```
+apply plugin: 'custom.android.plugin'
+```
 
 配置库相关信息：在需要打包的library｜gradle插件 目录下的  **build.gradle.kts** 文件添加下面的插件
 
