@@ -45,9 +45,9 @@ PublishInfo {
 根目录下的local.properties文件，配置的是整个工程的，优先度比PublishInfo属性要低，**==设置的值不能用引号引起来==**
 
 ```
-publishUrl=https://com.1223.com/dfjka
-publishUserName=fjdakjf
-publishPassword=dfajkjkj
+publishUrl=https://crazy.thursday.com/v50
+publishUserName=crazyThursday
+publishPassword=crazyThursday
 ```
 
 获取本地库：
