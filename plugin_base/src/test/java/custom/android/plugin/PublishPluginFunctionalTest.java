@@ -137,6 +137,26 @@ public class PublishPluginFunctionalTest {
         assertFalse(output.contains("centralUsername/centralPassword"));
     }
 
+    @Test
+    public void androidLibraryCreatesReleaseFlavorPublicationsWithDynamicArtifactIds() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors();
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthReleaseEnterPublishPublication",
+                        ":fixture:generatePomFileForBreathNoAuthReleaseEnterPublishPublication",
+                        ":fixture:generatePomFileForSdkAuthReleaseEnterPublishPublication",
+                        ":fixture:generatePomFileForSdkNoAuthReleaseEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(projectDir.toPath(), "BreathAuthReleaseEnterPublish", "breath-affective-offline-sdk-authentication");
+        assertPomContainsArtifactId(projectDir.toPath(), "BreathNoAuthReleaseEnterPublish", "breath-affective-offline-sdk");
+        assertPomContainsArtifactId(projectDir.toPath(), "SdkAuthReleaseEnterPublish", "sdk-affective-offline-sdk-authentication");
+        assertPomContainsArtifactId(projectDir.toPath(), "SdkNoAuthReleaseEnterPublish", "sdk-affective-offline-sdk");
+    }
+
     private File createGradlePluginProject(String version, boolean componentPublishesSources) throws IOException {
         return createGradlePluginProject(version, componentPublishesSources, "", "");
     }
@@ -185,6 +205,63 @@ public class PublishPluginFunctionalTest {
                 + "}\n"
                 + publishSources);
         return root;
+    }
+
+    private File createAndroidLibraryProjectWithPublishFlavors() throws IOException {
+        File root = temporaryFolder.newFolder("android-flavor-project");
+        write(root.toPath().resolve("settings.gradle"), "pluginManagement {\n"
+                + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
+                + "}\n"
+                + "dependencyResolutionManagement {\n"
+                + "    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)\n"
+                + "    repositories { google(); mavenCentral() }\n"
+                + "}\n"
+                + "rootProject.name = 'android-flavor-fixture'\n"
+                + "include ':fixture'\n");
+        write(root.toPath().resolve("local.properties"), "");
+
+        Path fixtureDir = root.toPath().resolve("fixture");
+        Files.createDirectories(fixtureDir.resolve("src/main/java/com/example/fixture"));
+        write(fixtureDir.resolve("src/main/java/com/example/fixture/Fixture.java"),
+                "package com.example.fixture;\n"
+                        + "public class Fixture {\n"
+                        + "    public String value() { return \"fixture\"; }\n"
+                        + "}\n");
+        write(fixtureDir.resolve("build.gradle"), "plugins {\n"
+                + "    id 'com.android.library' version '8.1.3'\n"
+                + "    id 'custom.android.plugin'\n"
+                + "}\n"
+                + "android {\n"
+                + "    namespace 'com.example.fixture'\n"
+                + "    compileSdk 34\n"
+                + "    defaultConfig { minSdk 23 }\n"
+                + "    flavorDimensions 'project', 'authentication'\n"
+                + "    productFlavors {\n"
+                + "        breath { dimension 'project' }\n"
+                + "        sdk { dimension 'project' }\n"
+                + "        auth { dimension 'authentication' }\n"
+                + "        noAuth { dimension 'authentication' }\n"
+                + "    }\n"
+                + "}\n"
+                + "def baseArtifactId = 'affective-offline-sdk'\n"
+                + "PublishInfo {\n"
+                + "    groupId = 'com.example'\n"
+                + "    artifactId = baseArtifactId\n"
+                + "    version = '1.0.0'\n"
+                + "    artifactIdForVariant { variant ->\n"
+                + "        def productPrefix = \"${variant.flavor('project')}-\"\n"
+                + "        def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''\n"
+                + "        return \"${productPrefix}${baseArtifactId}${authSuffix}\"\n"
+                + "    }\n"
+                + "}\n");
+        return root;
+    }
+
+    private static void assertPomContainsArtifactId(Path projectDir, String publicationName, String artifactId)
+            throws IOException {
+        Path pomPath = projectDir.resolve("fixture/build/publications/" + publicationName + "/pom-default.xml");
+        assertTrue("Missing POM for " + publicationName, Files.exists(pomPath));
+        assertTrue(read(pomPath).contains("<artifactId>" + artifactId + "</artifactId>"));
     }
 
     private static String centralPublishInfo() {

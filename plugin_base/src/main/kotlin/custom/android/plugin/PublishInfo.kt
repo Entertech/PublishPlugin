@@ -1,5 +1,7 @@
 package custom.android.plugin
 
+import groovy.lang.Closure
+
 open class PublishInfo {
 
 
@@ -79,4 +81,34 @@ open class PublishInfo {
     var scmUrl: String = ""
     var scmConnection: String = ""
     var scmDeveloperConnection: String = ""
+
+    private var artifactIdForVariantAction: ((PublishVariantInfo) -> String)? = null
+
+    fun artifactIdForVariant(action: (PublishVariantInfo) -> String) {
+        artifactIdForVariantAction = action
+    }
+
+    fun artifactIdForVariant(action: Closure<*>) {
+        artifactIdForVariantAction = { variant ->
+            action.call(variant)?.toString().orEmpty()
+        }
+    }
+
+    internal fun resolveArtifactId(variant: PublishVariantInfo?): String {
+        val action = artifactIdForVariantAction
+        if (variant == null || action == null) {
+            return artifactId
+        }
+        return action(variant).ifBlank { artifactId }
+    }
+}
+
+open class PublishVariantInfo(
+    val name: String,
+    val buildType: String,
+    val flavors: Map<String, String>
+) {
+    fun flavor(dimension: String): String {
+        return flavors[dimension].orEmpty()
+    }
 }
