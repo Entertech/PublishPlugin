@@ -28,6 +28,17 @@ open class PublishPlugin : Plugin<Project> {
         private const val TAG = "PublishPlugin"
     }
 
+    private data class PublishTarget(
+        val component: SoftwareComponent,
+        val publicationName: String,
+        val artifactId: String
+    )
+
+    private data class AndroidFlavorSpec(
+        val name: String,
+        val dimension: String
+    )
+
     private fun supportAppModule(container: PluginContainer): Boolean {
         return container.hasPlugin("com.android.application")
     }
@@ -56,10 +67,11 @@ open class PublishPlugin : Plugin<Project> {
             try {
                 val publishInfo = project.extensions.getByType(PublishInfo::class.java)
                 val publishing = project.extensions.getByType(PublishingExtension::class.java)
-                val components = currentProject.components
-                components.forEach {
+                val components = currentProject.components.map { it }
+                var hasPublication = false
+                if (supportPluginModule(container)) {
+                    components.forEach {
                     PluginLogUtil.printlnDebugInScreen("$TAG name: ${it.name}")
-                    if (supportPluginModule(container)) {
                         if (it.name == "java") {
                             val gradlePluginDevelopmentExtension =
                                 project.extensions.getByType(GradlePluginDevelopmentExtension::class.java)
@@ -72,15 +84,37 @@ open class PublishPlugin : Plugin<Project> {
                                         publishInfo.implementationClass
                                 }
                             }
-                            publishing(project, publishing, publishInfo, it)
+                            createPublication(
+                                project,
+                                publishing,
+                                publishInfo,
+                                it,
+                                MAVEN_PUBLICATION_NAME,
+                                publishInfo.artifactId
+                            )
+                            hasPublication = true
                         }
                     }
-                    if (supportLibraryModule(container)) {
-                        if (it.name == "release") {
-                            //注册上传task
-                            publishing(project, publishing, publishInfo, it)
-                        }
+                }
+                if (supportLibraryModule(container)) {
+                    val publishTargets = resolveAndroidPublishTargets(project, components, publishInfo)
+                    publishTargets.forEach {
+                        PluginLogUtil.printlnDebugInScreen(
+                            "$TAG publish ${it.component.name} as ${it.publicationName}:${it.artifactId}"
+                        )
+                        createPublication(
+                            project,
+                            publishing,
+                            publishInfo,
+                            it.component,
+                            it.publicationName,
+                            it.artifactId
+                        )
                     }
+                    hasPublication = hasPublication || publishTargets.isNotEmpty()
+                }
+                if (hasPublication) {
+                    configurePublishingRepositories(project, publishing, publishInfo)
                 }
 
             } catch (e: Exception) {
@@ -111,24 +145,26 @@ open class PublishPlugin : Plugin<Project> {
         )
     }
 
-    private fun publishing(
+    private fun createPublication(
         project: Project,
         publishing: PublishingExtension,
         publishInfo: PublishInfo,
-        softwareComponent: SoftwareComponent
+        softwareComponent: SoftwareComponent,
+        publicationName: String,
+        artifactId: String
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
         val publishSources = centralPublish || publishInfo.version.endsWith("-debug")
         skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(
-                MAVEN_PUBLICATION_NAME, MavenPublication::class.java
+                publicationName, MavenPublication::class.java
             ) { publication ->
                 publication.groupId = publishInfo.groupId
-                publication.artifactId = publishInfo.artifactId
+                publication.artifactId = artifactId
                 publication.version = publishInfo.version
                 publication.from(softwareComponent)
-                configurePom(project, publication, publishInfo)
+                configurePom(project, publication, publishInfo, artifactId)
                 if (publishSources) {
                     createSourcesJarTask(project)?.let { task ->
                         publication.artifact(task)
@@ -143,7 +179,13 @@ open class PublishPlugin : Plugin<Project> {
                 }
             }
         }
+    }
 
+    private fun configurePublishingRepositories(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo
+    ) {
         val properties = PublishConfigResolver.loadLocalProperties(project)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
         if (mode == PublishConfigResolver.MODE_CENTRAL) {
@@ -153,10 +195,127 @@ open class PublishPlugin : Plugin<Project> {
         }
     }
 
-    private fun configurePom(project: Project, publication: MavenPublication, publishInfo: PublishInfo) {
+    private fun resolveAndroidPublishTargets(
+        project: Project,
+        components: List<SoftwareComponent>,
+        publishInfo: PublishInfo
+    ): List<PublishTarget> {
+        val buildTypeName = "release"
+        val buildTypeComponents = components.filter { isBuildTypeComponent(it.name, buildTypeName) }
+        val singleReleaseComponent =
+            buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals(buildTypeName, ignoreCase = true)
+
+        return buildTypeComponents.map { component ->
+            val publicationName = if (singleReleaseComponent) {
+                MAVEN_PUBLICATION_NAME
+            } else {
+                "${component.name.capitalizeAscii()}$MAVEN_PUBLICATION_NAME"
+            }
+            val variantInfo = if (singleReleaseComponent) {
+                null
+            } else {
+                createAndroidVariantInfo(project, component.name, buildTypeName)
+            }
+            val artifactId = publishInfo.resolveArtifactId(variantInfo)
+            PublishTarget(component, publicationName, artifactId)
+        }
+    }
+
+    private fun isBuildTypeComponent(componentName: String, buildTypeName: String): Boolean {
+        return componentName.equals(buildTypeName, ignoreCase = true) ||
+            componentName.endsWith(buildTypeName.capitalizeAscii(), ignoreCase = false)
+    }
+
+    private fun createAndroidVariantInfo(
+        project: Project,
+        componentName: String,
+        buildTypeName: String
+    ): PublishVariantInfo {
+        val flavors = parseFlavorsFromComponent(project, componentName, buildTypeName)
+        return PublishVariantInfo(
+            name = componentName,
+            buildType = buildTypeName,
+            flavors = flavors
+                .filter { it.dimension.isNotBlank() }
+                .associate { it.dimension to it.name }
+        )
+    }
+
+    private fun parseFlavorsFromComponent(
+        project: Project,
+        componentName: String,
+        buildTypeName: String
+    ): List<AndroidFlavorSpec> {
+        val flavorPart = removeBuildTypeSuffix(componentName, buildTypeName)
+        if (flavorPart.isBlank()) {
+            return emptyList()
+        }
+
+        val candidates = readAndroidFlavorSpecs(project)
+            .sortedWith(compareByDescending<AndroidFlavorSpec> { it.name.length }.thenBy { it.name })
+        val matched = mutableListOf<AndroidFlavorSpec>()
+        var remaining = flavorPart
+        while (remaining.isNotBlank()) {
+            val match = candidates.firstOrNull { candidate ->
+                matched.none { it.name == candidate.name } &&
+                    remaining.startsWith(candidate.name, ignoreCase = true)
+            } ?: break
+            matched += match
+            remaining = remaining.substring(match.name.length)
+        }
+        return matched
+    }
+
+    private fun removeBuildTypeSuffix(componentName: String, buildTypeName: String): String {
+        if (componentName.equals(buildTypeName, ignoreCase = true)) {
+            return ""
+        }
+        val capitalizedBuildType = buildTypeName.capitalizeAscii()
+        return if (componentName.endsWith(capitalizedBuildType)) {
+            componentName.removeSuffix(capitalizedBuildType)
+        } else {
+            componentName
+        }
+    }
+
+    private fun readAndroidFlavorSpecs(project: Project): List<AndroidFlavorSpec> {
+        val androidExtension = project.extensions.findByName("android") ?: return emptyList()
+        val productFlavors = invokeNoArg(androidExtension, "getProductFlavors") as? Iterable<*> ?: return emptyList()
+        return productFlavors.mapNotNull { flavor ->
+            val name = invokeNoArg(flavor, "getName")?.toString().orEmpty()
+            if (name.isBlank()) {
+                null
+            } else {
+                AndroidFlavorSpec(
+                    name = name,
+                    dimension = invokeNoArg(flavor, "getDimension")?.toString().orEmpty()
+                )
+            }
+        }
+    }
+
+    private fun invokeNoArg(target: Any?, methodName: String): Any? {
+        if (target == null) {
+            return null
+        }
+        return try {
+            target.javaClass.methods
+                .firstOrNull { it.name == methodName && it.parameterCount == 0 }
+                ?.invoke(target)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun configurePom(
+        project: Project,
+        publication: MavenPublication,
+        publishInfo: PublishInfo,
+        artifactId: String
+    ) {
         publication.pom { pom ->
             val pomName = PublishConfigResolver.resolveText(
-                project, "pomName", publishInfo.pomName, publishInfo.artifactId
+                project, "pomName", publishInfo.pomName, artifactId
             )
             if (pomName.isNotBlank()) {
                 pom.name.set(pomName)
@@ -402,6 +561,15 @@ open class PublishPlugin : Plugin<Project> {
         publication.artifacts.toList()
             .filter { it.classifier == "sources" }
             .forEach { publication.artifacts.remove(it) }
+    }
+
+    private fun String.capitalizeAscii(): String {
+        if (isEmpty()) {
+            return this
+        }
+        val first = this[0]
+        val capitalizedFirst = if (first in 'a'..'z') first - 32 else first
+        return "$capitalizedFirst${substring(1)}"
     }
 
 }

@@ -16,10 +16,17 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
     override fun initPublishCommandLine(): String {
         val publishInfo = project.extensions.getByType(PublishInfo::class.java)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
+        val repositoryName = if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
+            "Maven"
+        } else {
+            PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
+        }
+        if (hasMultipleEnterPublications()) {
+            return ":publishAllPublicationsTo${repositoryName}Repository"
+        }
         if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             return ":publish${MAVEN_PUBLICATION_NAME}PublicationToMavenRepository"
         }
-        val repositoryName = PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
         return ":publish${MAVEN_PUBLICATION_NAME}PublicationTo${repositoryName}Repository"
     }
 
@@ -151,6 +158,11 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
     }
 
     override fun fetchTaskName(): String = TAG
+
+    private fun hasMultipleEnterPublications(): Boolean {
+        val publishing = project.extensions.findByType(PublishingExtension::class.java) ?: return false
+        return publishing.publications.names.count { it.endsWith(MAVEN_PUBLICATION_NAME) } > 1
+    }
 
     private val forwardedProjectProperties = listOf(
         "remotePublishMode",

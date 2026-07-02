@@ -120,17 +120,12 @@ abstract class BasePublishTask : DefaultTask() {
 
     private fun printPublishSuccess() {
         val publishing = project.extensions.getByType(PublishingExtension::class.java)
-        var groupId = ""
-        var artifactId = ""
-        var version = ""
-        publishing.publications { publications ->
-            val mavenPublication =
-                publications.getByName(MAVEN_PUBLICATION_NAME) as MavenPublication
-            groupId = mavenPublication.groupId
-            artifactId = mavenPublication.artifactId
-            version = mavenPublication.version
-
-        }
+        val mavenPublications = publishing.publications
+            .withType(MavenPublication::class.java)
+            .toList()
+        val publications = mavenPublications
+            .filter { it.name.endsWith(MAVEN_PUBLICATION_NAME) }
+            .ifEmpty { mavenPublications }
         publishing.repositories { artifactRepositories ->
             artifactRepositories.maven {
                 //url可能为null，虽然提示不会为null
@@ -140,26 +135,32 @@ abstract class BasePublishTask : DefaultTask() {
         publishing.repositories.maven {
             PluginLogUtil.printlnInfoInScreen(" ${it.name} url: ${it.url}")
         }
-        val fileNames = groupId.split(".")
-        val pathSb = StringBuilder()
-        pathSb.append(getPublishingExtensionRepositoriesPath(publishing))
-        fileNames.forEach {
-            pathSb.append(it)
-            pathSb.append(File.separatorChar)
-        }
+        PluginLogUtil.printlnInfoInScreen("构建成功")
+        publications.forEach { publication ->
+            val fileNames = publication.groupId.split(".")
+            val pathSb = StringBuilder()
+            pathSb.append(getPublishingExtensionRepositoriesPath(publishing))
+            fileNames.forEach {
+                pathSb.append(it)
+                pathSb.append(File.separatorChar)
+            }
 //                    pathSb.append(artifactId)
 //                    pathSb.append(File.separatorChar)
-        PluginLogUtil.printlnInfoInScreen("构建成功")
-        PluginLogUtil.printlnInfoInScreen("仓库地址：  $pathSb")
-        PluginLogUtil.printlnInfoInScreen("===================================================================")
-        PluginLogUtil.printlnInfoInScreen("")
-        PluginLogUtil.printlnInfoInScreen("implementation '$groupId:$artifactId:$version'")
-        PluginLogUtil.printlnInfoInScreen("")
-        PluginLogUtil.printlnInfoInScreen("==================================================================")
-        PluginLogUtil.printlnInfoInScreen("")
-        PluginLogUtil.printlnInfoInScreen("implementation (\"$groupId:$artifactId:$version\")")
-        PluginLogUtil.printlnInfoInScreen("")
-        PluginLogUtil.printlnInfoInScreen("==================================================================")
+            PluginLogUtil.printlnInfoInScreen("仓库地址：  $pathSb")
+            PluginLogUtil.printlnInfoInScreen("===================================================================")
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen(
+                "implementation '${publication.groupId}:${publication.artifactId}:${publication.version}'"
+            )
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen("==================================================================")
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen(
+                "implementation (\"${publication.groupId}:${publication.artifactId}:${publication.version}\")"
+            )
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen("==================================================================")
+        }
     }
 
     /**
