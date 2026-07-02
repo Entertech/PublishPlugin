@@ -4,11 +4,13 @@ import com.android.build.gradle.LibraryExtension
 import custom.android.plugin.BasePublishTask.Companion.MAVEN_PUBLICATION_NAME
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.component.AdhocComponentWithVariants
 import org.gradle.api.component.SoftwareComponent
 import org.gradle.api.plugins.PluginContainer
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.plugins.MavenPublishPlugin
+import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskContainer
 import org.gradle.jvm.tasks.Jar
 import org.gradle.plugin.devel.GradlePluginDevelopmentExtension
@@ -113,6 +115,8 @@ open class PublishPlugin : Plugin<Project> {
         publishInfo: PublishInfo,
         softwareComponent: SoftwareComponent
     ) {
+        val publishSources = publishInfo.version.endsWith("-debug")
+        skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(
                 MAVEN_PUBLICATION_NAME, MavenPublication::class.java
@@ -120,22 +124,15 @@ open class PublishPlugin : Plugin<Project> {
                 publication.groupId = publishInfo.groupId
                 publication.artifactId = publishInfo.artifactId
                 publication.version = publishInfo.version
-                if (publication.version.endsWith("-debug")) {
-                    val taskName = "androidSourcesJar"
-                    //获取build.gradle中的android节点
-                    val androidSet = project.extensions.getByName("android") as LibraryExtension
-                    val sourceSet = androidSet.sourceSets
-                    //获取android节点下的源码目录
-                    val sourceSetFiles = sourceSet.findByName("main")?.java?.srcDirs
-                    val task = project.tasks.findByName(taskName) ?: project.tasks.create(
-                        taskName, Jar::class.java
-                    ) { jar ->
-                        jar.from(sourceSetFiles)
-                        jar.archiveClassifier.set("sources")
-                    }
-                    publication.artifact(task)
-                }
                 publication.from(softwareComponent)
+                if (publishSources) {
+                    createSourcesJarTask(project)?.let { task ->
+                        publication.artifact(task)
+                    }
+                }
+                if (!publishSources) {
+                    removeSourcesArtifacts(publication)
+                }
             }
         }
 
@@ -177,6 +174,45 @@ open class PublishPlugin : Plugin<Project> {
                 }
             }
         }
+    }
+
+    private fun skipSourcesVariants(project: Project, softwareComponent: SoftwareComponent) {
+        val componentWithVariants = softwareComponent as? AdhocComponentWithVariants ?: return
+        listOf("${softwareComponent.name}SourcesElements", "sourcesElements")
+            .distinct()
+            .mapNotNull { project.configurations.findByName(it) }
+            .forEach { configuration ->
+                componentWithVariants.withVariantsFromConfiguration(configuration) { details ->
+                    details.skip()
+                }
+            }
+    }
+
+    private fun createSourcesJarTask(project: Project): Any? {
+        val androidSet = project.extensions.findByName("android") as? LibraryExtension
+        if (androidSet != null) {
+            val sourceSetFiles = androidSet.sourceSets.findByName("main")?.java?.srcDirs ?: return null
+            return createSourcesJarTask(project, "androidSourcesJar", sourceSetFiles)
+        }
+
+        val sourceSets = project.extensions.findByName("sourceSets") as? SourceSetContainer ?: return null
+        val mainSourceSet = sourceSets.findByName("main") ?: return null
+        return createSourcesJarTask(project, "sourcesJar", mainSourceSet.allSource)
+    }
+
+    private fun createSourcesJarTask(project: Project, taskName: String, source: Any): Any {
+        return project.tasks.findByName(taskName) ?: project.tasks.create(
+            taskName, Jar::class.java
+        ) { jar ->
+            jar.from(source)
+            jar.archiveClassifier.set("sources")
+        }
+    }
+
+    private fun removeSourcesArtifacts(publication: MavenPublication) {
+        publication.artifacts.toList()
+            .filter { it.classifier == "sources" }
+            .forEach { publication.artifacts.remove(it) }
     }
 
 }
