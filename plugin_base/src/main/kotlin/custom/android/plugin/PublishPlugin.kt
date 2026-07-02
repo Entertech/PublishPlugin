@@ -4,6 +4,7 @@ import com.android.build.gradle.LibraryExtension
 import custom.android.plugin.BasePublishTask.Companion.MAVEN_PUBLICATION_NAME
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 import org.gradle.api.component.AdhocComponentWithVariants
 import org.gradle.api.component.SoftwareComponent
 import org.gradle.api.plugins.PluginContainer
@@ -14,8 +15,9 @@ import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskContainer
 import org.gradle.jvm.tasks.Jar
 import org.gradle.plugin.devel.GradlePluginDevelopmentExtension
+import org.gradle.plugins.signing.SigningExtension
 import java.net.URI
-import java.util.Properties
+import java.io.File
 
 /**
  * 执行publishToMavenLocal
@@ -115,7 +117,8 @@ open class PublishPlugin : Plugin<Project> {
         publishInfo: PublishInfo,
         softwareComponent: SoftwareComponent
     ) {
-        val publishSources = publishInfo.version.endsWith("-debug")
+        val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
+        val publishSources = centralPublish || publishInfo.version.endsWith("-debug")
         skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(
@@ -125,10 +128,15 @@ open class PublishPlugin : Plugin<Project> {
                 publication.artifactId = publishInfo.artifactId
                 publication.version = publishInfo.version
                 publication.from(softwareComponent)
+                configurePom(project, publication, publishInfo)
                 if (publishSources) {
                     createSourcesJarTask(project)?.let { task ->
                         publication.artifact(task)
                     }
+                }
+                if (centralPublish) {
+                    publication.artifact(createJavadocJarTask(project))
+                    configureSigning(project, publication)
                 }
                 if (!publishSources) {
                     removeSourcesArtifacts(publication)
@@ -136,43 +144,204 @@ open class PublishPlugin : Plugin<Project> {
             }
         }
 
-        val properties = Properties()// local.properties file in the root director
-        properties.load(project.rootProject.file("local.properties").inputStream())
-        PluginLogUtil.printlnDebugInScreen("properties: $properties")
-        var publishUrl = publishInfo.publishUrl
-        if (publishUrl.isEmpty()) {
-            publishUrl = properties.getProperty("publishUrl", "")
+        val properties = PublishConfigResolver.loadLocalProperties(project)
+        val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
+        if (mode == PublishConfigResolver.MODE_CENTRAL) {
+            configureCentralRepository(project, publishing, publishInfo, properties)
+        } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
+            configureCustomRepository(project, publishing, publishInfo, properties)
         }
-        var publishUserName = publishInfo.publishUserName
-        if (publishUserName.isEmpty()) {
-            publishUserName = properties.getProperty("publishUserName", "")
-        }
-        var publishPassword = publishInfo.publishPassword
-        if (publishPassword.isEmpty()) {
-            publishPassword = properties.getProperty("publishPassword", "")
-        }
-        PluginLogUtil.printlnDebugInScreen("$TAG publishUrl is $publishUrl")
-        PluginLogUtil.printlnDebugInScreen("$TAG publishUserName is $publishUserName  publishPassword is $publishPassword")
-        if (publishUrl.isEmpty()) {
-            publishUrl = "https://s01.oss.sonatype.org/content/repositories/releases/"
-        }
-        if (publishUserName.isEmpty()) {
-            publishUserName = "6584HSEW"
-        }
-        if (publishPassword.isEmpty()) {
-            publishPassword = "LlR0Ry9u/czWJlvN8gxqGfpFWfpzLtXjMYhjsnTgjLOq"
-        }
-        if (publishUrl.isNotEmpty()) {
-            publishing.repositories { artifactRepositories ->
-                artifactRepositories.maven { mavenArtifactRepository ->
-                    mavenArtifactRepository.url = URI(publishUrl)
-                    mavenArtifactRepository.isAllowInsecureProtocol = true
-                    mavenArtifactRepository.credentials { credentials ->
-                        credentials.username = publishUserName
-                        credentials.password = publishPassword
+    }
+
+    private fun configurePom(project: Project, publication: MavenPublication, publishInfo: PublishInfo) {
+        publication.pom { pom ->
+            val pomName = PublishConfigResolver.resolveText(
+                project, "pomName", publishInfo.pomName, publishInfo.artifactId
+            )
+            if (pomName.isNotBlank()) {
+                pom.name.set(pomName)
+            }
+
+            val pomDescription = PublishConfigResolver.resolveText(project, "pomDescription", publishInfo.pomDescription)
+            if (pomDescription.isNotBlank()) {
+                pom.description.set(pomDescription)
+            }
+
+            val pomUrl = PublishConfigResolver.resolveText(project, "pomUrl", publishInfo.pomUrl)
+            if (pomUrl.isNotBlank()) {
+                pom.url.set(pomUrl)
+            }
+
+            val inceptionYear =
+                PublishConfigResolver.resolveText(project, "pomInceptionYear", publishInfo.pomInceptionYear)
+            if (inceptionYear.isNotBlank()) {
+                pom.inceptionYear.set(inceptionYear)
+            }
+
+            pom.licenses { licenses ->
+                licenses.license { license ->
+                    license.name.set(
+                        PublishConfigResolver.resolveText(project, "licenseName", publishInfo.licenseName)
+                    )
+                    license.url.set(
+                        PublishConfigResolver.resolveText(project, "licenseUrl", publishInfo.licenseUrl)
+                    )
+                    license.distribution.set(
+                        PublishConfigResolver.resolveText(
+                            project, "licenseDistribution", publishInfo.licenseDistribution
+                        )
+                    )
+                }
+            }
+
+            val developerValues = listOf(
+                publishInfo.developerId,
+                publishInfo.developerName,
+                publishInfo.developerEmail,
+                publishInfo.developerOrganization,
+                publishInfo.developerOrganizationUrl,
+                publishInfo.developerUrl
+            )
+            if (developerValues.any { it.isNotBlank() }) {
+                pom.developers { developers ->
+                    developers.developer { developer ->
+                        val developerId = PublishConfigResolver.resolveText(project, "developerId", publishInfo.developerId)
+                        if (developerId.isNotBlank()) {
+                            developer.id.set(developerId)
+                        }
+                        val developerName =
+                            PublishConfigResolver.resolveText(project, "developerName", publishInfo.developerName)
+                        if (developerName.isNotBlank()) {
+                            developer.name.set(developerName)
+                        }
+                        val developerEmail =
+                            PublishConfigResolver.resolveText(project, "developerEmail", publishInfo.developerEmail)
+                        if (developerEmail.isNotBlank()) {
+                            developer.email.set(developerEmail)
+                        }
+                        val developerOrganization = PublishConfigResolver.resolveText(
+                            project, "developerOrganization", publishInfo.developerOrganization
+                        )
+                        if (developerOrganization.isNotBlank()) {
+                            developer.organization.set(developerOrganization)
+                        }
+                        val developerOrganizationUrl = PublishConfigResolver.resolveText(
+                            project, "developerOrganizationUrl", publishInfo.developerOrganizationUrl
+                        )
+                        if (developerOrganizationUrl.isNotBlank()) {
+                            developer.organizationUrl.set(developerOrganizationUrl)
+                        }
+                        val developerUrl =
+                            PublishConfigResolver.resolveText(project, "developerUrl", publishInfo.developerUrl)
+                        if (developerUrl.isNotBlank()) {
+                            developer.url.set(developerUrl)
+                        }
                     }
                 }
             }
+
+            val scmValues = listOf(publishInfo.scmUrl, publishInfo.scmConnection, publishInfo.scmDeveloperConnection)
+            if (scmValues.any { it.isNotBlank() }) {
+                pom.scm { scm ->
+                    val scmUrl = PublishConfigResolver.resolveText(project, "scmUrl", publishInfo.scmUrl)
+                    if (scmUrl.isNotBlank()) {
+                        scm.url.set(scmUrl)
+                    }
+                    val scmConnection =
+                        PublishConfigResolver.resolveText(project, "scmConnection", publishInfo.scmConnection)
+                    if (scmConnection.isNotBlank()) {
+                        scm.connection.set(scmConnection)
+                    }
+                    val scmDeveloperConnection = PublishConfigResolver.resolveText(
+                        project, "scmDeveloperConnection", publishInfo.scmDeveloperConnection
+                    )
+                    if (scmDeveloperConnection.isNotBlank()) {
+                        scm.developerConnection.set(scmDeveloperConnection)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun configureCentralRepository(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo,
+        properties: java.util.Properties
+    ) {
+        val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, properties)
+        val repositoryName = PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
+        publishing.repositories { artifactRepositories ->
+            artifactRepositories.maven { repository ->
+                repository.name = repositoryName
+                repository.url = URI(PublishConfigResolver.CENTRAL_STAGING_URL)
+                allowInsecureProtocolIfSupported(repository)
+                repository.credentials { passwordCredentials ->
+                    passwordCredentials.username = credentials.username
+                    passwordCredentials.password = credentials.password
+                }
+            }
+        }
+        PluginLogUtil.printlnDebugInScreen("$TAG central repository is $repositoryName")
+    }
+
+    private fun configureCustomRepository(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo,
+        properties: java.util.Properties
+    ) {
+        val publishUrl = PublishConfigResolver.resolveCustomRepositoryUrl(project, publishInfo, properties)
+        if (publishUrl.isBlank()) {
+            return
+        }
+        val publishUserName = PublishConfigResolver.resolveCustomRepositoryUsername(project, publishInfo, properties)
+        val publishPassword = PublishConfigResolver.resolveCustomRepositoryPassword(project, publishInfo, properties)
+        publishing.repositories { artifactRepositories ->
+            artifactRepositories.maven { repository ->
+                repository.name = "Maven"
+                repository.url = URI(publishUrl)
+                allowInsecureProtocolIfSupported(repository)
+                repository.credentials { credentials ->
+                    credentials.username = publishUserName
+                    credentials.password = publishPassword
+                }
+            }
+        }
+        PluginLogUtil.printlnDebugInScreen("$TAG custom repository is $publishUrl")
+    }
+
+    private fun configureSigning(project: Project, publication: MavenPublication) {
+        val signingCredentials = PublishConfigResolver.resolveSigningCredentials(project)
+        if (signingCredentials.key.isBlank()) {
+            return
+        }
+
+        project.plugins.apply("signing")
+        val signing = project.extensions.getByType(SigningExtension::class.java)
+        if (signingCredentials.keyId.isBlank()) {
+            signing.useInMemoryPgpKeys(signingCredentials.key, signingCredentials.password)
+        } else {
+            signing.useInMemoryPgpKeys(
+                signingCredentials.keyId,
+                signingCredentials.key,
+                signingCredentials.password
+            )
+        }
+        signing.sign(publication)
+    }
+
+    private fun allowInsecureProtocolIfSupported(repository: MavenArtifactRepository) {
+        try {
+            repository.javaClass.methods
+                .firstOrNull { method ->
+                    method.name == "setAllowInsecureProtocol" &&
+                        method.parameterTypes.size == 1 &&
+                        method.parameterTypes[0] == java.lang.Boolean.TYPE
+                }
+                ?.invoke(repository, true)
+        } catch (_: Exception) {
+            // Older Gradle versions do not expose allowInsecureProtocol.
         }
     }
 
@@ -206,6 +375,26 @@ open class PublishPlugin : Plugin<Project> {
         ) { jar ->
             jar.from(source)
             jar.archiveClassifier.set("sources")
+        }
+    }
+
+    private fun createJavadocJarTask(project: Project): Any {
+        val taskName = "javadocJar"
+        return project.tasks.findByName(taskName) ?: project.tasks.create(
+            taskName, Jar::class.java
+        ) { jar ->
+            val javadocTask = project.tasks.findByName("javadoc")
+            jar.archiveClassifier.set("javadoc")
+            if (javadocTask != null) {
+                jar.dependsOn(javadocTask)
+                jar.from(javadocTask.outputs.files)
+            } else {
+                val emptyJavadocDir = File(project.buildDir, "empty-javadoc")
+                jar.doFirst {
+                    emptyJavadocDir.mkdirs()
+                }
+                jar.from(emptyJavadocDir)
+            }
         }
     }
 
