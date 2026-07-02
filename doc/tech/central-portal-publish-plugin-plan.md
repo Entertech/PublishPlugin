@@ -151,6 +151,27 @@ poll status / publish or drop
 
 后续可以增加一个可选实现：当项目环境满足较新 Gradle/AGP 时，内部委托 Vanniktech；否则走自研兼容路径。
 
+## 构建脚本与 Gradle 版本兼容
+
+`plugin_base` 自身的构建脚本同步从 Groovy DSL 迁移为 Kotlin DSL：
+
+```text
+plugin_base/build.gradle -> plugin_base/build.gradle.kts
+```
+
+迁移只改变插件模块自身的构建脚本格式，不改变业务项目接入方式。业务项目继续可以使用 Groovy DSL 或 Kotlin DSL 配置 `PublishInfo`。
+
+Gradle 版本兼容策略：
+
+1. 插件实现继续基于 Gradle 标准 `maven-publish`、`java-gradle-plugin`、`signing` 能力，不引入会强制升级业务项目 Gradle/AGP 的第三方发布插件。
+2. 不在插件运行时依赖高版本 Gradle 才存在的 API。必须使用新 API 时，要先做插件、extension、task、configuration 的存在性判断，无法支持时降级到兼容路径。
+3. `archiveClassifier.set(...)`、`publication.pom { ... }`、`signing` 等 API 需要在当前 wrapper Gradle 8 和旧业务常见 Gradle 版本上验证；测试 fixture 继续使用 Gradle TestKit 覆盖核心行为。
+4. Android sources 读取优先走现有 `LibraryExtension.sourceSets`，Java/Groovy/Gradle 插件 sources 读取走 `SourceSetContainer`，避免依赖 AGP 7/8 的 publishing DSL。
+5. javadoc jar 第一阶段允许为空包，避免 Android/Kotlin 模块必须引入 Dokka 或依赖特定 AGP 版本。
+6. 远程发布 task 名保持 `PublishLibraryRemoteTask`，内部执行的 Gradle publish task 由 repository name `CentralStaging` 生成，避免新增 task 影响旧调用方式。
+7. `plugin_base/build.gradle.kts` 中依赖版本保持显式声明；仓库解析走根项目已有 `pluginManagement`/`repositories`，不把业务项目升级到特定 Gradle 版本作为发布前置条件。
+8. 本机如果使用 JDK 21，Gradle TestKit fixture 需要使用 Gradle 8.7 或更高版本；当前 wrapper Gradle 8.0 在 Java 21 下编译 Groovy build script 会遇到 class file 65 兼容问题。这个限制只影响测试运行环境，不代表业务项目必须升级到 Gradle 8.7。
+
 ## PublishInfo 字段设计
 
 保留现有字段，不能重命名，不能删除：
@@ -359,6 +380,7 @@ ORG_GRADLE_PROJECT_signingInMemoryKeyPassword="$GPG_PASSWORD" \
 | `-PcentralPublishingType=...` | `centralPublishingType` |
 | `-PcentralUsername=...` | token username |
 | `-PcentralPassword=...` | token password |
+| `-PcentralPublish=true` | 本地/dry-run 启用 Central 严格 publication 配置，生成 sources/javadoc/POM/CentralStaging task，但不替代 `PublishLibraryRemoteTask` |
 | `-PpomName=...` | `pomName` |
 | `-PpomDescription=...` | `pomDescription` |
 | `-PpomUrl=...` | `pomUrl` |
@@ -631,14 +653,15 @@ centralPublishingType = "automatic"
 1. `PublishInfo` 增加 Central/POM 字段，所有新增字段保持可选。
 2. 保留旧字段名、类型和配置入口；不要求保留旧远程发布实现。
 3. 复用 `PublishLibraryRemoteTask`，把远程发布实现迁移为 Central Portal。
-4. 配置 `CentralStaging` repository。
-5. `PublishLibraryRemoteTask` 执行前校验 POM/namespace/凭据/signing。
-6. Central publication 强制 sources/javadoc。
-7. 接入 `signing` 插件并生成 `.asc`。
-8. 发布完成后调用 manual upload endpoint。
-9. 增加 CLI 参数覆盖能力。
-10. README 增加 Central 使用说明和 GitHub Actions 示例。
-11. 添加 Gradle TestKit 测试覆盖：
+4. `plugin_base/build.gradle` 迁移为 `plugin_base/build.gradle.kts`。
+5. 配置 `CentralStaging` repository。
+6. `PublishLibraryRemoteTask` 执行前校验 POM/namespace/凭据/signing。
+7. Central publication 强制 sources/javadoc。
+8. 接入 `signing` 插件并生成 `.asc`。
+9. 发布完成后调用 manual upload endpoint。
+10. 增加 CLI 参数覆盖能力。
+11. README 增加 Central 使用说明和 GitHub Actions 示例。
+12. 添加 Gradle TestKit 测试覆盖：
     - local 非 debug 不生成 sources。
     - old `PublishInfo` 字段仍能完成插件配置。
     - old `publishUserName` / `publishPassword` 能作为 Central token fallback。
@@ -648,6 +671,7 @@ centralPublishingType = "automatic"
     - 缺 signing key 时报错。
     - Central repository URL 正确。
     - CLI `-PcentralNamespace` 能覆盖 `PublishInfo.centralNamespace`。
+    - 插件模块 Kotlin DSL 构建脚本可以在当前 wrapper 下构建通过。
 
 ### Phase 2：CI 与业务项目接入
 
