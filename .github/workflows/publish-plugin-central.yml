@@ -106,13 +106,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           release_commit="$(git rev-parse HEAD)"
           git fetch origin main pre_publish --tags
 
           git checkout -B __preflight_main_merge origin/main
           if ! git merge --no-commit --no-ff "$release_commit"; then
+            git status --short || true
             git merge --abort || true
-            echo "::error::pre_publish cannot be merged into main without conflicts. Merge main into pre_publish and resolve conflicts before publishing."
+            echo "::error::pre_publish cannot be preflight-merged into main. Check the merge output above; if conflicts are listed, merge main into pre_publish and resolve them before publishing."
             exit 1
           fi
 
@@ -245,6 +249,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git fetch origin main pre_publish --tags
           if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
