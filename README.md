@@ -157,19 +157,65 @@ Central 远程发布要求源码仓库信息。
 | `scmConnection` | 只读 SCM 地址 | `scm:git:git://github.com/Entertech/lt-rpc-schema.git` |
 | `scmDeveloperConnection` | 开发者 SCM 地址 | `scm:git:ssh://git@github.com/Entertech/lt-rpc-schema.git` |
 
-### 动态 artifactId 回调
+### 动态 artifactId 与 variant 过滤
 
 `artifactIdForVariant { variant -> ... }` 不是普通字段，而是按 Android release variant 计算 artifactId 的回调。
+`skipVariantIf { variant -> ... }` 用于过滤不需要发布的 release variant。
 
 | API | 作用 | 生效场景 |
 | --- | --- | --- |
 | `artifactIdForVariant` | 为每个 variant 返回独立 artifactId | Android Library 存在多个 release component 时 |
+| `skipVariantIf` | 返回 `true` 时跳过该 variant，不注册 publication | Android Library 多 release variant 发布时 |
 | `variant.name` | 当前 component/variant 名 | 例如 `breathAuthRelease` |
 | `variant.buildType` | 当前 build type | 当前插件只发布 `release` component |
 | `variant.flavors` | flavor 维度到 flavor 名称的 Map | 例如 `project -> breath`、`authentication -> auth` |
 | `variant.flavor("dimension")` | 获取指定维度的 flavor 名称 | 不存在时返回空字符串 |
 
-## 本地发布
+## 本地打 AAR
+
+如果只是想在当前项目里生成一个本地 AAR 文件，不需要执行发布任务，直接使用 Android Gradle Plugin 的 assemble 任务。
+
+单一 release 组件：
+
+```bash
+./gradlew :module:assembleRelease
+```
+
+生成目录：
+
+```text
+module/build/outputs/aar/
+```
+
+常见产物名：
+
+```text
+module-release.aar
+```
+
+如果 Library 有 flavor，需要执行具体 variant 的 assemble 任务：
+
+```bash
+./gradlew :affective_local_sdk:assembleBreathAuthRelease
+./gradlew :affective_local_sdk:assembleBreathNoAuthRelease
+```
+
+也可以一次构建所有 release variant：
+
+```bash
+./gradlew :affective_local_sdk:assembleRelease
+```
+
+多 flavor AAR 仍输出在模块的 `build/outputs/aar/` 目录下，文件名由 Android Gradle Plugin 按 variant 生成，例如：
+
+```text
+affective_local_sdk-breath-auth-release.aar
+affective_local_sdk-breath-noAuth-release.aar
+```
+
+`assemble...` 只负责生成 AAR 文件，不会写入 `~/.m2`，也不会生成可供其他项目通过 Maven 坐标依赖的本地库。
+
+## 发布到本地 Maven
 
 执行模块下的自定义任务：
 
@@ -188,6 +234,63 @@ Central 远程发布要求源码仓库信息。
 - `version` 以 `-debug` 结尾时，发布 sources jar。
 - 非 debug 版本默认不发布 sources jar。
 - Central 远程发布不受这个规则限制，Central 必须包含 sources 和 javadoc。
+
+发布成功后，产物会进入本机 Maven 仓库：
+
+```text
+~/.m2/repository/<group-path>/<artifactId>/<version>/
+```
+
+例如：
+
+```text
+~/.m2/repository/cn/entertech/android/affective-offline-sdk/1.0.0/
+```
+
+多 variant 发布时，每个未过滤的 release variant 都会生成独立 artifact 目录，并且目录里应至少包含 `.aar`、`.pom`、`.module`：
+
+```text
+~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk-authentication/1.3.6/
+~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk/1.3.6/
+~/.m2/repository/cn/entertech/android/sdk-affective-offline-sdk-authentication/1.3.6/
+~/.m2/repository/cn/entertech/android/sdk-affective-offline-sdk/1.3.6/
+```
+
+验证本地发布不能只看 `BUILD SUCCESSFUL`。如果 Gradle 显示成功但目标 artifact 目录没有 `.aar/.pom/.module`，说明 publication 没有真实执行，应优先检查插件日志和 `publishToMavenLocal --stacktrace` 输出。
+
+其他项目使用本地发布产物时，需要在仓库中启用 `mavenLocal()`：
+
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+    mavenLocal()
+}
+```
+
+然后按 Maven 坐标依赖：
+
+```kotlin
+dependencies {
+    implementation("cn.entertech.android:affective-offline-sdk:1.0.0")
+}
+```
+
+多 variant 动态 artifactId 场景下，依赖最终生成的 artifactId：
+
+```kotlin
+dependencies {
+    implementation("cn.entertech.android:breath-affective-offline-sdk-authentication:1.0.0")
+    implementation("cn.entertech.android:breath-affective-offline-sdk:1.0.0")
+}
+```
+
+选择方式：
+
+| 目标 | 使用命令 | 产物位置 | 适合场景 |
+| --- | --- | --- | --- |
+| 只要一个 `.aar` 文件 | `assembleRelease` 或具体 `assemble<Variant>Release` | `module/build/outputs/aar/` | 手动拷贝、临时检查 AAR 内容 |
+| 让其他项目通过 Maven 坐标依赖 | `PublishLibraryLocalTask` 或 `publishToMavenLocal` | `~/.m2/repository/` | 本地联调、验证 POM 依赖、模拟远程发布消费方式 |
 
 ## Central Portal 发布
 
@@ -342,6 +445,41 @@ variant.flavor("authentication") // 例如 auth / noAuth
 ```
 
 没有配置 `artifactIdForVariant` 时，所有 publication 使用 `PublishInfo.artifactId`，保持旧项目行为。
+
+如果某些 variant 不需要发布，使用 `skipVariantIf`：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "affective-offline-sdk"
+    version = "1.0.0"
+
+    skipVariantIf { variant ->
+        variant.flavor("project") == "flowtime"
+    }
+}
+```
+
+也可以只发布指定 product：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "affective-offline-sdk"
+    version = "1.0.0"
+
+    skipVariantIf { variant ->
+        variant.flavor("project") != "sdk"
+    }
+}
+```
+
+过滤规则：
+
+- 未配置 `skipVariantIf` 时发布所有 release variants。
+- 可配置多个 `skipVariantIf`，任意一个返回 `true` 就跳过该 variant。
+- 被跳过的 variant 不会注册 `singleVariant`，不会创建 publication，也不会生成对应 `publish...PublicationToMavenLocal` 任务。
+- 如果所有候选 release variants 都被跳过，插件会让构建失败，避免出现没有实际发布内容的假成功。
 
 ## CLI 覆盖
 

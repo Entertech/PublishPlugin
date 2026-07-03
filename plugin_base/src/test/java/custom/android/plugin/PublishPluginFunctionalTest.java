@@ -157,6 +157,70 @@ public class PublishPluginFunctionalTest {
         assertPomContainsArtifactId(projectDir.toPath(), "SdkNoAuthReleaseEnterPublish", "sdk-affective-offline-sdk");
     }
 
+    @Test
+    public void androidLibraryPublishesReleaseFlavorVariantsToMavenLocalWithMetadata() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors();
+        File mavenLocal = temporaryFolder.newFolder("android-flavor-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk-authentication");
+        assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk");
+        assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk-authentication");
+        assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk");
+    }
+
+    @Test
+    public void androidLibrarySkipsFilteredReleaseFlavorVariants() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    skipVariantIf { variant ->\n"
+                        + "        return variant.flavor('project') == 'sdk'\n"
+                        + "    }\n"
+        );
+        File mavenLocal = temporaryFolder.newFolder("android-flavor-filtered-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk-authentication");
+        assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk");
+        assertMavenArtifactMissing(mavenLocal.toPath(), "sdk-affective-offline-sdk-authentication");
+        assertMavenArtifactMissing(mavenLocal.toPath(), "sdk-affective-offline-sdk");
+    }
+
+    @Test
+    public void androidLibraryIgnoresSourcesConfigurationsThatAreNotComponentVariants() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "",
+                "configurations.maybeCreate('breathAuthReleaseSourcesElements')\n"
+        );
+        File mavenLocal = temporaryFolder.newFolder("android-flavor-extra-sources-config-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk-authentication");
+        assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk");
+        assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk-authentication");
+        assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk");
+    }
+
     private File createGradlePluginProject(String version, boolean componentPublishesSources) throws IOException {
         return createGradlePluginProject(version, componentPublishesSources, "", "");
     }
@@ -208,6 +272,17 @@ public class PublishPluginFunctionalTest {
     }
 
     private File createAndroidLibraryProjectWithPublishFlavors() throws IOException {
+        return createAndroidLibraryProjectWithPublishFlavors("");
+    }
+
+    private File createAndroidLibraryProjectWithPublishFlavors(String publishInfoExtra) throws IOException {
+        return createAndroidLibraryProjectWithPublishFlavors(publishInfoExtra, "");
+    }
+
+    private File createAndroidLibraryProjectWithPublishFlavors(
+            String publishInfoExtra,
+            String buildScriptExtra
+    ) throws IOException {
         File root = temporaryFolder.newFolder("android-flavor-project");
         write(root.toPath().resolve("settings.gradle"), "pluginManagement {\n"
                 + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
@@ -253,7 +328,9 @@ public class PublishPluginFunctionalTest {
                 + "        def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''\n"
                 + "        return \"${productPrefix}${baseArtifactId}${authSuffix}\"\n"
                 + "    }\n"
-                + "}\n");
+                + publishInfoExtra
+                + "}\n"
+                + buildScriptExtra);
         return root;
     }
 
@@ -262,6 +339,20 @@ public class PublishPluginFunctionalTest {
         Path pomPath = projectDir.resolve("fixture/build/publications/" + publicationName + "/pom-default.xml");
         assertTrue("Missing POM for " + publicationName, Files.exists(pomPath));
         assertTrue(read(pomPath).contains("<artifactId>" + artifactId + "</artifactId>"));
+    }
+
+    private static void assertMavenAarPublication(Path mavenLocal, String artifactId) throws IOException {
+        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0");
+        assertTrue("Missing AAR for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.aar")));
+        assertTrue("Missing POM for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.pom")));
+        assertTrue("Missing module metadata for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.module")));
+        assertFalse("Non-debug publish should not include sources for " + artifactId,
+                Files.exists(versionDir.resolve(artifactId + "-1.0.0-sources.jar")));
+    }
+
+    private static void assertMavenArtifactMissing(Path mavenLocal, String artifactId) {
+        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0");
+        assertFalse("Unexpected Maven publication for " + artifactId, Files.exists(versionDir));
     }
 
     private static String centralPublishInfo() {

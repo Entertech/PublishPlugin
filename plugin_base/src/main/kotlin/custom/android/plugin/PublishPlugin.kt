@@ -2,6 +2,8 @@ package custom.android.plugin
 
 import com.android.build.gradle.LibraryExtension
 import custom.android.plugin.BasePublishTask.Companion.MAVEN_PUBLICATION_NAME
+import org.gradle.api.Action
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository
@@ -63,6 +65,9 @@ open class PublishPlugin : Plugin<Project> {
         project.extensions.create(
             PublishInfo.EXTENSION_PUBLISH_INFO_NAME, PublishInfo::class.java,
         )
+        project.plugins.withId("com.android.library") {
+            configureAndroidSingleVariantPublishing(project)
+        }
         project.afterEvaluate { currentProject ->
             try {
                 val publishInfo = project.extensions.getByType(PublishInfo::class.java)
@@ -119,6 +124,7 @@ open class PublishPlugin : Plugin<Project> {
 
             } catch (e: Exception) {
                 PluginLogUtil.printlnErrorInScreen("$TAG PluginModule error ${e.message}")
+                throw e
             }
 
 
@@ -192,6 +198,91 @@ open class PublishPlugin : Plugin<Project> {
             configureCentralRepository(project, publishing, publishInfo, properties)
         } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             configureCustomRepository(project, publishing, publishInfo, properties)
+        }
+    }
+
+    private fun configureAndroidSingleVariantPublishing(project: Project) {
+        val androidComponents = project.extensions.findByName("androidComponents") ?: return
+        val finalizeDslMethod = androidComponents.javaClass.methods.firstOrNull { method ->
+            method.name == "finalizeDsl" &&
+                method.parameterCount == 1 &&
+                method.parameterTypes[0].isAssignableFrom(Action::class.java)
+        }
+        if (finalizeDslMethod == null) {
+            PluginLogUtil.printlnDebugInScreen("$TAG androidComponents.finalizeDsl is unavailable")
+            return
+        }
+
+        finalizeDslMethod.invoke(androidComponents, Action<Any> { androidDsl ->
+            val publishInfo = project.extensions.getByType(PublishInfo::class.java)
+            val candidates = createAndroidReleaseVariantInfos(project)
+            val publishableVariants = candidates.filter { publishInfo.shouldPublishVariant(it) }
+            if (candidates.isNotEmpty() && publishableVariants.isEmpty()) {
+                throw GradleException(
+                    "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
+                )
+            }
+            publishableVariants.forEach { variant ->
+                registerSingleVariant(androidDsl, variant.name)
+            }
+        })
+    }
+
+    private fun registerSingleVariant(androidDsl: Any, variantName: String) {
+        val publishing = invokeNoArg(androidDsl, "getPublishing") ?: return
+        val singleVariantMethod = publishing.javaClass.methods.firstOrNull { method ->
+            method.name == "singleVariant" &&
+                method.parameterCount == 1 &&
+                method.parameterTypes[0] == String::class.java
+        } ?: throw GradleException("Android publishing.singleVariant(String) is unavailable")
+        singleVariantMethod.invoke(publishing, variantName)
+        PluginLogUtil.printlnDebugInScreen("$TAG register android singleVariant $variantName")
+    }
+
+    private fun createAndroidReleaseVariantInfos(project: Project): List<PublishVariantInfo> {
+        val buildTypeName = "release"
+        val flavorSpecs = readAndroidFlavorSpecs(project)
+        if (flavorSpecs.isEmpty()) {
+            return listOf(
+                PublishVariantInfo(
+                    name = buildTypeName,
+                    buildType = buildTypeName,
+                    flavors = emptyMap()
+                )
+            )
+        }
+
+        val dimensions = readAndroidFlavorDimensions(project)
+            .ifEmpty { flavorSpecs.map { it.dimension }.filter { it.isNotBlank() }.distinct() }
+        val flavorsByDimension = dimensions.mapNotNull { dimension ->
+            val flavors = flavorSpecs.filter { it.dimension == dimension }
+            if (flavors.isEmpty()) {
+                null
+            } else {
+                dimension to flavors
+            }
+        }
+        if (flavorsByDimension.isEmpty()) {
+            return emptyList()
+        }
+
+        return cartesianFlavorSpecs(flavorsByDimension.map { it.second }).map { flavors ->
+            val flavorName = flavors.mapIndexed { index, flavor ->
+                if (index == 0) flavor.name else flavor.name.capitalizeAscii()
+            }.joinToString("")
+            PublishVariantInfo(
+                name = "$flavorName${buildTypeName.capitalizeAscii()}",
+                buildType = buildTypeName,
+                flavors = flavors.associate { it.dimension to it.name }
+            )
+        }
+    }
+
+    private fun cartesianFlavorSpecs(groups: List<List<AndroidFlavorSpec>>): List<List<AndroidFlavorSpec>> {
+        return groups.fold(listOf(emptyList())) { combinations, group ->
+            combinations.flatMap { combination ->
+                group.map { flavor -> combination + flavor }
+            }
         }
     }
 
@@ -292,6 +383,16 @@ open class PublishPlugin : Plugin<Project> {
                 )
             }
         }
+    }
+
+    private fun readAndroidFlavorDimensions(project: Project): List<String> {
+        val androidExtension = project.extensions.findByName("android") ?: return emptyList()
+        val dimensions = invokeNoArg(androidExtension, "getFlavorDimensionList")
+            ?: invokeNoArg(androidExtension, "getFlavorDimensions")
+        return (dimensions as? Iterable<*>)
+            ?.mapNotNull { it?.toString() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
     }
 
     private fun invokeNoArg(target: Any?, methodName: String): Any? {
@@ -510,8 +611,18 @@ open class PublishPlugin : Plugin<Project> {
             .distinct()
             .mapNotNull { project.configurations.findByName(it) }
             .forEach { configuration ->
-                componentWithVariants.withVariantsFromConfiguration(configuration) { details ->
-                    details.skip()
+                try {
+                    componentWithVariants.withVariantsFromConfiguration(configuration) { details ->
+                        details.skip()
+                    }
+                } catch (e: Exception) {
+                    if (e.message?.contains("does not exist in component") == true) {
+                        PluginLogUtil.printlnDebugInScreen(
+                            "$TAG skip sources configuration ${configuration.name} for ${softwareComponent.name}: ${e.message}"
+                        )
+                    } else {
+                        throw e
+                    }
                 }
             }
     }

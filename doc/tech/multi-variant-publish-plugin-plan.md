@@ -33,7 +33,7 @@ sdkNoAuthRelease
 
 发布插件不能把 `project`、`authentication` 这类业务维度写死。插件只负责识别 Android release variants、创建 Maven publications、提供 variant 信息；artifactId 命名规则由业务项目通过 `PublishInfo` 动态声明。
 
-## 现有 Bug
+## 已发现 Bug
 
 在本地 SDK 项目里使用 `artifactIdForVariant` 后，POM 任务可以成功：
 
@@ -64,6 +64,29 @@ Invalid publication 'BreathAuthReleaseEnterPublish':
 4. 当前多 flavor publication 没有绑定到 AGP 暴露的可发布 variant，所以 metadata 生成失败。
 5. 不能通过禁用 `GenerateModuleMetadata` 修复。这只是在绕过错误，会丢失 Gradle variant metadata，并可能发布不完整组件。
 
+后续复测又发现第二类“假成功”问题：
+
+```text
+PublishPlugin register android singleVariant breathAuthRelease
+PublishPlugin publish breathAuthRelease as BreathAuthReleaseEnterPublish:breath-affective-offline-sdk-authentication
+PublishPlugin PluginModule error Variant for configuration breathAuthReleaseSourcesElements does not exist in component breathAuthRelease
+
+> Task :affective_local_sdk:publishToMavenLocal UP-TO-DATE
+BUILD SUCCESSFUL
+```
+
+此时 `~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk-authentication` 等新坐标目录没有生成，只有旧命名规则下的残留目录。
+
+根因：
+
+1. 插件为了非 debug 版本不发布 sources，会尝试对 `<variant>SourcesElements` 调用 `withVariantsFromConfiguration(...).skip()`。
+2. 某些 AGP/Gradle 场景下 `<variant>SourcesElements` configuration 存在，但它不是当前 `SoftwareComponent` 的 variant。
+3. `withVariantsFromConfiguration` 会抛出 `Variant for configuration ... does not exist in component ...`。
+4. 外层 `afterEvaluate` catch 只打印错误，没有重新抛出异常。
+5. publication 创建被中断，但 Gradle 没有失败，最终 `publishToMavenLocal` 没有实际 publication 可执行，表现为 `BUILD SUCCESSFUL` / `UP-TO-DATE`。
+
+结论：多 variant 发布的验收必须检查 Maven Local 是否真实生成 `.aar/.pom/.module`，不能只看 Gradle 退出码和 POM 生成任务。
+
 ## 设计目标
 
 1. 兼容旧字段：`PublishInfo.artifactId` 仍是必填字段，也是默认 artifactId。
@@ -75,6 +98,8 @@ Invalid publication 'BreathAuthReleaseEnterPublish':
 7. 支持业务项目过滤不需要发布的 variant，例如只发布 `sdk` 项目，或跳过某些 `project/authentication` 组合。
 8. `PublishLibraryLocalTask`、`publishToMavenLocal`、`PublishLibraryRemoteTask` 都必须支持多 publication。
 9. 验收标准必须跑真实 `publishToMavenLocal`，不能只跑 POM 生成。
+10. sources variant 跳过逻辑不能假设所有 `<variant>SourcesElements` 都属于当前 component；不属于当前 component 时应跳过该 sources configuration，而不是中断 publication 创建。
+11. publication 配置阶段的未知异常必须让 Gradle 失败，禁止只打印日志后吞掉异常，避免“假成功”。
 
 ## 发布模型
 
@@ -296,6 +321,8 @@ Android Library：
 5. 每个 publication 调用 `publication.from(component)`。
 6. 每个 publication 使用 `publishInfo.resolveArtifactId(variantInfo)` 计算 artifactId。
 7. POM 的 `name` fallback 使用最终 artifactId，而不是固定 `PublishInfo.artifactId`。
+8. 非 debug 本地发布移除 sources artifact 时，如果 `<variant>SourcesElements` configuration 不属于当前 component，只记录 debug 日志并继续创建 publication。
+9. 除上述已知 sources mismatch 外，publication 创建过程中的异常必须继续抛出，让 Gradle 构建失败。
 
 Gradle Plugin：
 
@@ -416,7 +443,41 @@ PublishInfo {
 3. Gradle task 列表中不应该出现 `publishFlowtimeAuthReleaseEnterPublishPublicationToMavenLocal`。
 4. 如果 `skipVariantIf` 过滤掉所有 candidates，构建失败并提示 `No publishable Android release variants`。
 
-### 6. POM-only 测试降级为轻量规则测试
+### 6. SourcesElements mismatch 回归测试
+
+新增 fixture 人为创建同名 sources configuration，但不把它注册为 component variant：
+
+```groovy
+configurations.maybeCreate('breathAuthReleaseSourcesElements')
+```
+
+执行：
+
+```bash
+./gradlew :fixture:publishToMavenLocal \
+  -Dmaven.repo.local=<temp-maven-local> \
+  --stacktrace
+```
+
+断言：
+
+1. 构建成功。
+2. `breath-affective-offline-sdk-authentication`、`breath-affective-offline-sdk`、`sdk-affective-offline-sdk-authentication`、`sdk-affective-offline-sdk` 均生成 `.aar/.pom/.module`。
+3. 非 debug 版本不生成 `*-sources.jar`。
+4. 插件日志可以提示跳过不属于 component 的 sources configuration，但不能中断 publication 创建。
+
+### 7. 假成功防护测试
+
+publication 配置阶段如果发生未知异常，必须让构建失败。不能再出现：
+
+```text
+PublishPlugin PluginModule error ...
+BUILD SUCCESSFUL
+```
+
+这类错误不能被外层 catch 吞掉。已知可忽略错误只能在局部捕获并明确判断，例如 sources configuration 不属于 component。
+
+### 8. POM-only 测试降级为轻量规则测试
 
 `generatePomFileFor...Publication` 可以保留，但只能验证 artifactId 计算规则。不能再作为多 variant 发布可用性的验收标准。
 
@@ -429,9 +490,12 @@ PublishInfo {
 5. 保留当前 publication 创建逻辑，但确保 components 已包含 AGP 暴露的可发布 variant。
 6. 创建 publication 时再次按同一份过滤结果约束，避免 component 扫描误创建被过滤的 publication。
 7. 为不支持 `finalizeDsl` / `singleVariant` 的 AGP 输出明确错误。
-8. 扩展 `PublishLibraryRemoteTask` 和发布成功日志，确认多 publication 路径可用。
-9. 跑完整 `:plugin_base:build`。
-10. 在 `affective_local_sdk` 试点执行 `publishToMavenLocal`，确认本地 Maven 生成期望的 `.aar/.pom/.module`，且被过滤 variants 不生成任何发布产物。
+8. 修复 `skipSourcesVariants`：只忽略“sources configuration 不属于当前 component”的已知 mismatch，其它异常继续抛出。
+9. 外层 publication 配置 catch 只能补充日志，不能吞掉异常。
+10. 扩展 `PublishLibraryRemoteTask` 和发布成功日志，确认多 publication 路径可用。
+11. 跑完整 `:plugin_base:build`。
+12. 先执行 `:plugin_base:publishToMavenLocal` 把修复后的插件发布到本机。
+13. 在 `affective_local_sdk` 试点执行 `publishToMavenLocal`，确认本地 Maven 生成期望的 `.aar/.pom/.module`，且被过滤 variants 不生成任何发布产物。
 
 ## 临时 Workaround
 

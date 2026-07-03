@@ -20,7 +20,7 @@ tasks.withType<KotlinCompile>().configureEach {
 dependencies {
     implementation(gradleApi())
     implementation(localGroovy())
-    implementation("com.android.tools.build:gradle:4.2.0")
+    compileOnly("com.android.tools.build:gradle:4.2.0")
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.7.10")
     testImplementation(gradleTestKit())
     testImplementation("junit:junit:4.13.2")
