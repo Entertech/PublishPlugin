@@ -40,7 +40,7 @@ publishing {
         create<MavenPublication>("plugin") {
             groupId = "cn.entertech.android"
             artifactId = "publish"
-            version = "1.2.0-local"
+            version = "1.2.0"
             from(components["java"])
         }
     }
