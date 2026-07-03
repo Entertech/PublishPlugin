@@ -3,7 +3,7 @@ name: Publish Plugin To Central
 on:
   push:
     branches:
-      - main
+      - pre_publish
   workflow_dispatch:
     inputs:
       namespace:
@@ -22,6 +22,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: publish-plugin-central-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -48,8 +52,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::PublishPlugin Central release must run from main. Current ref: $GITHUB_REF"
+          if [[ "$GITHUB_REF" != "refs/heads/pre_publish" ]]; then
+            echo "::error::PublishPlugin Central release must run from pre_publish. Current ref: $GITHUB_REF"
             exit 1
           fi
 
@@ -79,6 +83,26 @@ jobs:
               env.write(f"RELEASE_TAG={tag}\n")
           print(f"Preparing PublishPlugin {version} release as {tag}")
           PY
+
+      - name: Preflight main merge
+        id: merge_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_commit="$(git rev-parse HEAD)"
+          git fetch origin main pre_publish --tags
+
+          git checkout -B __preflight_main_merge origin/main
+          if ! git merge --no-commit --no-ff "$release_commit"; then
+            git merge --abort || true
+            echo "::error::pre_publish cannot be merged into main without conflicts. Merge main into pre_publish and resolve conflicts before publishing."
+            exit 1
+          fi
+
+          git merge --abort || true
+          git checkout --detach "$release_commit"
+          echo "pre_publish can be merged into main without conflicts."
 
       - name: Check release tag
         id: release_tag
@@ -188,7 +212,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md
           git commit -m "[codex] Update README publish plugin version to ${RELEASE_VERSION} [skip ci]"
-          git push origin "HEAD:main"
+          git push origin "HEAD:pre_publish"
 
       - name: Tag successful release
         if: steps.release_tag.outputs.exists != 'true'
@@ -200,3 +224,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$RELEASE_TAG" -m "Release PublishPlugin ${RELEASE_VERSION}"
           git push origin "$RELEASE_TAG"
+
+      - name: Merge pre_publish to main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin main pre_publish --tags
+          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "::error::${RELEASE_TAG} does not exist; refusing to update main."
+            exit 1
+          fi
+
+          git checkout -B main origin/main
+          git merge --no-ff --no-edit origin/pre_publish
+          git push origin main

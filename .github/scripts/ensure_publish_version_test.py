@@ -29,7 +29,7 @@ class EnsurePublishVersionTest(unittest.TestCase):
             ensure_publish_version('version = "1.2.0-local"\n', "version = '1.0.5'\n")
 
     def test_rejects_head_version_not_greater_than_base_after_manual_change(self):
-        with self.assertRaisesRegex(ValueError, "must be greater than main version"):
+        with self.assertRaisesRegex(ValueError, "must be greater than base version"):
             ensure_publish_version('version = "1.0.4"\n', "version = '1.0.5'\n")
 
     def test_rejects_missing_version(self):

@@ -61,7 +61,7 @@ def ensure_publish_version(head_content: str, base_content: str) -> VersionResul
     head_tuple = parse_semver(final_version)
     if head_tuple <= base_tuple:
         raise ValueError(
-            f"Publish plugin version '{final_version}' must be greater than main version '{base_version}'"
+            f"Publish plugin version '{final_version}' must be greater than base version '{base_version}'"
         )
 
     return VersionResult(
@@ -103,7 +103,7 @@ def main() -> None:
     if result.changed:
         print(f"Bumped publish plugin version from {result.base_version} to {result.version}")
     else:
-        print(f"Publish plugin version {result.version} is greater than main version {result.base_version}")
+        print(f"Publish plugin version {result.version} is greater than base version {result.base_version}")
 
 
 if __name__ == "__main__":

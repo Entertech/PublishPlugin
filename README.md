@@ -561,11 +561,14 @@ SIGNING_PASSWORD
 
 发布流程：
 
-1. PR 合入 `main` 前，`publish-plugin-pr-check.yml` 校验版本号、构建、本地发布和 publication 元数据，并同步 README 中的插件版本。
-2. PR 合入 `main` 后，`publish-plugin-central.yml` 自动发布插件到 Central。
-3. Central deployment 创建成功后，workflow 再次同步 README 中的插件版本。
-4. README 同步提交成功后，workflow 创建并推送 `v<version>` tag。
-5. 如果 Central 发布失败，不会更新 README，也不会创建 tag。
+1. PR 合入预发布分支 `pre_publish` 前，`publish-plugin-pr-check.yml` 校验版本号、构建、本地发布和 publication 元数据，并同步 README 中的插件版本。
+2. PR 合入 `pre_publish` 后，`publish-plugin-central.yml` 自动发布插件到 Central。
+3. 发布前先预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central。
+4. 同一个 `pre_publish` 发布 run 正在执行时，如果又有新的提交 push 到 `pre_publish`，旧 run 会被自动取消。
+5. Central deployment 创建成功后，workflow 再次同步 README 中的插件版本，并把变更提交回 `pre_publish`。
+6. README 同步提交成功后，workflow 创建并推送 `v<version>` tag。
+7. tag 推送成功后，workflow 将当前 `pre_publish` merge 到 `main`。
+8. 如果 Central 发布失败，不会更新 README，不会创建 tag，也不会合入 `main`。
 
 手动触发或自动发布时需要配置这些 secrets：
 

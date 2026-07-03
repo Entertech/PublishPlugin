@@ -3,7 +3,7 @@ name: Publish Plugin PR Check
 on:
   pull_request:
     branches:
-      - main
+      - pre_publish
     types:
       - opened
       - synchronize
@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
   pull-requests: read
+
+concurrency:
+  group: publish-plugin-pr-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
@@ -27,7 +31,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load main publish version
+      - name: Load base publish version
         shell: bash
         run: |
           set -euo pipefail
@@ -35,7 +39,7 @@ jobs:
             git remote set-url base "https://github.com/${{ github.repository }}.git"
           git fetch --no-tags base "${{ github.base_ref }}"
 
-          base_file="$RUNNER_TEMP/main-plugin-build.gradle"
+          base_file="$RUNNER_TEMP/base-plugin-build.gradle"
           if git show FETCH_HEAD:plugin_base/build.gradle.kts > "$base_file" 2>/dev/null; then
             echo "BASE_FILE=$base_file" >> "$GITHUB_ENV"
           elif git show FETCH_HEAD:plugin_base/build.gradle > "$base_file" 2>/dev/null; then
