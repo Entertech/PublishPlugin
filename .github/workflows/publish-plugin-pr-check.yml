@@ -94,3 +94,4 @@ jobs:
         run: |
           ./gradlew :plugin_base:build --stacktrace
           ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+          python3 .github/scripts/validate_publish_plugin_publications.py

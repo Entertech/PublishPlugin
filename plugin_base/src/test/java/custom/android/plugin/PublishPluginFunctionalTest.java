@@ -257,7 +257,7 @@ public class PublishPluginFunctionalTest {
         write(fixtureDir.resolve("build.gradle"), "plugins {\n"
                 + "    id 'groovy'\n"
                 + "    id 'java-gradle-plugin'\n"
-                + "    id 'custom.android.plugin'\n"
+                + "    id 'cn.entertech.publish'\n"
                 + "}\n"
                 + "PublishInfo {\n"
                 + "    groupId = 'com.example'\n"
@@ -304,7 +304,7 @@ public class PublishPluginFunctionalTest {
                         + "}\n");
         write(fixtureDir.resolve("build.gradle"), "plugins {\n"
                 + "    id 'com.android.library' version '8.1.3'\n"
-                + "    id 'custom.android.plugin'\n"
+                + "    id 'cn.entertech.publish'\n"
                 + "}\n"
                 + "android {\n"
                 + "    namespace 'com.example.fixture'\n"

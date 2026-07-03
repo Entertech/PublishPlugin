@@ -27,7 +27,7 @@ buildscript {
 ```kotlin
 plugins {
     id("com.android.library")
-    id("custom.android.plugin")
+    id("cn.entertech.publish")
 }
 ```
 
@@ -36,7 +36,7 @@ Gradle Plugin 模块继续使用：
 ```kotlin
 plugins {
     `java-gradle-plugin`
-    id("custom.android.plugin")
+    id("cn.entertech.publish")
 }
 ```
 或者 在需要打包的library｜gradle插件目录下的  **build.gradle** 文件添加下面的插件
@@ -507,63 +507,79 @@ Central 字段支持命令行覆盖，便于本地和 CI 使用：
 Gradle property > 环境变量 > PublishInfo 字段 > local.properties > 默认值
 ```
 
-## GitHub Actions 示例
+## GitHub Actions 发布
+
+业务项目不需要在各自仓库里单独维护 GPG 私钥和 Central token。把这些敏感字段配置为 `Entertech` organization secrets 后，业务项目只调用本仓库提供的 reusable workflow，并使用 `secrets: inherit` 继承组织级 secrets。
+
+业务项目示例：
 
 ```yaml
 name: Publish Maven Central
 
 on:
   workflow_dispatch:
-    inputs:
-      module:
-        description: "Gradle module path, for example :library"
-        required: true
-        type: string
-      namespace:
-        description: "Central namespace, for example ai.looktech"
-        required: true
-        type: string
-      publishing_type:
-        description: "user_managed or automatic"
-        required: true
-        default: "user_managed"
-        type: choice
-        options:
-          - user_managed
-          - automatic
-
-permissions:
-  contents: read
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: zulu
-          java-version: "17"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Publish to Central Portal
-        env:
-          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
-        run: |
-          ./gradlew "${{ inputs.module }}:PublishLibraryRemoteTask" \
-            -PcentralNamespace="${{ inputs.namespace }}" \
-            -PcentralPublishingType="${{ inputs.publishing_type }}" \
-            --no-daemon \
-            --stacktrace
+    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    secrets: inherit
+    with:
+      module: ":library"
+      namespace: "cn.entertech"
+      publishing_type: "user_managed"
 ```
 
-`MAVEN_CENTRAL_USERNAME` 和 `MAVEN_CENTRAL_PASSWORD` 必须使用 Central Portal 生成的 User Token。
+如果发布时需要临时覆盖版本，可以传入：
+
+```yaml
+with:
+  module: ":library"
+  namespace: "cn.entertech"
+  publishing_type: "user_managed"
+  version: "1.2.3"
+```
+
+`Entertech` organization secrets 需要维护：
+
+```text
+MAVEN_CENTRAL_USERNAME
+MAVEN_CENTRAL_PASSWORD
+GPG_KEY_CONTENTS
+SIGNING_KEY_ID
+SIGNING_PASSWORD
+```
+
+`MAVEN_CENTRAL_USERNAME` 和 `MAVEN_CENTRAL_PASSWORD` 必须使用 Central Portal 生成的 User Token。`GPG_KEY_CONTENTS`、`SIGNING_KEY_ID`、`SIGNING_PASSWORD` 使用公司统一发布 GPG key。业务仓库无需重复创建这些 secrets，但 organization secret 的 repository access 必须授权给调用 workflow 的仓库。
+
+## 发布本插件到 Central
+
+`PublishPlugin` 自身是 Gradle Plugin 模块，不通过自己的 `PublishLibraryRemoteTask` 发布。发布插件本身使用仓库内的 GitHub Actions：
+
+```text
+.github/workflows/publish-plugin-central.yml
+```
+
+手动触发时需要配置这些 secrets：
+
+```text
+MAVEN_CENTRAL_USERNAME
+MAVEN_CENTRAL_PASSWORD
+GPG_KEY_CONTENTS
+SIGNING_KEY_ID
+SIGNING_PASSWORD
+```
+
+发布坐标：
+
+```text
+cn.entertech.android:publish:<version>
+cn.entertech.publish:cn.entertech.publish.gradle.plugin:<version>
+```
+
+其中第二个是 Gradle plugin marker，用于支持：
+
+```kotlin
+plugins {
+    id("cn.entertech.publish") version "<version>"
+}
+```

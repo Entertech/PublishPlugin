@@ -1,0 +1,105 @@
+name: Publish Library To Central
+
+on:
+  workflow_call:
+    inputs:
+      module:
+        description: "Gradle module path, for example :library"
+        required: true
+        type: string
+      namespace:
+        description: "Sonatype Central namespace, for example cn.entertech"
+        required: false
+        default: "cn.entertech"
+        type: string
+      publishing_type:
+        description: "Central publishing type"
+        required: false
+        default: "user_managed"
+        type: string
+      version:
+        description: "Optional release version override"
+        required: false
+        default: ""
+        type: string
+      java_version:
+        description: "JDK version used by Gradle"
+        required: false
+        default: "17"
+        type: string
+    secrets:
+      MAVEN_CENTRAL_USERNAME:
+        required: true
+      MAVEN_CENTRAL_PASSWORD:
+        required: true
+      GPG_KEY_CONTENTS:
+        required: true
+      SIGNING_KEY_ID:
+        required: true
+      SIGNING_PASSWORD:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      MODULE_PATH: ${{ inputs.module }}
+      CENTRAL_NAMESPACE: ${{ inputs.namespace }}
+      CENTRAL_PUBLISHING_TYPE: ${{ inputs.publishing_type }}
+      PUBLISH_VERSION: ${{ inputs.version }}
+      CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+      SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+      ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}
+      ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+      ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish to Central Portal
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$MODULE_PATH" =~ ^(:[A-Za-z0-9_.-]+)+$ ]]; then
+            echo "::error::module must be a Gradle project path like :library or :parent:library"
+            exit 1
+          fi
+
+          if [[ "$CENTRAL_PUBLISHING_TYPE" != "user_managed" && "$CENTRAL_PUBLISHING_TYPE" != "automatic" ]]; then
+            echo "::error::publishing_type must be user_managed or automatic"
+            exit 1
+          fi
+
+          args=(
+            "${MODULE_PATH}:PublishLibraryRemoteTask"
+            "-PcentralNamespace=${CENTRAL_NAMESPACE}"
+            "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}"
+            "--no-daemon"
+            "--stacktrace"
+          )
+
+          if [[ -n "$PUBLISH_VERSION" ]]; then
+            args+=("-Pversion=${PUBLISH_VERSION}")
+          fi
+
+          ./gradlew "${args[@]}"
