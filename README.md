@@ -559,7 +559,15 @@ SIGNING_PASSWORD
 .github/workflows/publish-plugin-central.yml
 ```
 
-手动触发时需要配置这些 secrets：
+发布流程：
+
+1. PR 合入 `main` 前，`publish-plugin-pr-check.yml` 校验版本号、构建、本地发布和 publication 元数据，并同步 README 中的插件版本。
+2. PR 合入 `main` 后，`publish-plugin-central.yml` 自动发布插件到 Central。
+3. Central deployment 创建成功后，workflow 再次同步 README 中的插件版本。
+4. README 同步提交成功后，workflow 创建并推送 `v<version>` tag。
+5. 如果 Central 发布失败，不会更新 README，也不会创建 tag。
+
+手动触发或自动发布时需要配置这些 secrets：
 
 ```text
 MAVEN_CENTRAL_USERNAME
@@ -572,14 +580,14 @@ SIGNING_PASSWORD
 发布坐标：
 
 ```text
-cn.entertech.android:publish:<version>
-cn.entertech.publish:cn.entertech.publish.gradle.plugin:<version>
+cn.entertech.android:publish:1.2.0
+cn.entertech.publish:cn.entertech.publish.gradle.plugin:1.2.0
 ```
 
 其中第二个是 Gradle plugin marker，用于支持：
 
 ```kotlin
 plugins {
-    id("cn.entertech.publish") version "<version>"
+    id("cn.entertech.publish") version "1.2.0"
 }
 ```

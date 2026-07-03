@@ -520,12 +520,15 @@ jobs:
 
 ### CI 行为要求
 
-1. `workflow_dispatch` 先手动触发，不自动绑定 tag。
-2. 默认 `user_managed`，发布后去 Central Portal 手动检查和 Publish。
-3. 试点稳定后，再增加 tag release 自动触发。
-4. CI 日志不能打印 token、GPG 私钥、签名密码。
-5. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
-6. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
+1. PR 合入 `main` 前只做校验，不发布 Central。
+2. PR 校验必须确认插件版本号大于 `main`，必要时自动 patch +1，并同步 README 中的插件版本。
+3. 合入 `main` 后由 `publish-plugin-central.yml` 自动发布插件到 Central。
+4. Central deployment 创建成功后，再同步 README 中的插件版本并提交。
+5. README 同步提交成功后创建并推送 `v<version>` tag。
+6. 如果 Central 发布失败，不更新 README，不创建 tag。
+7. CI 日志不能打印 token、GPG 私钥、签名密码。
+8. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
+9. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
 
 ## 插件内部改造点
 
