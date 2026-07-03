@@ -17,7 +17,7 @@ java {
 }
 
 group = "cn.entertech.android"
-version = "1.2.2"
+version = "1.2.1"
 
 base {
     archivesName.set("publish")
