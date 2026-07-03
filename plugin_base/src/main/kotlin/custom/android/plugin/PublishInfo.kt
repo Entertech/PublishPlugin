@@ -83,6 +83,7 @@ open class PublishInfo {
     var scmDeveloperConnection: String = ""
 
     private var artifactIdForVariantAction: ((PublishVariantInfo) -> String)? = null
+    private val skipVariantActions = mutableListOf<(PublishVariantInfo) -> Boolean>()
 
     fun artifactIdForVariant(action: (PublishVariantInfo) -> String) {
         artifactIdForVariantAction = action
@@ -94,12 +95,26 @@ open class PublishInfo {
         }
     }
 
+    fun skipVariantIf(action: (PublishVariantInfo) -> Boolean) {
+        skipVariantActions += action
+    }
+
+    fun skipVariantIf(action: Closure<*>) {
+        skipVariantActions += { variant ->
+            action.call(variant) == true
+        }
+    }
+
     internal fun resolveArtifactId(variant: PublishVariantInfo?): String {
         val action = artifactIdForVariantAction
         if (variant == null || action == null) {
             return artifactId
         }
         return action(variant).ifBlank { artifactId }
+    }
+
+    internal fun shouldPublishVariant(variant: PublishVariantInfo): Boolean {
+        return skipVariantActions.none { action -> action(variant) }
     }
 }
 

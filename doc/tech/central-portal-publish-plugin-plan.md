@@ -263,6 +263,31 @@ ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 
 多 variant 发布方案单独维护在 [multi-variant-publish-plugin-plan.md](multi-variant-publish-plugin-plan.md)。Central Portal 方案只依赖它产出的 Maven publications，不在这里展开 variant 生成、动态 artifactId 和 Android metadata 修复细节。
 
+Central 发布侧需要遵守以下约束：
+
+1. `artifactIdForVariant` 生成的最终 artifactId 必须同时用于 POM、Maven 文件路径、签名和发布成功日志。
+2. `skipVariantIf` 过滤掉的 variant 不应注册 `singleVariant`，不应创建 publication，也不应参与 Central 上传。
+3. 当存在多个 `*EnterPublish` publication 时，`PublishLibraryRemoteTask` 应执行 `publishAllPublicationsTo<RepositoryName>Repository`。
+4. Central 模式下每个未过滤 publication 都必须包含 main artifact、POM、Gradle module metadata、sources jar、javadoc jar 和签名。
+5. publication 配置阶段出现未知异常时必须让 Gradle 失败，不能只打印 `PluginModule error` 后继续，否则会产生 Central 发布“假成功”。
+6. `SourcesElements` configuration 存在但不属于当前 component 时，只能跳过该 sources configuration；不能中断 publication 创建。
+
+因此，Central 发布前建议先在业务项目执行真实本地发布验证：
+
+```bash
+./gradlew :module:publishToMavenLocal --stacktrace
+```
+
+并检查每个预期 artifact 目录下至少存在：
+
+```text
+<artifactId>-<version>.aar
+<artifactId>-<version>.pom
+<artifactId>-<version>.module
+```
+
+这个验证比只执行 `generatePomFileFor...Publication` 更可靠，因为它会覆盖 Gradle module metadata 和 Android component 绑定。
+
 ## 使用示例
 
 业务项目继续只配置 `custom.android.plugin` 和 `PublishInfo`。
@@ -503,6 +528,8 @@ jobs:
 3. 执行 `publishEnterPublishPublicationToCentralStagingRepository`。
 4. 调用 manual upload endpoint，把 OSSRH Staging API 兼容层里的文件转入 Central Portal deployment。
 5. 打印 deployment 后续操作提示。
+6. 多 publication 时执行 `publishAllPublicationsTo<RepositoryName>Repository`，确保所有未过滤 variants 一起上传。
+7. 如果没有任何 `*EnterPublish` publication，或 publication 配置阶段发生未知异常，必须失败，避免远程发布假成功。
 
 保留现有任务：
 
@@ -713,6 +740,18 @@ centralPublishingType = "automatic"
 ./gradlew :some-library:PublishLibraryLocalTask
 ```
 
+多 variant 业务项目建议直接补跑标准 Maven Publish 任务，确认每个 publication 真实写入 Maven Local：
+
+```bash
+./gradlew :some-library:publishToMavenLocal --stacktrace
+```
+
+检查示例：
+
+```bash
+find ~/.m2/repository/<group-path> -maxdepth 3 -name "*.aar" -o -name "*.pom" -o -name "*.module"
+```
+
 确认本地 Maven 非 debug 无 sources：
 
 ```bash
@@ -732,6 +771,8 @@ Central dry run 验证：
 ./gradlew :some-library:generatePomFileForBreathAuthReleaseEnterPublishPublication
 ./gradlew :some-library:generatePomFileForBreathNoAuthReleaseEnterPublishPublication
 ```
+
+注意：POM 生成任务只能验证 artifactId/POM 规则，不能证明 publication 可发布。最终验收必须以 `publishToMavenLocal` 或远程 publish task 真实产物为准。
 
 Central 上传验证：
 
