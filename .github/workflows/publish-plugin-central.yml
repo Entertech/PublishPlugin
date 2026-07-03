@@ -31,15 +31,6 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    env:
-      CENTRAL_NAMESPACE: ${{ github.event.inputs.namespace || 'cn.entertech' }}
-      CENTRAL_PUBLISHING_TYPE: ${{ github.event.inputs.publishing_type || 'automatic' }}
-      CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-      CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-      GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
-      SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
-      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -166,6 +157,12 @@ jobs:
 
       - name: Publish to Central staging
         if: steps.release_tag.outputs.exists != 'true'
+        env:
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           ./gradlew :plugin_base:publishAllPublicationsToCentralStagingRepository \
             -PcentralPublish=true \
@@ -174,6 +171,11 @@ jobs:
 
       - name: Create Central Portal deployment
         if: steps.release_tag.outputs.exists != 'true'
+        env:
+          CENTRAL_NAMESPACE: ${{ github.event.inputs.namespace || 'cn.entertech' }}
+          CENTRAL_PUBLISHING_TYPE: ${{ github.event.inputs.publishing_type || 'automatic' }}
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
         run: |
           python3 - <<'PY'
           import base64
