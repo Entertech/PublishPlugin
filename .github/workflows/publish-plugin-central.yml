@@ -1,0 +1,257 @@
+name: Publish Plugin To Central
+
+on:
+  push:
+    branches:
+      - pre_publish
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: "Sonatype Central namespace, for example cn.entertech"
+        required: true
+        default: "cn.entertech"
+        type: string
+      publishing_type:
+        description: "Central publishing type"
+        required: true
+        default: "automatic"
+        type: choice
+        options:
+          - automatic
+          - user_managed
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-plugin-central-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      CENTRAL_NAMESPACE: ${{ github.event.inputs.namespace || 'cn.entertech' }}
+      CENTRAL_PUBLISHING_TYPE: ${{ github.event.inputs.publishing_type || 'automatic' }}
+      CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+      SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/pre_publish" ]]; then
+            echo "::error::PublishPlugin Central release must run from pre_publish. Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
+          python3 .github/scripts/ensure_publish_version.py \
+            --head-file plugin_base/build.gradle.kts \
+            --normalize-only \
+            --write
+
+          release_version="$(python3 - <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          content = Path("plugin_base/build.gradle.kts").read_text(encoding="utf-8")
+          match = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]", content)
+          if not match:
+              print("::error::Cannot find plugin_base version", file=sys.stderr)
+              sys.exit(1)
+
+          version = match.group(1)
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              print(f"::error::Publish plugin version '{version}' must use digits.digits.digits format", file=sys.stderr)
+              sys.exit(1)
+
+          print(version)
+          PY
+          )"
+          release_tag="v${release_version}"
+          {
+            echo "version=${release_version}"
+            echo "tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "RELEASE_VERSION=${release_version}"
+            echo "RELEASE_TAG=${release_tag}"
+          } >> "$GITHUB_ENV"
+          echo "Preparing PublishPlugin ${release_version} release as ${release_tag}"
+
+          python3 .github/scripts/sync_readme_publish_version.py --version "$release_version"
+          if ! git diff --quiet -- plugin_base/build.gradle.kts README.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add plugin_base/build.gradle.kts README.md
+            git commit -m "[codex] Prepare PublishPlugin ${release_version} release [skip ci]"
+          fi
+
+      - name: Preflight main merge
+        id: merge_preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_commit="$(git rev-parse HEAD)"
+          git fetch origin main pre_publish --tags
+
+          git checkout -B __preflight_main_merge origin/main
+          if ! git merge --no-commit --no-ff "$release_commit"; then
+            git merge --abort || true
+            echo "::error::pre_publish cannot be merged into main without conflicts. Merge main into pre_publish and resolve conflicts before publishing."
+            exit 1
+          fi
+
+          git merge --abort || true
+          git checkout --detach "$release_commit"
+          echo "pre_publish can be merged into main without conflicts."
+
+      - name: Check release tag
+        id: release_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags origin
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            tag_commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
+            head_commit="$(git rev-parse HEAD)"
+            if [[ "$tag_commit" == "$head_commit" ]]; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::${RELEASE_TAG} already exists on this commit; skipping Central publish."
+              exit 0
+            fi
+
+            echo "::error::${RELEASE_TAG} already exists on ${tag_commit}, but HEAD is ${head_commit}. Bump plugin_base version before releasing."
+            exit 1
+          fi
+
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK
+        if: steps.release_tag.outputs.exists != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Setup Gradle
+        if: steps.release_tag.outputs.exists != 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate local publication metadata
+        if: steps.release_tag.outputs.exists != 'true'
+        run: |
+          ./gradlew :plugin_base:build --stacktrace
+          ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+          python3 .github/scripts/validate_publish_plugin_publications.py
+
+      - name: Publish to Central staging
+        if: steps.release_tag.outputs.exists != 'true'
+        run: |
+          ./gradlew :plugin_base:publishAllPublicationsToCentralStagingRepository \
+            -PcentralPublish=true \
+            --no-daemon \
+            --stacktrace
+
+      - name: Create Central Portal deployment
+        if: steps.release_tag.outputs.exists != 'true'
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          namespace = os.environ["CENTRAL_NAMESPACE"].strip()
+          publishing_type = os.environ["CENTRAL_PUBLISHING_TYPE"].strip()
+          username = os.environ["CENTRAL_USERNAME"].strip()
+          password = os.environ["CENTRAL_PASSWORD"].strip()
+
+          if not namespace:
+              print("::error::CENTRAL_NAMESPACE is required", file=sys.stderr)
+              sys.exit(1)
+          if not username or not password:
+              print("::error::MAVEN_CENTRAL_USERNAME and MAVEN_CENTRAL_PASSWORD secrets are required", file=sys.stderr)
+              sys.exit(1)
+
+          token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+          url = (
+              "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/"
+              f"{urllib.parse.quote(namespace)}?publishing_type={urllib.parse.quote(publishing_type)}"
+          )
+          request = urllib.request.Request(url, method="POST")
+          request.add_header("Authorization", f"Bearer {token}")
+
+          try:
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  body = response.read().decode("utf-8", errors="replace")
+          except urllib.error.HTTPError as error:
+              body = error.read().decode("utf-8", errors="replace")
+              print(f"::error::Central manual upload failed: HTTP {error.code} {body}", file=sys.stderr)
+              sys.exit(1)
+
+          if body:
+              print(body)
+          print("Central Portal deployments: https://central.sonatype.com/publishing/deployments")
+          PY
+
+      - name: Sync README release version
+        if: steps.release_tag.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 .github/scripts/sync_readme_publish_version.py --version "$RELEASE_VERSION"
+          if git diff --quiet -- plugin_base/build.gradle.kts README.md; then
+            echo "README.md already documents PublishPlugin ${RELEASE_VERSION}"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add plugin_base/build.gradle.kts README.md
+            git commit -m "[codex] Update README publish plugin version to ${RELEASE_VERSION} [skip ci]"
+          fi
+
+          git push origin "HEAD:pre_publish"
+
+      - name: Tag successful release
+        if: steps.release_tag.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "Release PublishPlugin ${RELEASE_VERSION}"
+          git push origin "$RELEASE_TAG"
+
+      - name: Merge pre_publish to main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin main pre_publish --tags
+          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "::error::${RELEASE_TAG} does not exist; refusing to update main."
+            exit 1
+          fi
+
+          git checkout -B main origin/main
+          git merge --no-ff --no-edit origin/pre_publish
+          git push origin main

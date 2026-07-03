@@ -1,0 +1,117 @@
+name: Publish Plugin PR Check
+
+on:
+  pull_request:
+    branches:
+      - pre_publish
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: publish-plugin-pr-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load base publish version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add base "https://github.com/${{ github.repository }}.git" 2>/dev/null || \
+            git remote set-url base "https://github.com/${{ github.repository }}.git"
+          git fetch --no-tags base "${{ github.base_ref }}"
+
+          base_file="$RUNNER_TEMP/base-plugin-build.gradle"
+          if git show FETCH_HEAD:plugin_base/build.gradle.kts > "$base_file" 2>/dev/null; then
+            echo "BASE_FILE=$base_file" >> "$GITHUB_ENV"
+          elif git show FETCH_HEAD:plugin_base/build.gradle > "$base_file" 2>/dev/null; then
+            echo "BASE_FILE=$base_file" >> "$GITHUB_ENV"
+          else
+            echo "::error::Cannot find plugin_base build file on ${{ github.base_ref }}"
+            exit 1
+          fi
+
+          if [[ -f plugin_base/build.gradle.kts ]]; then
+            echo "HEAD_FILE=plugin_base/build.gradle.kts" >> "$GITHUB_ENV"
+          elif [[ -f plugin_base/build.gradle ]]; then
+            echo "HEAD_FILE=plugin_base/build.gradle" >> "$GITHUB_ENV"
+          else
+            echo "::error::Cannot find plugin_base build file on PR branch"
+            exit 1
+          fi
+
+      - name: Ensure publish plugin version
+        id: version
+        run: |
+          python3 .github/scripts/ensure_publish_version.py \
+            --head-file "$HEAD_FILE" \
+            --base-file "$BASE_FILE" \
+            --write
+
+      - name: Sync README publish plugin version
+        id: readme_version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 .github/scripts/sync_readme_publish_version.py
+          if git diff --quiet -- README.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit version bump
+        if: steps.version.outputs.changed == 'true' || steps.readme_version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+            echo "::error::Publish plugin version or README version needs automatic updates. Update them manually for fork PRs."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$HEAD_FILE" README.md
+          git commit -m "[codex] Bump publish plugin version to ${{ steps.version.outputs.version }}"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test version helper
+        run: |
+          python3 .github/scripts/ensure_publish_version_test.py
+          python3 .github/scripts/sync_readme_publish_version_test.py
+
+      - name: Run required Gradle tasks
+        run: |
+          ./gradlew :plugin_base:build --stacktrace
+          ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+          python3 .github/scripts/validate_publish_plugin_publications.py
+          python3 .github/scripts/sync_readme_publish_version.py --check

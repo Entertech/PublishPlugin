@@ -1,9 +1,11 @@
 package custom.android.plugin
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecSpec
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.lang.StringBuilder
@@ -41,6 +43,9 @@ abstract class BasePublishTask : DefaultTask() {
         //如果前两步都校验通过了，checkStatus设置为true
 //        PluginLogUtil.printlnDebugInScreen("projectDir: ${project.projectDir.absolutePath}")
 //        PluginLogUtil.printlnDebugInScreen("rootDir: ${project.rootDir.absolutePath}")
+        if (!checkStatus) {
+            throw GradleException("发布配置校验失败")
+        }
         val realTaskName =
             project.projectDir.absolutePath
                 .removePrefix(project.rootDir.absolutePath)
@@ -58,15 +63,18 @@ abstract class BasePublishTask : DefaultTask() {
                 "gradlew"
             } else if (osName.contains("Linux")) {
                 // Linux 系统
-                "gradlew.bat"
+                "gradlew"
             } else {
                 ""
             }
             val path = "${project.rootDir}${File.separator}${gradlewFileName}"
             PluginLogUtil.printlnDebugInScreen("$TAG path: $path realTaskName: $realTaskName")
             //通过命令行的方式进行调用上传maven的task
-            project.exec { exec ->
+            val execResult = project.exec { exec ->
                 exec.standardOutput = out
+                exec.errorOutput = out
+                exec.isIgnoreExitValue = true
+                configureNestedGradleExec(exec, publishInfo)
                 exec.setCommandLine(
                     path,
                     realTaskName
@@ -74,61 +82,20 @@ abstract class BasePublishTask : DefaultTask() {
             }
             val result = out.toString()
             PluginLogUtil.printlnDebugInScreen("result: $result")
-            if (result.contains("UP-TO-DATE")) {
-                //上传maven仓库成功，上报到服务器
-                val isSuccess = requestUploadVersion()
-                if (isSuccess) {
-                    val publishing = project.extensions.getByType(PublishingExtension::class.java)
-                    var groupId = ""
-                    var artifactId = ""
-                    var version = ""
-                    publishing.publications { publications ->
-                        val mavenPublication =
-                            publications.getByName(MAVEN_PUBLICATION_NAME) as MavenPublication
-                        groupId = mavenPublication.groupId
-                        artifactId = mavenPublication.artifactId
-                        version = mavenPublication.version
-
-                    }
-                    publishing.repositories { artifactRepositories ->
-                        artifactRepositories.maven {
-                            //url可能为null，虽然提示不会为null
-                            PluginLogUtil.printlnInfoInScreen("${it.name} url: ${it.url?.toString()}")
-                        }
-                    }
-                    publishing.repositories.maven {
-                        PluginLogUtil.printlnInfoInScreen(" ${it.name} url: ${it.url?.toString()}")
-                    }
-                    val fileNames = groupId.split(".")
-                    val pathSb = StringBuilder()
-                    pathSb.append(getPublishingExtensionRepositoriesPath(publishing))
-                    fileNames.forEach {
-                        pathSb.append(it)
-                        pathSb.append(File.separatorChar)
-                    }
-//                    pathSb.append(artifactId)
-//                    pathSb.append(File.separatorChar)
-                    PluginLogUtil.printlnInfoInScreen("构建成功")
-                    PluginLogUtil.printlnInfoInScreen("仓库地址：  $pathSb")
-                    PluginLogUtil.printlnInfoInScreen("===================================================================")
-                    PluginLogUtil.printlnInfoInScreen("")
-                    PluginLogUtil.printlnInfoInScreen("implementation '$groupId:$artifactId:$version'")
-                    PluginLogUtil.printlnInfoInScreen("")
-                    PluginLogUtil.printlnInfoInScreen("==================================================================")
-                    PluginLogUtil.printlnInfoInScreen("")
-                    PluginLogUtil.printlnInfoInScreen("implementation (\"$groupId:$artifactId:$version\")")
-                    PluginLogUtil.printlnInfoInScreen("")
-                    PluginLogUtil.printlnInfoInScreen("==================================================================")
-                    //提示成功信息
-                } else {
-                    //提示错误信息
-                }
-            } else {
+            if (execResult.exitValue != 0) {
                 PluginLogUtil.printlnErrorInScreen("===============================下面是执行指令的输出结果===============================")
                 PluginLogUtil.printlnErrorInScreen("")
                 PluginLogUtil.printlnErrorInScreen(result)
                 PluginLogUtil.printlnErrorInScreen("")
                 PluginLogUtil.printlnErrorInScreen("==================================================================================")
+                throw GradleException("上传Maven仓库失败，请检查配置！")
+            }
+            //上传maven仓库成功，上报到服务器
+            val isSuccess = requestUploadVersion()
+            if (isSuccess) {
+                afterPublishSuccess(publishInfo, result)
+                printPublishSuccess()
+            } else {
                 throw Exception("上传Maven仓库失败，请检查配置！")
             }
             PluginLogUtil.printlnDebugInScreen("$TAG executeTask finish ")
@@ -144,6 +111,57 @@ abstract class BasePublishTask : DefaultTask() {
     }
 
     abstract fun getPublishingExtensionRepositoriesPath(publishing: PublishingExtension): String
+
+    protected open fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
+    }
+
+    protected open fun configureNestedGradleExec(exec: ExecSpec, publishInfo: PublishInfo) {
+    }
+
+    private fun printPublishSuccess() {
+        val publishing = project.extensions.getByType(PublishingExtension::class.java)
+        val mavenPublications = publishing.publications
+            .withType(MavenPublication::class.java)
+            .toList()
+        val publications = mavenPublications
+            .filter { it.name.endsWith(MAVEN_PUBLICATION_NAME) }
+            .ifEmpty { mavenPublications }
+        publishing.repositories { artifactRepositories ->
+            artifactRepositories.maven {
+                //url可能为null，虽然提示不会为null
+                PluginLogUtil.printlnInfoInScreen("${it.name} url: ${it.url}")
+            }
+        }
+        publishing.repositories.maven {
+            PluginLogUtil.printlnInfoInScreen(" ${it.name} url: ${it.url}")
+        }
+        PluginLogUtil.printlnInfoInScreen("构建成功")
+        publications.forEach { publication ->
+            val fileNames = publication.groupId.split(".")
+            val pathSb = StringBuilder()
+            pathSb.append(getPublishingExtensionRepositoriesPath(publishing))
+            fileNames.forEach {
+                pathSb.append(it)
+                pathSb.append(File.separatorChar)
+            }
+//                    pathSb.append(artifactId)
+//                    pathSb.append(File.separatorChar)
+            PluginLogUtil.printlnInfoInScreen("仓库地址：  $pathSb")
+            PluginLogUtil.printlnInfoInScreen("===================================================================")
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen(
+                "implementation '${publication.groupId}:${publication.artifactId}:${publication.version}'"
+            )
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen("==================================================================")
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen(
+                "implementation (\"${publication.groupId}:${publication.artifactId}:${publication.version}\")"
+            )
+            PluginLogUtil.printlnInfoInScreen("")
+            PluginLogUtil.printlnInfoInScreen("==================================================================")
+        }
+    }
 
     /**
      * 上报服务器进行版本更新操作,这里直接模拟返回成功
