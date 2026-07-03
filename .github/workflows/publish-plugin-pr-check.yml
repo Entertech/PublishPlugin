@@ -58,8 +58,23 @@ jobs:
             exit 1
           fi
 
+      - name: Detect plugin_base changes
+        id: plugin_base_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet FETCH_HEAD...HEAD -- plugin_base/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "plugin_base is unchanged; skipping publish plugin version bump."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "plugin_base changed; publish plugin version bump is required."
+          fi
+
       - name: Ensure publish plugin version
         id: version
+        if: steps.plugin_base_changes.outputs.changed == 'true'
         run: |
           python3 .github/scripts/ensure_publish_version.py \
             --head-file "$HEAD_FILE" \
@@ -68,6 +83,7 @@ jobs:
 
       - name: Sync README publish plugin version
         id: readme_version
+        if: steps.plugin_base_changes.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -80,7 +96,7 @@ jobs:
           fi
 
       - name: Commit version bump
-        if: steps.version.outputs.changed == 'true' || steps.readme_version.outputs.changed == 'true'
+        if: steps.plugin_base_changes.outputs.changed == 'true' && (steps.version.outputs.changed == 'true' || steps.readme_version.outputs.changed == 'true')
         shell: bash
         run: |
           set -euo pipefail
