@@ -48,6 +48,8 @@ jobs:
             exit 1
           fi
 
+          git fetch --no-tags origin main
+
           python3 .github/scripts/ensure_publish_version.py \
             --head-file plugin_base/build.gradle.kts \
             --normalize-only \
@@ -72,16 +74,79 @@ jobs:
           print(version)
           PY
           )"
+          main_file="$RUNNER_TEMP/main-plugin-build.gradle"
+          if git show origin/main:plugin_base/build.gradle.kts > "$main_file" 2>/dev/null; then
+            :
+          elif git show origin/main:plugin_base/build.gradle > "$main_file" 2>/dev/null; then
+            :
+          else
+            echo "::error::Cannot find main plugin_base build file"
+            exit 1
+          fi
+          main_version="$(MAIN_FILE="$main_file" python3 - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          content = Path(os.environ["MAIN_FILE"]).read_text(encoding="utf-8")
+          match = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]", content)
+          if not match:
+              print("::error::Cannot find main plugin_base version", file=sys.stderr)
+              sys.exit(1)
+
+          version = match.group(1)
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              print(f"::error::Main plugin version '{version}' must use digits.digits.digits format", file=sys.stderr)
+              sys.exit(1)
+
+          print(version)
+          PY
+          )"
+          comparison="$(RELEASE_VERSION="$release_version" MAIN_VERSION="$main_version" python3 - <<'PY'
+          import os
+
+          def parse(value):
+              return tuple(int(part) for part in value.split("."))
+
+          release = parse(os.environ["RELEASE_VERSION"])
+          main = parse(os.environ["MAIN_VERSION"])
+          if release < main:
+              print("lower")
+          elif release == main:
+              print("equal")
+          else:
+              print("greater")
+          PY
+          )"
+          if [[ "$comparison" == "lower" ]]; then
+            echo "::error::pre_publish version ${release_version} must not be lower than main version ${main_version}. Refusing to merge."
+            exit 1
+          fi
+
+          publish_required=false
+          if [[ "$comparison" == "greater" ]]; then
+            publish_required=true
+          fi
+
           release_tag="v${release_version}"
           {
             echo "version=${release_version}"
+            echo "main_version=${main_version}"
             echo "tag=${release_tag}"
+            echo "publish_required=${publish_required}"
           } >> "$GITHUB_OUTPUT"
           {
             echo "RELEASE_VERSION=${release_version}"
+            echo "MAIN_VERSION=${main_version}"
             echo "RELEASE_TAG=${release_tag}"
+            echo "PUBLISH_REQUIRED=${publish_required}"
           } >> "$GITHUB_ENV"
-          echo "Preparing PublishPlugin ${release_version} release as ${release_tag}"
+          if [[ "$publish_required" == "true" ]]; then
+            echo "Preparing PublishPlugin ${release_version} release as ${release_tag}; main is ${main_version}."
+          else
+            echo "PublishPlugin ${release_version} equals main version ${main_version}; Central publish is not required."
+          fi
 
           python3 .github/scripts/sync_readme_publish_version.py --version "$release_version"
           if ! git diff --quiet -- plugin_base/build.gradle.kts README.md; then
@@ -117,6 +182,7 @@ jobs:
 
       - name: Check release tag
         id: release_tag
+        if: steps.release.outputs.publish_required == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -138,25 +204,25 @@ jobs:
           echo "exists=false" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: "17"
 
       - name: Setup Gradle
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Validate local publication metadata
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         run: |
           ./gradlew :plugin_base:build --stacktrace
           ./gradlew :plugin_base:publishToMavenLocal --stacktrace
           python3 .github/scripts/validate_publish_plugin_publications.py
 
       - name: Publish to Central staging
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         env:
           CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
@@ -164,13 +230,18 @@ jobs:
           SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
+          if [[ -n "${SIGNING_KEY_ID:-}" && ! "$SIGNING_KEY_ID" =~ ^(0x)?[0-9A-Fa-f]{8,16}$ ]]; then
+            echo "::warning::SIGNING_KEY_ID is not a valid PGP key id; falling back to infer it from GPG_KEY_CONTENTS."
+            unset SIGNING_KEY_ID
+          fi
+
           ./gradlew :plugin_base:publishAllPublicationsToCentralStagingRepository \
             -PcentralPublish=true \
             --no-daemon \
             --stacktrace
 
       - name: Create Central Portal deployment
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         env:
           CENTRAL_NAMESPACE: ${{ github.event.inputs.namespace || 'cn.entertech' }}
           CENTRAL_PUBLISHING_TYPE: ${{ github.event.inputs.publishing_type || 'automatic' }}
@@ -219,7 +290,7 @@ jobs:
           PY
 
       - name: Sync README release version
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -237,7 +308,7 @@ jobs:
           git push origin "HEAD:pre_publish"
 
       - name: Tag successful release
-        if: steps.release_tag.outputs.exists != 'true'
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -256,9 +327,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git fetch origin main pre_publish --tags
-          if ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+          if [[ "${{ steps.release.outputs.publish_required }}" == "true" ]] && ! git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
             echo "::error::${RELEASE_TAG} does not exist; refusing to update main."
             exit 1
+          fi
+          if [[ "${{ steps.release.outputs.publish_required }}" != "true" ]]; then
+            echo "pre_publish version ${RELEASE_VERSION} equals main version ${MAIN_VERSION}; does not require Central publish; merging directly."
           fi
 
           git checkout -B main origin/main
