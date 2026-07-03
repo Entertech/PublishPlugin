@@ -521,17 +521,18 @@ jobs:
 ### CI 行为要求
 
 1. `pre_publish` 是预发布分支，PR 合入 `pre_publish` 前只做校验，不发布 Central。
-2. PR 校验必须确认插件版本号大于 PR base 分支，必要时自动 patch +1，并同步 README 中的插件版本。
-3. 合入 `pre_publish` 后由 `publish-plugin-central.yml` 自动发布插件到 Central。
-4. 发布前必须预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central。
-5. `publish-plugin-central.yml` 使用 concurrency；同一个 `pre_publish` 发布 run 执行时，如果有新的 `pre_publish` push，旧 run 会被取消。
-6. Central deployment 创建成功后，再同步 README 中的插件版本并提交回 `pre_publish`。
-7. README 同步提交成功后创建并推送 `v<version>` tag。
-8. tag 推送成功后，将当前 `pre_publish` merge 到 `main`。
-9. 如果 Central 发布失败，不更新 README，不创建 tag，不合入 `main`。
-10. CI 日志不能打印 token、GPG 私钥、签名密码。
-11. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
-12. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
+2. PR 校验会先把插件版本号规范化为 `数字.数字.数字`，例如 `1.2.0-local` 规范化为 `1.2.0`；如果规范化后仍无法识别，校验失败。
+3. PR 校验必须确认插件版本号大于 PR base 分支，必要时自动 patch +1，并同步 README 中的插件版本。
+4. 合入 `pre_publish` 后由 `publish-plugin-central.yml` 自动发布插件到 Central。
+5. 发布前必须预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central。
+6. `publish-plugin-central.yml` 使用 concurrency；同一个 `pre_publish` 发布 run 执行时，如果有新的 `pre_publish` push，旧 run 会被取消。
+7. Central deployment 创建成功后，再同步 README 中的插件版本并提交回 `pre_publish`。
+8. README 同步提交成功后创建并推送 `v<version>` tag。
+9. tag 推送成功后，将当前 `pre_publish` merge 到 `main`。
+10. 如果 Central 发布失败，不更新 README，不创建 tag，不合入 `main`。
+11. CI 日志不能打印 token、GPG 私钥、签名密码。
+12. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
+13. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
 
 ## 插件内部改造点
 

@@ -1,6 +1,6 @@
 import unittest
 
-from ensure_publish_version import ensure_publish_version
+from ensure_publish_version import ensure_publish_version, normalize_publish_version
 
 
 class EnsurePublishVersionTest(unittest.TestCase):
@@ -24,9 +24,30 @@ class EnsurePublishVersionTest(unittest.TestCase):
         self.assertEqual("1.3.0", result.version)
         self.assertEqual(head, result.content)
 
-    def test_rejects_non_numeric_head_version(self):
+    def test_normalizes_version_suffix_when_greater_than_base(self):
+        result = ensure_publish_version('version = "1.2.0-local"\n', "version = '1.1.9'\n")
+
+        self.assertTrue(result.changed)
+        self.assertEqual("1.2.0", result.version)
+        self.assertEqual('version = "1.2.0"\n', result.content)
+
+    def test_normalizes_then_bumps_when_version_matches_base(self):
+        result = ensure_publish_version('version = "1.2.0-local"\n', "version = '1.2.0'\n")
+
+        self.assertTrue(result.changed)
+        self.assertEqual("1.2.1", result.version)
+        self.assertEqual('version = "1.2.1"\n', result.content)
+
+    def test_normalize_only_does_not_bump(self):
+        result = normalize_publish_version('version = "1.2.0-local"\n')
+
+        self.assertTrue(result.changed)
+        self.assertEqual("1.2.0", result.version)
+        self.assertEqual('version = "1.2.0"\n', result.content)
+
+    def test_rejects_unparseable_head_version(self):
         with self.assertRaisesRegex(ValueError, "must use digits.digits.digits"):
-            ensure_publish_version('version = "1.2.0-local"\n', "version = '1.0.5'\n")
+            ensure_publish_version('version = "release-local"\n', "version = '1.0.5'\n")
 
     def test_rejects_head_version_not_greater_than_base_after_manual_change(self):
         with self.assertRaisesRegex(ValueError, "must be greater than base version"):

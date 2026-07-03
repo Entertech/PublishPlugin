@@ -57,8 +57,12 @@ jobs:
             exit 1
           fi
 
-          python3 - <<'PY'
-          import os
+          python3 .github/scripts/ensure_publish_version.py \
+            --head-file plugin_base/build.gradle.kts \
+            --normalize-only \
+            --write
+
+          release_version="$(python3 - <<'PY'
           import re
           import sys
           from pathlib import Path
@@ -74,15 +78,27 @@ jobs:
               print(f"::error::Publish plugin version '{version}' must use digits.digits.digits format", file=sys.stderr)
               sys.exit(1)
 
-          tag = f"v{version}"
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"version={version}\n")
-              output.write(f"tag={tag}\n")
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write(f"RELEASE_VERSION={version}\n")
-              env.write(f"RELEASE_TAG={tag}\n")
-          print(f"Preparing PublishPlugin {version} release as {tag}")
+          print(version)
           PY
+          )"
+          release_tag="v${release_version}"
+          {
+            echo "version=${release_version}"
+            echo "tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "RELEASE_VERSION=${release_version}"
+            echo "RELEASE_TAG=${release_tag}"
+          } >> "$GITHUB_ENV"
+          echo "Preparing PublishPlugin ${release_version} release as ${release_tag}"
+
+          python3 .github/scripts/sync_readme_publish_version.py --version "$release_version"
+          if ! git diff --quiet -- plugin_base/build.gradle.kts README.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add plugin_base/build.gradle.kts README.md
+            git commit -m "[codex] Prepare PublishPlugin ${release_version} release [skip ci]"
+          fi
 
       - name: Preflight main merge
         id: merge_preflight
@@ -203,15 +219,15 @@ jobs:
           set -euo pipefail
 
           python3 .github/scripts/sync_readme_publish_version.py --version "$RELEASE_VERSION"
-          if git diff --quiet -- README.md; then
+          if git diff --quiet -- plugin_base/build.gradle.kts README.md; then
             echo "README.md already documents PublishPlugin ${RELEASE_VERSION}"
-            exit 0
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add plugin_base/build.gradle.kts README.md
+            git commit -m "[codex] Update README publish plugin version to ${RELEASE_VERSION} [skip ci]"
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git commit -m "[codex] Update README publish plugin version to ${RELEASE_VERSION} [skip ci]"
           git push origin "HEAD:pre_publish"
 
       - name: Tag successful release
