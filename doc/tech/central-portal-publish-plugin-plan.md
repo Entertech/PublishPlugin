@@ -525,13 +525,16 @@ jobs:
 3. PR 校验必须先检测 PR 相对 base 分支是否存在 `plugin_base/` 目录变更。只有 `plugin_base/` 下文件发生变更时，才需要确认插件版本号大于 PR base 分支，必要时自动 patch +1，并同步 README 中的插件版本。
 4. 如果 PR 只修改 workflow、文档或其他非 `plugin_base/` 文件，`Ensure publish plugin version`、`Sync README publish plugin version` 和 `Commit version bump` 步骤必须跳过，避免 GitHub Actions bot 自动 push 后触发二次 `action_required` 空检查。
 5. `Commit version bump` 只能在同仓库 PR 且 `plugin_base/` 有变更时执行；fork PR 如果需要自动版本更新，应失败并提示人工更新，不能尝试向 fork 写入。
-6. 合入 `pre_publish` 后由 `publish-plugin-central.yml` 自动发布插件到 Central。
-7. 发布前必须预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central。
+6. 合入 `pre_publish` 后由 `publish-plugin-central.yml` 比较 `pre_publish` 与 `main` 的 `plugin_base` 版本，并以版本关系决定后续流程：
+   - `pre_publish` 版本小于 `main` 版本：workflow 直接失败，拒绝合入 `main`。
+   - `pre_publish` 版本等于 `main` 版本：说明没有插件发布需求，跳过 Central 发布、tag、README 发布版本同步，直接合入 `main`。
+   - `pre_publish` 版本大于 `main` 版本：必须完成 Central 发布、README 发布版本同步和 `v<version>` tag 后，才能合入 `main`。
+7. 发布或直接合并前必须预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central，也不合入 `main`。
 8. `publish-plugin-pr-check.yml` 和 `publish-plugin-central.yml` 都使用 concurrency；同一个 PR 或同一个 `pre_publish` 发布 run 执行时，如果有新的 push，旧 run 会被取消。
 9. `publish-plugin-central.yml` 的 Central token、GPG 私钥、签名 key id 和签名密码不能放在 job 级 `env`。这些 secrets 只能注入到真正需要它们的步骤：`Publish to Central staging` 和 `Create Central Portal deployment`，避免本地 metadata 校验和 Gradle TestKit fixture 继承发布凭据。
-10. Central deployment 创建成功后，再同步 README 中的插件版本并提交回 `pre_publish`。
-11. README 同步提交成功后创建并推送 `v<version>` tag。
-12. tag 推送成功后，将当前 `pre_publish` merge 到 `main`。
+10. 只有 `pre_publish` 版本大于 `main` 版本时，才创建 Central deployment；deployment 创建成功后，再同步 README 中的插件版本并提交回 `pre_publish`。
+11. 只有发布路径需要创建并推送 `v<version>` tag。
+12. 发布路径中 tag 推送成功后，将当前 `pre_publish` merge 到 `main`；等版本路径不要求 tag，直接 merge 到 `main`。
 13. 如果 Central 发布失败，不更新 README，不创建 tag，不合入 `main`。
 14. CI 日志不能打印 token、GPG 私钥、签名密码。
 15. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
