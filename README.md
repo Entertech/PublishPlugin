@@ -17,7 +17,7 @@ buildscript {
     }
 
     dependencies {
-        classpath("cn.entertech.android:publish:1.2.0-local")
+        classpath("cn.entertech.android:publish:1.2.0")
     }
 }
 ```
