@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 
 
-WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "publish-plugin-central.yml"
+WORKFLOWS = Path(__file__).resolve().parents[1] / "workflows"
+CENTRAL_WORKFLOW = WORKFLOWS / "publish-plugin-central.yml"
+PR_CHECK_WORKFLOW = WORKFLOWS / "publish-plugin-pr-check.yml"
 SECRET_ENV_NAMES = (
     "CENTRAL_USERNAME",
     "CENTRAL_PASSWORD",
@@ -13,12 +15,12 @@ SECRET_ENV_NAMES = (
 )
 
 
-def workflow_text():
-    return WORKFLOW.read_text(encoding="utf-8")
+def workflow_text(path=CENTRAL_WORKFLOW):
+    return path.read_text(encoding="utf-8")
 
 
-def step_block(name):
-    text = workflow_text()
+def step_block(name, path=CENTRAL_WORKFLOW):
+    text = workflow_text(path)
     match = re.search(
         rf"(?ms)^      - name: {re.escape(name)}\n(?P<body>.*?)(?=^      - name: |\Z)",
         text,
@@ -47,6 +49,34 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
 
         for name in ("CENTRAL_NAMESPACE", "CENTRAL_PUBLISHING_TYPE", "CENTRAL_USERNAME", "CENTRAL_PASSWORD"):
             self.assertIn(f"{name}:", central_upload)
+
+
+class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
+    def test_version_bump_only_runs_when_plugin_base_changed(self):
+        detect_changes = step_block("Detect plugin_base changes", PR_CHECK_WORKFLOW)
+        ensure_version = step_block("Ensure publish plugin version", PR_CHECK_WORKFLOW)
+        sync_readme = step_block("Sync README publish plugin version", PR_CHECK_WORKFLOW)
+        commit_bump = step_block("Commit version bump", PR_CHECK_WORKFLOW)
+
+        self.assertIn("git diff --quiet", detect_changes)
+        self.assertIn("FETCH_HEAD...HEAD", detect_changes)
+        self.assertIn("plugin_base/", detect_changes)
+        self.assertIn("changed=true", detect_changes)
+        self.assertIn("changed=false", detect_changes)
+
+        expected_condition = "steps.plugin_base_changes.outputs.changed == 'true'"
+        self.assertIn(expected_condition, ensure_version)
+        self.assertIn(expected_condition, sync_readme)
+        self.assertIn(expected_condition, commit_bump)
+
+    def test_workflow_only_changes_do_not_need_bot_version_commit(self):
+        text = workflow_text(PR_CHECK_WORKFLOW)
+
+        self.assertIn("id: plugin_base_changes", text)
+        self.assertRegex(
+            text,
+            r"(?s)- name: Commit version bump.*if:.*steps\.plugin_base_changes\.outputs\.changed == 'true'",
+        )
 
 
 if __name__ == "__main__":
