@@ -522,17 +522,20 @@ jobs:
 
 1. `pre_publish` 是预发布分支，PR 合入 `pre_publish` 前只做校验，不发布 Central。
 2. PR 校验会先把插件版本号规范化为 `数字.数字.数字`，例如 `1.2.0-local` 规范化为 `1.2.0`；如果规范化后仍无法识别，校验失败。
-3. PR 校验必须确认插件版本号大于 PR base 分支，必要时自动 patch +1，并同步 README 中的插件版本。
-4. 合入 `pre_publish` 后由 `publish-plugin-central.yml` 自动发布插件到 Central。
-5. 发布前必须预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central。
-6. `publish-plugin-central.yml` 使用 concurrency；同一个 `pre_publish` 发布 run 执行时，如果有新的 `pre_publish` push，旧 run 会被取消。
-7. Central deployment 创建成功后，再同步 README 中的插件版本并提交回 `pre_publish`。
-8. README 同步提交成功后创建并推送 `v<version>` tag。
-9. tag 推送成功后，将当前 `pre_publish` merge 到 `main`。
-10. 如果 Central 发布失败，不更新 README，不创建 tag，不合入 `main`。
-11. CI 日志不能打印 token、GPG 私钥、签名密码。
-12. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
-13. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
+3. PR 校验必须先检测 PR 相对 base 分支是否存在 `plugin_base/` 目录变更。只有 `plugin_base/` 下文件发生变更时，才需要确认插件版本号大于 PR base 分支，必要时自动 patch +1，并同步 README 中的插件版本。
+4. 如果 PR 只修改 workflow、文档或其他非 `plugin_base/` 文件，`Ensure publish plugin version`、`Sync README publish plugin version` 和 `Commit version bump` 步骤必须跳过，避免 GitHub Actions bot 自动 push 后触发二次 `action_required` 空检查。
+5. `Commit version bump` 只能在同仓库 PR 且 `plugin_base/` 有变更时执行；fork PR 如果需要自动版本更新，应失败并提示人工更新，不能尝试向 fork 写入。
+6. 合入 `pre_publish` 后由 `publish-plugin-central.yml` 自动发布插件到 Central。
+7. 发布前必须预演 `pre_publish` 合入 `main`，如果存在冲突，workflow 直接失败，不发布 Central。
+8. `publish-plugin-pr-check.yml` 和 `publish-plugin-central.yml` 都使用 concurrency；同一个 PR 或同一个 `pre_publish` 发布 run 执行时，如果有新的 push，旧 run 会被取消。
+9. `publish-plugin-central.yml` 的 Central token、GPG 私钥、签名 key id 和签名密码不能放在 job 级 `env`。这些 secrets 只能注入到真正需要它们的步骤：`Publish to Central staging` 和 `Create Central Portal deployment`，避免本地 metadata 校验和 Gradle TestKit fixture 继承发布凭据。
+10. Central deployment 创建成功后，再同步 README 中的插件版本并提交回 `pre_publish`。
+11. README 同步提交成功后创建并推送 `v<version>` tag。
+12. tag 推送成功后，将当前 `pre_publish` merge 到 `main`。
+13. 如果 Central 发布失败，不更新 README，不创建 tag，不合入 `main`。
+14. CI 日志不能打印 token、GPG 私钥、签名密码。
+15. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
+16. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
 
 ## 插件内部改造点
 
@@ -727,12 +730,15 @@ centralPublishingType = "automatic"
 
 1. 在一个试点项目中配置 Central namespace 和 POM 字段。
 2. GitHub Actions 增加 Central secrets。
-3. 增加 `workflow_dispatch` 手动发布 workflow。
-4. release workflow 先用 `user_managed` 上传。
-5. 在 Central Portal 手动检查并 Publish。
-6. 验证 Maven Central 可消费。
-7. 写迁移说明给其他项目复用。
-8. 试点稳定后再接入 tag 自动发布。
+3. 增加 `publish-plugin-pr-check.yml`，并在 PR 校验中检测 `plugin_base/` diff；只有插件代码或构建脚本变更时才自动规范化/递增插件版本并同步 README。
+4. PR 校验 workflow 的自动版本提交必须避免对 workflow-only 或 doc-only PR 产生 bot push，防止 GitHub Actions 生成 `action_required` 的二次空 run。
+5. 增加 `workflow_dispatch` 手动发布 workflow。
+6. release workflow 先用 `user_managed` 上传。
+7. 发布 workflow 中的 Central/GPG secrets 只注入到发布步骤，不放在 job 级环境变量，避免本地验证继承敏感发布配置。
+8. 在 Central Portal 手动检查并 Publish。
+9. 验证 Maven Central 可消费。
+10. 写迁移说明给其他项目复用。
+11. 试点稳定后再接入 tag 自动发布。
 
 ### Phase 3：增强为 Portal API 原生上传
 
@@ -821,6 +827,8 @@ https://central.sonatype.com/publishing/deployments
 5. signing key 和 Central token 必须进 CI secret，不能写入 `local.properties` 或仓库。
 6. 旧字段兼容不等于旧逻辑兼容；如果旧字段映射到 Central 后行为变化，需要在 README 和日志中明确说明。
 7. CLI 覆盖能力提升灵活性，但也可能造成构建脚本和发布参数不一致；CI 日志要打印最终非敏感配置摘要。
+8. 如果 PR check 自动修改版本号并 push 回 PR 分支，GitHub Actions bot 触发的后续 run 可能进入 `action_required`，且没有实际 job。版本递增必须限制在 `plugin_base/` 变更场景，并让 workflow-only/doc-only PR 跳过自动版本提交。
+9. 发布 secrets 如果放在 job 级 `env`，会污染本地 metadata 校验和 Gradle TestKit fixture，导致测试行为依赖 CI secret 状态。发布 secrets 必须按步骤最小作用域注入。
 
 ## 推荐结论
 
