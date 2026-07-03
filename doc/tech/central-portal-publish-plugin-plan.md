@@ -444,6 +444,8 @@ SIGNING_PASSWORD
 gpg --export-secret-keys --armor <key-id>
 ```
 
+`SIGNING_KEY_ID` 可以为空；如果配置，必须是 Gradle signing 支持的 PGP key id 格式，例如 `00B5050F`、`0x00B5050F` 或 16 位 long key id。workflow 在真正发布前校验该值；如果不是合法 hex key id，则不传 `SIGNING_KEY_ID` 给 Gradle，改为让 Gradle 从 `GPG_KEY_CONTENTS` 私钥内容推断 key id，避免因为 organization secret 填了 fingerprint、邮箱或其他描述文本导致 `Could not read PGP secret key`。
+
 这些 secrets 应放在 `Entertech` organization secrets 中，并通过 repository access 授权给需要发布的业务仓库。业务仓库使用 `secrets: inherit`，因此仓库内无需重复保存 GPG 私钥或 Central token。
 
 ### PublishPlugin 仓库 reusable workflow
@@ -537,8 +539,9 @@ jobs:
 12. 发布路径中 tag 推送成功后，将当前 `pre_publish` merge 到 `main`；等版本路径不要求 tag，直接 merge 到 `main`。
 13. 如果 Central 发布失败，不更新 README，不创建 tag，不合入 `main`。
 14. CI 日志不能打印 token、GPG 私钥、签名密码。
-15. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
-16. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
+15. 发布步骤必须在调用 Gradle 前校验 `SIGNING_KEY_ID`。为空时直接让 Gradle 从私钥推断；非空但不是 8/16 位 hex key id 时输出 warning、unset 后继续发布，避免错误 key id 阻断发布。
+16. 发布失败时保留 Gradle stacktrace，但敏感字段必须脱敏。
+17. 如果 manual upload 返回 deployment id，CI 应输出 Central Portal deployments 链接。
 
 ## 插件内部改造点
 

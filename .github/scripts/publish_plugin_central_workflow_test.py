@@ -50,6 +50,14 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         for name in ("CENTRAL_NAMESPACE", "CENTRAL_PUBLISHING_TYPE", "CENTRAL_USERNAME", "CENTRAL_PASSWORD"):
             self.assertIn(f"{name}:", central_upload)
 
+    def test_central_publish_falls_back_when_signing_key_id_is_invalid(self):
+        central_publish = step_block("Publish to Central staging")
+
+        self.assertIn("SIGNING_KEY_ID", central_publish)
+        self.assertIn("^(0x)?[0-9A-Fa-f]{8,16}$", central_publish)
+        self.assertIn("unset SIGNING_KEY_ID", central_publish)
+        self.assertIn("falling back to infer it from GPG_KEY_CONTENTS", central_publish)
+
     def test_central_publish_is_gated_by_pre_publish_vs_main_version(self):
         release = step_block("Resolve release version")
         check_tag = step_block("Check release tag")
