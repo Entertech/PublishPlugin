@@ -57,6 +57,13 @@ class EnsurePublishVersionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Cannot find publish plugin version"):
             ensure_publish_version("plugins {}\n", "version = '1.0.5'\n")
 
+    def test_uses_publish_version_property(self):
+        result = ensure_publish_version("publishVersion=1.2.0\n", "publishVersion=1.2.0\n")
+
+        self.assertTrue(result.changed)
+        self.assertEqual("1.2.1", result.version)
+        self.assertEqual("publishVersion=1.2.1\n", result.content)
+
 
 if __name__ == "__main__":
     unittest.main()

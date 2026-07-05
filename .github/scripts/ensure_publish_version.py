@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 VERSION_LINE_RE = re.compile(r"(?m)^(\s*version\s*=\s*)(['\"])([^'\"]+)(\2)")
+PUBLISH_VERSION_PROPERTY_RE = re.compile(r"(?m)^(\s*publishVersion\s*[=:]\s*)([^\s#]+)")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 NORMALIZABLE_SEMVER_RE = re.compile(r"^\s*v?(\d+)\.(\d+)\.(\d+)(?:[^\d].*)?\s*$")
 
@@ -21,9 +22,12 @@ class VersionResult:
 
 def extract_version(content: str) -> str:
     match = VERSION_LINE_RE.search(content)
-    if not match:
-        raise ValueError("Cannot find publish plugin version")
-    return match.group(3)
+    if match:
+        return match.group(3)
+    match = PUBLISH_VERSION_PROPERTY_RE.search(content)
+    if match:
+        return match.group(2).strip()
+    raise ValueError("Cannot find publish plugin version")
 
 
 def parse_semver(version: str) -> tuple[int, int, int]:
@@ -49,9 +53,12 @@ def bump_patch(version: str) -> str:
 
 def replace_version(content: str, version: str) -> str:
     match = VERSION_LINE_RE.search(content)
-    if not match:
-        raise ValueError("Cannot find publish plugin version")
-    return VERSION_LINE_RE.sub(rf"\g<1>\g<2>{version}\g<4>", content, count=1)
+    if match:
+        return VERSION_LINE_RE.sub(rf"\g<1>\g<2>{version}\g<4>", content, count=1)
+    match = PUBLISH_VERSION_PROPERTY_RE.search(content)
+    if match:
+        return PUBLISH_VERSION_PROPERTY_RE.sub(rf"\g<1>{version}", content, count=1)
+    raise ValueError("Cannot find publish plugin version")
 
 
 def ensure_publish_version(head_content: str, base_content: str) -> VersionResult:

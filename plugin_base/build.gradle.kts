@@ -9,6 +9,8 @@ plugins {
     signing
 }
 
+fun publishProperty(name: String): String = providers.gradleProperty(name).get()
+
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
@@ -16,11 +18,11 @@ java {
     withJavadocJar()
 }
 
-group = "cn.entertech.android"
-version = "1.2.1"
+group = publishProperty("publishGroup")
+version = publishProperty("publishVersion")
 
 base {
-    archivesName.set("publish")
+    archivesName.set(publishProperty("publishArtifactId"))
 }
 
 tasks.withType<KotlinCompile>().configureEach {
@@ -38,11 +40,9 @@ dependencies {
 
 fun MavenPublication.configureCentralPomMetadata() {
     pom {
-        name.set("Entertech Publish Gradle Plugin")
-        description.set(
-            "Gradle plugin for publishing Android libraries and Gradle plugins to Maven Local and Sonatype Central Portal."
-        )
-        url.set("https://github.com/Entertech/PublishPlugin")
+        name.set(publishProperty("publishDisplayName"))
+        description.set(publishProperty("publishDescription"))
+        url.set(publishProperty("publishWebsite"))
         inceptionYear.set("2025")
 
         licenses {
@@ -55,19 +55,19 @@ fun MavenPublication.configureCentralPomMetadata() {
 
         developers {
             developer {
-                id.set("Entertech")
-                name.set("Entertech")
-                email.set("developer@entertech.cn")
-                organization.set("Entertech")
-                organizationUrl.set("https://github.com/Entertech")
-                url.set("https://github.com/Entertech")
+                id.set(publishProperty("publishDeveloperId"))
+                name.set(publishProperty("publishDeveloperName"))
+                email.set(publishProperty("publishDeveloperEmail"))
+                organization.set(publishProperty("publishDeveloperOrganization"))
+                organizationUrl.set(publishProperty("publishDeveloperOrganizationUrl"))
+                url.set(publishProperty("publishDeveloperUrl"))
             }
         }
 
         scm {
-            url.set("https://github.com/Entertech/PublishPlugin")
-            connection.set("scm:git:git://github.com/Entertech/PublishPlugin.git")
-            developerConnection.set("scm:git:ssh://git@github.com/Entertech/PublishPlugin.git")
+            url.set(publishProperty("publishScmUrl"))
+            connection.set(publishProperty("publishScmConnection"))
+            developerConnection.set(publishProperty("publishScmDeveloperConnection"))
         }
     }
 }
@@ -75,7 +75,7 @@ fun MavenPublication.configureCentralPomMetadata() {
 gradlePlugin {
     plugins {
         create("publish") {
-            id = "cn.entertech.publish"
+            id = publishProperty("publishPluginId")
             implementationClass = "custom.android.plugin.PublishPlugin"
         }
     }
@@ -85,7 +85,7 @@ publishing {
     publications {
         withType<MavenPublication>().configureEach {
             if (name == "pluginMaven") {
-                artifactId = "publish"
+                artifactId = publishProperty("publishArtifactId")
             }
             configureCentralPomMetadata()
         }

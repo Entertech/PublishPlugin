@@ -8,9 +8,9 @@ on:
         required: true
         type: string
       namespace:
-        description: "Sonatype Central namespace, for example cn.entertech"
+        description: "Sonatype Central namespace, for example io.github.wk1995"
         required: false
-        default: "cn.entertech"
+        default: "io.github.wk1995"
         type: string
       publishing_type:
         description: "Central publishing type"
@@ -35,7 +35,7 @@ on:
       GPG_KEY_CONTENTS:
         required: true
       SIGNING_KEY_ID:
-        required: true
+        required: false
       SIGNING_PASSWORD:
         required: true
 

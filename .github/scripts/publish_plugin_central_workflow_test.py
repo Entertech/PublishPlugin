@@ -79,8 +79,8 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
 
 
 class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
-    def test_version_bump_only_runs_when_plugin_base_changed(self):
-        detect_changes = step_block("Detect plugin_base changes", PR_CHECK_WORKFLOW)
+    def test_version_bump_only_runs_when_publish_plugin_changed(self):
+        detect_changes = step_block("Detect publish plugin changes", PR_CHECK_WORKFLOW)
         ensure_version = step_block("Ensure publish plugin version", PR_CHECK_WORKFLOW)
         sync_readme = step_block("Sync README publish plugin version", PR_CHECK_WORKFLOW)
         commit_bump = step_block("Commit version bump", PR_CHECK_WORKFLOW)
@@ -88,10 +88,11 @@ class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
         self.assertIn("git diff --quiet", detect_changes)
         self.assertIn("FETCH_HEAD...HEAD", detect_changes)
         self.assertIn("plugin_base/", detect_changes)
+        self.assertIn("gradle.properties", detect_changes)
         self.assertIn("changed=true", detect_changes)
         self.assertIn("changed=false", detect_changes)
 
-        expected_condition = "steps.plugin_base_changes.outputs.changed == 'true'"
+        expected_condition = "steps.publish_plugin_changes.outputs.changed == 'true'"
         self.assertIn(expected_condition, ensure_version)
         self.assertIn(expected_condition, sync_readme)
         self.assertIn(expected_condition, commit_bump)
@@ -99,10 +100,10 @@ class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
     def test_workflow_only_changes_do_not_need_bot_version_commit(self):
         text = workflow_text(PR_CHECK_WORKFLOW)
 
-        self.assertIn("id: plugin_base_changes", text)
+        self.assertIn("id: publish_plugin_changes", text)
         self.assertRegex(
             text,
-            r"(?s)- name: Commit version bump.*if:.*steps\.plugin_base_changes\.outputs\.changed == 'true'",
+            r"(?s)- name: Commit version bump.*if:.*steps\.publish_plugin_changes\.outputs\.changed == 'true'",
         )
 
 

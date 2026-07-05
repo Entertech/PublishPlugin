@@ -3,6 +3,8 @@ import argparse
 import re
 from pathlib import Path
 
+from distribution_config import DistributionConfig
+
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 BUILD_VERSION_RE = re.compile(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]")
@@ -12,30 +14,33 @@ def read_plugin_version(build_file: Path) -> str:
     content = build_file.read_text(encoding="utf-8")
     match = BUILD_VERSION_RE.search(content)
     if not match:
-        raise ValueError(f"Cannot find publish plugin version in {build_file}")
+        config = DistributionConfig.load(build_file.resolve().parents[1] / "gradle.properties")
+        return config.version
     return match.group(1)
 
 
-def sync_readme_publish_version(content: str, version: str) -> str:
+def sync_readme_publish_version(content: str, version: str, config: DistributionConfig | None = None) -> str:
     if not SEMVER_RE.fullmatch(version):
         raise ValueError(f"Publish plugin version '{version}' must use digits.digits.digits format")
 
+    config = config or DistributionConfig.load()
+    marker_artifact = f"{config.plugin_id}.gradle.plugin"
     replacements = (
         (
-            r'classpath\("cn\.entertech\.android:publish:[^"]+"\)',
-            f'classpath("cn.entertech.android:publish:{version}")',
+            rf'classpath\("[A-Za-z0-9_.-]+:{re.escape(config.artifact_id)}:[^"]+"\)',
+            f'classpath("{config.group_id}:{config.artifact_id}:{version}")',
         ),
         (
-            r"cn\.entertech\.android:publish:(?:<version>|\d+\.\d+\.\d+)",
-            f"cn.entertech.android:publish:{version}",
+            rf"[A-Za-z0-9_.-]+:{re.escape(config.artifact_id)}:(?:<version>|\d+\.\d+\.\d+)",
+            f"{config.group_id}:{config.artifact_id}:{version}",
         ),
         (
-            r"cn\.entertech\.publish:cn\.entertech\.publish\.gradle\.plugin:(?:<version>|\d+\.\d+\.\d+)",
-            f"cn.entertech.publish:cn.entertech.publish.gradle.plugin:{version}",
+            r"[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+\.gradle\.plugin:(?:<version>|\d+\.\d+\.\d+)",
+            f"{config.plugin_id}:{marker_artifact}:{version}",
         ),
         (
-            r'id\("cn\.entertech\.publish"\) version "(?:<version>|\d+\.\d+\.\d+)"',
-            f'id("cn.entertech.publish") version "{version}"',
+            r'id\("[A-Za-z0-9_.-]+"\) version "(?:<version>|\d+\.\d+\.\d+)"',
+            f'id("{config.plugin_id}") version "{version}"',
         ),
     )
 

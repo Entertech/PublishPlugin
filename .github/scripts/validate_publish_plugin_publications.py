@@ -4,11 +4,14 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from distribution_config import DistributionConfig
+
 
 ROOT = Path(__file__).resolve().parents[2]
-PLUGIN_ID = "cn.entertech.publish"
-GROUP_ID = "cn.entertech.android"
-ARTIFACT_ID = "publish"
+CONFIG = DistributionConfig.load(ROOT / "gradle.properties")
+PLUGIN_ID = CONFIG.plugin_id
+GROUP_ID = CONFIG.group_id
+ARTIFACT_ID = CONFIG.artifact_id
 
 
 def fail(message: str) -> None:
