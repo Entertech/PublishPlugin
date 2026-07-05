@@ -54,9 +54,10 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         central_publish = step_block("Publish to Central staging")
 
         self.assertIn("SIGNING_KEY_ID", central_publish)
-        self.assertIn("^(0x)?[0-9A-Fa-f]{8,16}$", central_publish)
-        self.assertIn("unset SIGNING_KEY_ID", central_publish)
+        self.assertIn("normalize_signing_key_id.py", central_publish)
+        self.assertIn("original_signing_key_id", central_publish)
         self.assertIn("falling back to infer it from GPG_KEY_CONTENTS", central_publish)
+        self.assertIn("normalized to a Gradle-compatible long key id", central_publish)
 
     def test_central_publish_is_gated_by_pre_publish_vs_main_version(self):
         release = step_block("Resolve release version")
