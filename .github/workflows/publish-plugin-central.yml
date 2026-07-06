@@ -221,6 +221,14 @@ jobs:
           ./gradlew :plugin_base:publishToMavenLocal --stacktrace
           python3 .github/scripts/validate_publish_plugin_publications.py
 
+      - name: Ensure PGP public key is available
+        if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
+        env:
+          GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+        run: |
+          python3 .github/scripts/ensure_pgp_public_key_available.py \
+            --keyserver keyserver.ubuntu.com
+
       - name: Publish to Central staging
         if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         env:
