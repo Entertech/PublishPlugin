@@ -59,6 +59,21 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         self.assertIn("falling back to infer it from GPG_KEY_CONTENTS", central_publish)
         self.assertIn("normalized to a Gradle-compatible long key id", central_publish)
 
+    def test_central_publish_makes_pgp_public_key_available_before_upload(self):
+        text = workflow_text()
+        public_key = step_block("Ensure PGP public key is available")
+
+        self.assertLess(
+            text.index("- name: Ensure PGP public key is available"),
+            text.index("- name: Publish to Central staging"),
+        )
+        self.assertIn("steps.release.outputs.publish_required == 'true'", public_key)
+        self.assertIn("GPG_KEY_CONTENTS:", public_key)
+        self.assertIn("ensure_pgp_public_key_available.py", public_key)
+        self.assertIn("keyserver.ubuntu.com", public_key)
+        self.assertNotIn("CENTRAL_PASSWORD:", public_key)
+        self.assertNotIn("SIGNING_PASSWORD:", public_key)
+
     def test_central_publish_is_gated_by_pre_publish_vs_main_version(self):
         release = step_block("Resolve release version")
         check_tag = step_block("Check release tag")
