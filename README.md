@@ -344,6 +344,17 @@ dependencies {
 ./gradlew :module:PublishLibraryRemoteTask
 ```
 
+其他仓库接入这个插件发布到 Central Portal 前，需要先确认这些事项：
+
+- 发布账号已经在 Central Portal 验证过对应 namespace。`groupId` 必须等于该 namespace 或位于该 namespace 下；如果不是 `cn.entertech`，必须配置 `centralNamespace` 或通过 `-PcentralNamespace=...` 覆盖。
+- 模块已应用 `cn.entertech.publish`。Android Library 模块需要配置 `groupId`、`artifactId`、`version`、`pomDescription`、`pomUrl`；Gradle Plugin 模块还需要配置 `pluginId` 和 `implementationClass`。
+- Central 凭据不要写入 `build.gradle.kts`。CI 中使用 Central Portal 生成的 User Token，传入 `CENTRAL_USERNAME` / `CENTRAL_PASSWORD`，或使用兼容变量 `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD`。
+- GPG 签名信息必须由 CI 或命令行注入。通常传 `ORG_GRADLE_PROJECT_signingInMemoryKey` 和 `ORG_GRADLE_PROJECT_signingInMemoryKeyPassword`；key id 可以不传，让 Gradle 从私钥内容推断。
+- SCM 信息默认会从 GitHub Actions、GitLab CI、`GIT_URL`、`BUILD_REPOSITORY_URI` 或本地 `git remote origin` 推导。如果 CI 环境拿不到仓库地址，显式传 `-PscmUrl=...`；`scmConnection` 和 `scmDeveloperConnection` 会自动根据 `scmUrl` 生成。
+- `version` 不能包含 `debug`，并且发布到 Maven Central 的版本号不能复用；同一个坐标版本已经发布后不能覆盖。
+- 默认 `centralPublishingType = "user_managed"`。构建上传成功后，还需要登录 Central Portal 手动点击 Publish 才会真正发布到 Maven Central；如果要自动发布，再改成 `automatic`。
+- 如果业务仓库使用本仓库的 reusable workflow，需要使用 `secrets: inherit`，并确保 organization secrets 的 repository access 已授权给调用 workflow 的仓库。
+
 Central 必需配置示例。`centralNamespace`、Developer、SCM、`pomInceptionYear` 都有默认或推导值；如果发布的 namespace 不是 `cn.entertech`，必须覆盖 `centralNamespace`：
 
 ```kotlin
