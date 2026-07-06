@@ -58,6 +58,20 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void javaGradlePluginModuleCreatesPublicationWithoutGroovyPlugin() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, "", "", false);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(projectDir.toPath(), "EnterPublish", "fixture");
+    }
+
+    @Test
     public void centralModeAddsCentralRepositoryAndPomMetadataCanBeOverriddenFromCli() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
 
@@ -231,6 +245,16 @@ public class PublishPluginFunctionalTest {
             String publishInfoExtra,
             String localProperties
     ) throws IOException {
+        return createGradlePluginProject(version, componentPublishesSources, publishInfoExtra, localProperties, true);
+    }
+
+    private File createGradlePluginProject(
+            String version,
+            boolean componentPublishesSources,
+            String publishInfoExtra,
+            String localProperties,
+            boolean includeGroovyPlugin
+    ) throws IOException {
         File root = temporaryFolder.newFolder("project-" + version);
         write(root.toPath().resolve("settings.gradle"), "pluginManagement {\n"
                 + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
@@ -254,8 +278,9 @@ public class PublishPluginFunctionalTest {
                         + "}\n");
 
         String publishSources = componentPublishesSources ? "java { withSourcesJar() }\n" : "";
+        String groovyPlugin = includeGroovyPlugin ? "    id 'groovy'\n" : "";
         write(fixtureDir.resolve("build.gradle"), "plugins {\n"
-                + "    id 'groovy'\n"
+                + groovyPlugin
                 + "    id 'java-gradle-plugin'\n"
                 + "    id 'cn.entertech.publish'\n"
                 + "}\n"

@@ -46,7 +46,9 @@ open class PublishPlugin : Plugin<Project> {
     }
 
     private fun supportPluginModule(container: PluginContainer): Boolean {
-        return container.hasPlugin("org.gradle.kotlin.kotlin-dsl") || container.hasPlugin("groovy")
+        return container.hasPlugin("java-gradle-plugin") ||
+            container.hasPlugin("org.gradle.kotlin.kotlin-dsl") ||
+            container.hasPlugin("groovy")
     }
 
     private fun supportLibraryModule(container: PluginContainer) =

@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "cn.entertech.entertech.plugin"
+    namespace = "cn.entertech.plugin.demo.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "cn.entertech.entertech.plugin"
+        applicationId = "cn.entertech.plugin.demo.app"
         minSdk = 24
         targetSdk = 34
         versionCode = 1

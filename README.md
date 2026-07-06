@@ -41,7 +41,7 @@ plugins {
 ```
 或者 在需要打包的library｜gradle插件目录下的  **build.gradle** 文件添加下面的插件
 ```
-apply plugin: 'custom.android.plugin'
+apply plugin: 'cn.entertech.publish'
 ```
 
 ## 基础配置
