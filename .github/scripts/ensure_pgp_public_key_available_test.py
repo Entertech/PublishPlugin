@@ -111,6 +111,33 @@ class EnsurePgpPublicKeyAvailableTest(unittest.TestCase):
         self.assertEqual(runner.recv_attempts, 2)
         self.assertEqual(sleeps, [3])
 
+    def test_requires_multiple_stable_keyserver_lookups(self):
+        class FlakyRunner(FakeGpgRunner):
+            def __call__(self, command, *, gnupg_home, input_text=None):
+                if "--recv-keys" in command:
+                    self.recv_attempts += 1
+                    self.calls.append((command, gnupg_home, input_text))
+                    if self.recv_attempts == 2:
+                        return CommandResult(2, "", "not found")
+                    return CommandResult(0, "", "")
+                return super().__call__(command, gnupg_home=gnupg_home, input_text=input_text)
+
+        runner = FlakyRunner()
+        sleeps = []
+
+        ensure_public_keys_available(
+            key_contents="secret-key",
+            keyservers=["keyserver.ubuntu.com"],
+            runner=runner,
+            retries=6,
+            stable_lookups=3,
+            retry_delay_seconds=5,
+            sleep=sleeps.append,
+        )
+
+        self.assertEqual(runner.recv_attempts, 5)
+        self.assertEqual(sleeps, [5, 5, 5, 5])
+
     def test_uses_custom_gpg_executable_for_all_commands(self):
         runner = FakeGpgRunner()
 

@@ -67,10 +67,15 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
             text.index("- name: Ensure PGP public key is available"),
             text.index("- name: Publish to Central staging"),
         )
+        self.assertLess(
+            text.index("- name: Ensure PGP public key is available"),
+            text.index("- name: Set up JDK"),
+        )
         self.assertIn("steps.release.outputs.publish_required == 'true'", public_key)
         self.assertIn("GPG_KEY_CONTENTS:", public_key)
         self.assertIn("ensure_pgp_public_key_available.py", public_key)
         self.assertIn("keyserver.ubuntu.com", public_key)
+        self.assertIn("--stable-lookups 3", public_key)
         self.assertNotIn("CENTRAL_PASSWORD:", public_key)
         self.assertNotIn("SIGNING_PASSWORD:", public_key)
 
