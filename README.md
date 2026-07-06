@@ -4,7 +4,9 @@
 
 当前远程发布入口继续复用旧任务名 `PublishLibraryRemoteTask`，实现上默认面向 Sonatype Central Portal；旧的私服字段仍保留，避免已有项目的 `PublishInfo { ... }` 配置编译失败。
 
-## 接入插件
+## 快速开始
+
+### 1. 根工程引入插件
 
 在根工程 `build.gradle.kts` 中加入插件依赖：
 
@@ -22,7 +24,9 @@ buildscript {
 }
 ```
 
-在需要发布的 Library 或 Gradle Plugin 模块中应用插件：
+### 2. 发布 Android Library
+
+在需要发布的 Android Library 模块中应用插件：
 
 ```kotlin
 plugins {
@@ -31,49 +35,75 @@ plugins {
 }
 ```
 
-Gradle Plugin 模块继续使用：
+最小 `PublishInfo`：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "base"
+    version = "0.0.1"
+}
+```
+
+### 3. 发布 Gradle Plugin
+
+Gradle Plugin 模块需要同时应用 `cn.entertech.publish` 和 `java-gradle-plugin`：
 
 ```kotlin
 plugins {
-    `java-gradle-plugin`
     id("cn.entertech.publish")
+    `java-gradle-plugin`
 }
 ```
-或者 在需要打包的library｜gradle插件目录下的  **build.gradle** 文件添加下面的插件
+
+最小 `PublishInfo`：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "demo-publish-plugin"
+    version = "1.0.0"
+
+    pluginId = "cn.entertech.demo"
+    implementationClass = "cn.entertech.demo.DemoPlugin"
+}
 ```
+
+如果项目仍使用 Groovy `build.gradle`，也可以使用旧写法：
+
+```groovy
 apply plugin: 'cn.entertech.publish'
 ```
 
-## 基础配置
+## 仓库内 demo
 
-最小配置：
+本仓库提供两个可运行示例：
 
-```kotlin
-PublishInfo {
-    groupId = "cn.entertech.android"
-    artifactId = "base"
-    version = "0.0.1"
-}
-```
+| 模块 | 用途 | 覆盖内容 |
+| --- | --- | --- |
+| `demo-lib` | Android Library 发布示例 | `PublishInfo` 基础坐标、POM/Central 元数据、多 flavor release variant、`artifactIdForVariant`。 |
+| `demo-plugin` | Gradle Plugin 发布示例 | `java-gradle-plugin`、`pluginId`、`implementationClass`、Gradle 插件入口类、本地 Maven 发布。 |
 
-旧字段仍兼容：
+## PublishInfo 配置速查
 
-```kotlin
-PublishInfo {
-    groupId = "cn.entertech.android"
-    artifactId = "base"
-    version = "0.0.1"
+`PublishInfo` 描述要发布的 Maven 坐标、远程仓库模式、POM 元数据以及多 variant 规则。不同发布场景需要的字段不同：
 
-    pluginId = ""
-    implementationClass = ""
+| 场景 | 必填字段 | 额外要求 |
+| --- | --- | --- |
+| 本地 Maven 发布 | `groupId`、`artifactId`、`version` | 执行 `PublishLibraryLocalTask` 或 `publishToMavenLocal`。不要求 Central 凭据、签名和完整 POM 元数据。 |
+| Android Library 远程发 Central | `groupId`、`artifactId`、`version`、`centralNamespace`、`pomDescription`、`pomUrl`、Developer 字段、SCM 字段 | 通过 Gradle property 或环境变量传入 Central token 和 GPG signing 信息。`version` 不能包含 `debug`。 |
+| Gradle Plugin 远程发 Central | Android Library 远程字段 + `pluginId`、`implementationClass` | `pluginId` 是用户使用 `plugins { id("...") }` 时看到的插件 ID。 |
+| 旧私服发布 | `groupId`、`artifactId`、`version`、`remotePublishMode = "customRepository"`、`publishUrl` | `publishUserName`、`publishPassword` 按仓库权限需要配置。 |
 
-    publishUrl = ""
-    publishUserName = ""
-    publishPassword = ""
-}
-```
+字段值解析优先级按用途分组：
 
-`local.properties` 也可以提供旧私服字段，值不要加引号：
+- `groupId`、`artifactId`、`version` 直接来自 `PublishInfo`。
+- Central、POM、License、Developer、SCM 字段支持命令行覆盖：`Gradle property > 环境变量 > PublishInfo 字段 > 默认值`。
+- `publishUrl`、`publishUserName`、`publishPassword` 兼容 `local.properties`：`Gradle property > PublishInfo 字段 > local.properties`。
+- Central token 不建议写进 `PublishInfo`。优先使用 `-PcentralUsername/-PcentralPassword` 或 `CENTRAL_USERNAME/CENTRAL_PASSWORD`。
+- GPG signing 信息不是 `PublishInfo` 字段，只能通过 Gradle property 或环境变量传入。
+
+`local.properties` 中的旧私服字段值不要加引号：
 
 ```properties
 publishUrl=https://repo.example.com/releases
@@ -83,97 +113,100 @@ publishPassword=password
 
 ## PublishInfo 字段说明
 
-### 基础坐标字段
+### Maven 坐标字段
 
-| 字段 | 作用 | 是否必填 | 说明 |
-| --- | --- | --- | --- |
-| `groupId` | Maven 坐标的 groupId | 是 | Central 发布时必须落在已验证的 `centralNamespace` 下，例如 namespace 是 `ai.looktech`，则 `groupId` 可以是 `ai.looktech` 或 `ai.looktech.xxx`。 |
-| `artifactId` | Maven 坐标的 artifactId | 是 | 普通单组件发布时直接作为 artifactId；多 variant 发布时作为默认值和 base 值，可被 `artifactIdForVariant` 动态覆盖。 |
-| `version` | Maven 坐标的 version | 是 | 本地发布时 `-debug` 版本会附带 sources jar；远程 Central 发布禁止使用包含 `debug` 的版本。 |
+| 字段 | 必填场景 | 说明 |
+| --- | --- | --- |
+| `groupId` | 所有发布 | Maven 坐标的 groupId。Central 发布时必须落在已验证的 `centralNamespace` 下，例如 namespace 是 `ai.looktech`，则 `groupId` 可以是 `ai.looktech` 或 `ai.looktech.xxx`。 |
+| `artifactId` | 所有发布 | Maven 坐标的 artifactId。单 publication 直接使用该值；多 release variant 场景下是默认值，可被 `artifactIdForVariant` 为每个 variant 动态覆盖。 |
+| `version` | 所有发布 | Maven 坐标的 version。本地发布时，版本以 `-debug` 结尾会额外发布 sources jar；Central 远程发布会拒绝包含 `debug` 的版本。 |
 
-### Gradle 插件发布字段
+### Gradle Plugin 字段
 
 只有发布 Gradle Plugin 模块时需要配置这两个字段；普通 Android Library 不需要。
 
-| 字段 | 作用 | 是否必填 | 说明 |
-| --- | --- | --- | --- |
-| `pluginId` | Gradle 插件 ID | 发布 Gradle Plugin 时必填 | 写入 `gradlePlugin { plugins { ... } }` 的插件 ID，例如 `cn.entertech.foo`。 |
-| `implementationClass` | Gradle 插件实现类 | 发布 Gradle Plugin 时必填 | 插件入口类全限定名，例如 `cn.entertech.foo.FooPlugin`。 |
+| 字段 | 必填场景 | 说明 |
+| --- | --- | --- |
+| `pluginId` | Gradle Plugin 发布 | Gradle 插件 ID，例如 `cn.entertech.foo`。用户消费插件时写 `plugins { id("cn.entertech.foo") }`。 |
+| `implementationClass` | Gradle Plugin 发布 | 插件入口类全限定名，例如 `cn.entertech.foo.FooPlugin`。该类必须实现 `org.gradle.api.Plugin<Project>`。 |
+
+### 远程发布模式字段
+
+这些字段只影响远程发布任务 `PublishLibraryRemoteTask` 或标准远程 repository publish 任务；本地 `publishToMavenLocal` 不要求 Central token 或签名。
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `remotePublishMode` | `central` | 远程发布模式。`central` 使用 Sonatype Central Portal；`customRepository` 使用旧自定义 Maven 仓库。 |
+| `centralNamespace` | 空 | Central 远程发布必填。发布前会校验 `groupId` 必须等于该 namespace 或以 `${centralNamespace}.` 开头。 |
+| `centralPublishingType` | `user_managed` | Central Portal deployment 发布方式。`user_managed` 表示上传后到 Portal 手动 Publish；`automatic` 表示请求 Central 自动发布。 |
+| `centralRepositoryName` | `CentralStaging` | Gradle repository 名称，会影响任务名，例如 `publishEnterPublishPublicationToCentralStagingRepository`。一般不需要改。 |
 
 ### 旧私服字段
 
 这些字段保留是为了兼容旧项目；默认 Central 发布不建议把凭据写在 `build.gradle.kts` 里。
 
-| 字段 | 作用 | 生效场景 | 说明 |
-| --- | --- | --- | --- |
-| `publishUrl` | 自定义 Maven 仓库地址 | `remotePublishMode = "customRepository"` | 旧私服发布地址。默认 Central 模式不会用它作为上传地址。 |
-| `publishUserName` | 自定义仓库用户名 | `customRepository`，也作为 Central token username fallback | 优先级低于 `-PcentralUsername`、`CENTRAL_USERNAME`、`-PmavenCentralUsername`、`MAVEN_CENTRAL_USERNAME`。 |
-| `publishPassword` | 自定义仓库密码 | `customRepository`，也作为 Central token password fallback | 优先级低于 `-PcentralPassword`、`CENTRAL_PASSWORD`、`-PmavenCentralPassword`、`MAVEN_CENTRAL_PASSWORD`。 |
-
-### Central 发布字段
-
-| 字段 | 作用 | 是否必填 | 默认值/说明 |
-| --- | --- | --- | --- |
-| `remotePublishMode` | 选择远程发布模式 | 否 | 默认 `central`。可设为 `customRepository` 走旧自定义 Maven 仓库。 |
-| `centralNamespace` | Sonatype Central namespace | Central 远程发布必填 | 例如 `ai.looktech`。远程发布前会校验 `groupId` 是否在该 namespace 下。 |
-| `centralPublishingType` | Central Portal deployment 发布方式 | 否 | 默认 `user_managed`，上传后在 Portal 手动 Publish；可设为 `automatic`。 |
-| `centralRepositoryName` | Gradle repository 名称 | 否 | 默认 `CentralStaging`，会影响 Gradle 任务名，例如 `publishEnterPublishPublicationToCentralStagingRepository`。 |
+| 字段 | 生效场景 | 说明 |
+| --- | --- | --- |
+| `publishUrl` | `remotePublishMode = "customRepository"` | 旧私服 Maven 仓库地址。Central 模式不会把它作为上传地址。 |
+| `publishUserName` | `customRepository`；Central token fallback | 自定义仓库用户名；Central 模式下只作为 token username 的低优先级 fallback。 |
+| `publishPassword` | `customRepository`；Central token fallback | 自定义仓库密码；Central 模式下只作为 token password 的低优先级 fallback。 |
 
 ### POM 元数据字段
 
 Central 远程发布要求 POM 元数据完整；这些字段本地发布可以为空，执行 `PublishLibraryRemoteTask` 时会校验。
 
-| 字段 | 作用 | Central 是否必填 | 说明 |
-| --- | --- | --- | --- |
-| `pomName` | POM `<name>` | 否 | 为空时默认使用当前 artifactId。多 variant 动态 artifactId 场景下，会使用每个 publication 的最终 artifactId 作为 fallback。 |
-| `pomDescription` | POM `<description>` | 是 | 简短说明库的用途。 |
-| `pomInceptionYear` | POM `<inceptionYear>` | 否 | 项目开始年份。 |
-| `pomUrl` | POM `<url>` | 是 | 项目主页、仓库地址或文档地址。 |
+| 字段 | Central 是否必填 | 说明 |
+| --- | --- | --- |
+| `pomName` | 否 | POM `<name>`。为空时使用当前 publication 的最终 artifactId。多 variant 动态 artifactId 场景下，每个 publication 都会用自己的最终 artifactId 作为 fallback。 |
+| `pomDescription` | 是 | POM `<description>`。建议写清楚库或插件的用途，不要只写 artifactId。 |
+| `pomInceptionYear` | 否 | POM `<inceptionYear>`，项目开始年份。 |
+| `pomUrl` | 是 | POM `<url>`，通常是项目主页、Git 仓库或文档地址。 |
 
 ### License 字段
 
-| 字段 | 作用 | 默认值 |
+License 字段会写入 POM。默认使用 Apache-2.0，只有项目许可证不是 Apache-2.0 时才需要改。
+
+| 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `licenseName` | POM license name | `The Apache License, Version 2.0` |
-| `licenseUrl` | POM license URL | `https://www.apache.org/licenses/LICENSE-2.0.txt` |
-| `licenseDistribution` | POM license distribution | `repo` |
+| `licenseName` | `The Apache License, Version 2.0` | POM license name。 |
+| `licenseUrl` | `https://www.apache.org/licenses/LICENSE-2.0.txt` | POM license URL。 |
+| `licenseDistribution` | `repo` | POM license distribution。 |
 
 ### Developer 字段
 
 Central 远程发布会校验开发者信息，建议全部配置。
 
-| 字段 | 作用 | Central 是否必填 |
+| 字段 | Central 是否必填 | 说明 |
 | --- | --- | --- |
-| `developerId` | 开发者或组织 ID | 是 |
-| `developerName` | 开发者或组织名称 | 是 |
-| `developerEmail` | 联系邮箱 | 是 |
-| `developerOrganization` | 组织名称 | 是 |
-| `developerOrganizationUrl` | 组织主页 | 是 |
-| `developerUrl` | 开发者主页 | 否 |
+| `developerId` | 是 | 开发者或组织 ID。 |
+| `developerName` | 是 | 开发者或组织名称。 |
+| `developerEmail` | 是 | 联系邮箱。 |
+| `developerOrganization` | 是 | 组织名称。 |
+| `developerOrganizationUrl` | 是 | 组织主页。 |
+| `developerUrl` | 否 | 开发者主页。没有个人主页时可不填。 |
 
 ### SCM 字段
 
 Central 远程发布要求源码仓库信息。
 
-| 字段 | 作用 | 示例 |
+| 字段 | Central 是否必填 | 示例 |
 | --- | --- | --- |
-| `scmUrl` | 仓库浏览地址 | `https://github.com/Entertech/lt-rpc-schema` |
-| `scmConnection` | 只读 SCM 地址 | `scm:git:git://github.com/Entertech/lt-rpc-schema.git` |
-| `scmDeveloperConnection` | 开发者 SCM 地址 | `scm:git:ssh://git@github.com/Entertech/lt-rpc-schema.git` |
+| `scmUrl` | 是 | `https://github.com/Entertech/lt-rpc-schema` |
+| `scmConnection` | 是 | `scm:git:git://github.com/Entertech/lt-rpc-schema.git` |
+| `scmDeveloperConnection` | 是 | `scm:git:ssh://git@github.com/Entertech/lt-rpc-schema.git` |
 
 ### 动态 artifactId 与 variant 过滤
 
-`artifactIdForVariant { variant -> ... }` 不是普通字段，而是按 Android release variant 计算 artifactId 的回调。
-`skipVariantIf { variant -> ... }` 用于过滤不需要发布的 release variant。
+`artifactIdForVariant { variant -> ... }` 和 `skipVariantIf { variant -> ... }` 只对 Android Library 的 release variant 生效。无 flavor 的普通 `release` 组件不会传入 variant 回调，直接使用 `artifactId`。
 
-| API | 作用 | 生效场景 |
+| API/字段 | 作用 | 说明 |
 | --- | --- | --- |
-| `artifactIdForVariant` | 为每个 variant 返回独立 artifactId | Android Library 存在多个 release component 时 |
-| `skipVariantIf` | 返回 `true` 时跳过该 variant，不注册 publication | Android Library 多 release variant 发布时 |
-| `variant.name` | 当前 component/variant 名 | 例如 `breathAuthRelease` |
-| `variant.buildType` | 当前 build type | 当前插件只发布 `release` component |
-| `variant.flavors` | flavor 维度到 flavor 名称的 Map | 例如 `project -> breath`、`authentication -> auth` |
-| `variant.flavor("dimension")` | 获取指定维度的 flavor 名称 | 不存在时返回空字符串 |
+| `artifactIdForVariant` | 为每个 release variant 返回独立 artifactId | 返回空字符串时回退到 `artifactId`。适合多 flavor 输出不同 Maven 坐标。 |
+| `skipVariantIf` | 过滤不需要发布的 release variant | 返回 `true` 时跳过该 variant，不注册 publication，也不会生成对应 publish 任务。 |
+| `variant.name` | 当前 component/variant 名 | 例如 `breathAuthRelease`。 |
+| `variant.buildType` | 当前 build type | 当前插件只发布 `release` component。 |
+| `variant.flavors` | flavor 维度到 flavor 名称的 Map | 例如 `project -> breath`、`authentication -> auth`。 |
+| `variant.flavor("dimension")` | 获取指定维度的 flavor 名称 | 不存在时返回空字符串，便于安全拼接 artifactId。 |
 
 ## 本地打 AAR
 
@@ -488,24 +521,39 @@ PublishInfo {
 
 ## CLI 覆盖
 
-Central 字段支持命令行覆盖，便于本地和 CI 使用：
+CI 或本地临时发布时，建议用 Gradle property 或环境变量覆盖敏感信息和临时元数据，不要把 token、密码、GPG 私钥写入 `build.gradle.kts`。
 
-| Gradle property | 用途 |
-| --- | --- |
-| `-PcentralNamespace=...` | 覆盖 `centralNamespace` |
-| `-PcentralPublishingType=...` | 覆盖 `centralPublishingType` |
-| `-PcentralUsername=...` | Central token username |
-| `-PcentralPassword=...` | Central token password |
-| `-PmavenCentralUsername=...` | Central token username fallback |
-| `-PmavenCentralPassword=...` | Central token password fallback |
-| `-PpomName=...` | 覆盖 `pomName` |
-| `-PpomDescription=...` | 覆盖 `pomDescription` |
-| `-PpomUrl=...` | 覆盖 `pomUrl` |
+常用覆盖项：
 
-解析优先级：
+| 用途 | Gradle property | 环境变量 | 说明 |
+| --- | --- | --- | --- |
+| 发布模式 | `-PremotePublishMode=central` | `REMOTE_PUBLISH_MODE` | 可选 `central` / `customRepository`。 |
+| Central namespace | `-PcentralNamespace=...` | `CENTRAL_NAMESPACE` | 覆盖 `PublishInfo.centralNamespace`。 |
+| Central 发布方式 | `-PcentralPublishingType=user_managed` | `CENTRAL_PUBLISHING_TYPE` | 可选 `user_managed` / `automatic`。 |
+| Central repository 名称 | `-PcentralRepositoryName=CentralStaging` | `CENTRAL_REPOSITORY_NAME` | 一般不需要改。 |
+| Central token username | `-PcentralUsername=...` | `CENTRAL_USERNAME` | 优先级高于旧字段 `publishUserName`。 |
+| Central token password | `-PcentralPassword=...` | `CENTRAL_PASSWORD` | 优先级高于旧字段 `publishPassword`。 |
+| Central token username fallback | `-PmavenCentralUsername=...` | `MAVEN_CENTRAL_USERNAME` | 兼容已有 CI 变量名。 |
+| Central token password fallback | `-PmavenCentralPassword=...` | `MAVEN_CENTRAL_PASSWORD` | 兼容已有 CI 变量名。 |
+| POM name | `-PpomName=...` | `POM_NAME` | 覆盖 `PublishInfo.pomName`。 |
+| POM description | `-PpomDescription=...` | `POM_DESCRIPTION` | 覆盖 `PublishInfo.pomDescription`。 |
+| POM URL | `-PpomUrl=...` | `POM_URL` | 覆盖 `PublishInfo.pomUrl`。 |
+| GPG 私钥 | `-PsigningInMemoryKey=...` | `SIGNING_IN_MEMORY_KEY` / `GPG_KEY_CONTENTS` | Central 发布必需。 |
+| GPG 私钥密码 | `-PsigningInMemoryKeyPassword=...` | `SIGNING_IN_MEMORY_KEY_PASSWORD` / `SIGNING_PASSWORD` | Central 发布必需。 |
+| GPG key id | `-PsigningInMemoryKeyId=...` | `SIGNING_IN_MEMORY_KEY_ID` / `SIGNING_KEY_ID` | 可选；通常留空让 Gradle 从私钥推断。 |
+
+旧私服字段的解析优先级不同：
 
 ```text
-Gradle property > 环境变量 > PublishInfo 字段 > local.properties > 默认值
+publishUrl / publishUserName / publishPassword:
+Gradle property > PublishInfo 字段 > local.properties
+```
+
+Central token 的解析优先级：
+
+```text
+centralUsername / centralPassword:
+Gradle property > 环境变量 > mavenCentral* fallback > PublishInfo 旧字段 > local.properties
 ```
 
 ## GitHub Actions 发布
