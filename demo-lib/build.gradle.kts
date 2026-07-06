@@ -48,24 +48,9 @@ PublishInfo {
     artifactId = baseArtifactId
     version = "1.0.0"
 
-    centralNamespace = "cn.entertech"
-    centralPublishingType = "user_managed"
-
     pomName = "Entertech Publish Demo Library"
     pomDescription = "Android Library demo for cn.entertech.publish with multiple release variants."
-    pomInceptionYear = "2026"
     pomUrl = "https://github.com/Entertech/PublishPlugin"
-
-    developerId = "Entertech"
-    developerName = "Entertech"
-    developerEmail = "developer@entertech.cn"
-    developerOrganization = "Entertech"
-    developerOrganizationUrl = "https://github.com/Entertech"
-    developerUrl = "https://github.com/Entertech"
-
-    scmUrl = "https://github.com/Entertech/PublishPlugin"
-    scmConnection = "scm:git:git://github.com/Entertech/PublishPlugin.git"
-    scmDeveloperConnection = "scm:git:ssh://git@github.com/Entertech/PublishPlugin.git"
 
     artifactIdForVariant { variant ->
         val productPrefix = "${variant.flavor("project")}-"

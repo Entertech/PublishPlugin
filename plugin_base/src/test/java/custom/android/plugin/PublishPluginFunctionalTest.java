@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Year;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -109,6 +110,36 @@ public class PublishPluginFunctionalTest {
         assertTrue(pom.contains("<email>dev@example.com</email>"));
         assertTrue(pom.contains("<organization>Example Org</organization>"));
         assertTrue(pom.contains("<connection>scm:git:git://example.com/fixture.git</connection>"));
+    }
+
+    @Test
+    public void pomUsesEntertechDefaultsAndDerivesScmConnectionsFromScmUrl() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                minimalCentralPublishInfo(),
+                ""
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "-PscmUrl=https://github.com/Entertech/PublishPlugin",
+                        "--stacktrace"
+                )
+                .build();
+
+        String pom = read(projectDir.toPath().resolve("fixture/build/publications/EnterPublish/pom-default.xml"));
+        assertTrue(pom.contains("<inceptionYear>" + Year.now() + "</inceptionYear>"));
+        assertTrue(pom.contains("<id>Entertech</id>"));
+        assertTrue(pom.contains("<name>Entertech</name>"));
+        assertTrue(pom.contains("<email>developer@entertech.cn</email>"));
+        assertTrue(pom.contains("<organization>Entertech</organization>"));
+        assertTrue(pom.contains("<organizationUrl>https://github.com/Entertech</organizationUrl>"));
+        assertTrue(pom.contains("<url>https://github.com/Entertech</url>"));
+        assertTrue(pom.contains("<url>https://github.com/Entertech/PublishPlugin</url>"));
+        assertTrue(pom.contains("<connection>scm:git:git://github.com/Entertech/PublishPlugin.git</connection>"));
+        assertTrue(pom.contains("<developerConnection>scm:git:ssh://git@github.com/Entertech/PublishPlugin.git</developerConnection>"));
     }
 
     @Test
@@ -382,6 +413,12 @@ public class PublishPluginFunctionalTest {
 
     private static String centralPublishInfo() {
         return centralPublishInfo("com.example");
+    }
+
+    private static String minimalCentralPublishInfo() {
+        return ""
+                + "    pomDescription = 'Fixture publish plugin test'\n"
+                + "    pomUrl = 'https://example.com/fixture'\n";
     }
 
     private static String centralPublishInfo(String namespace) {

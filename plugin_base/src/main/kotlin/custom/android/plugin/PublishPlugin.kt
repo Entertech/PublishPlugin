@@ -502,23 +502,21 @@ open class PublishPlugin : Plugin<Project> {
                 }
             }
 
-            val scmValues = listOf(publishInfo.scmUrl, publishInfo.scmConnection, publishInfo.scmDeveloperConnection)
+            val resolvedScmUrl = PublishConfigResolver.resolveScmUrl(project, publishInfo)
+            val resolvedScmConnection = PublishConfigResolver.resolveScmConnection(project, publishInfo)
+            val resolvedScmDeveloperConnection =
+                PublishConfigResolver.resolveScmDeveloperConnection(project, publishInfo)
+            val scmValues = listOf(resolvedScmUrl, resolvedScmConnection, resolvedScmDeveloperConnection)
             if (scmValues.any { it.isNotBlank() }) {
                 pom.scm { scm ->
-                    val scmUrl = PublishConfigResolver.resolveText(project, "scmUrl", publishInfo.scmUrl)
-                    if (scmUrl.isNotBlank()) {
-                        scm.url.set(scmUrl)
+                    if (resolvedScmUrl.isNotBlank()) {
+                        scm.url.set(resolvedScmUrl)
                     }
-                    val scmConnection =
-                        PublishConfigResolver.resolveText(project, "scmConnection", publishInfo.scmConnection)
-                    if (scmConnection.isNotBlank()) {
-                        scm.connection.set(scmConnection)
+                    if (resolvedScmConnection.isNotBlank()) {
+                        scm.connection.set(resolvedScmConnection)
                     }
-                    val scmDeveloperConnection = PublishConfigResolver.resolveText(
-                        project, "scmDeveloperConnection", publishInfo.scmDeveloperConnection
-                    )
-                    if (scmDeveloperConnection.isNotBlank()) {
-                        scm.developerConnection.set(scmDeveloperConnection)
+                    if (resolvedScmDeveloperConnection.isNotBlank()) {
+                        scm.developerConnection.set(resolvedScmDeveloperConnection)
                     }
                 }
             }

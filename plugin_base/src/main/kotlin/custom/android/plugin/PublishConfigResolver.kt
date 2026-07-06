@@ -1,6 +1,8 @@
 package custom.android.plugin
 
 import org.gradle.api.Project
+import java.io.File
+import java.net.URI
 import java.util.Properties
 
 object PublishConfigResolver {
@@ -165,6 +167,33 @@ object PublishConfigResolver {
         )
     }
 
+    fun resolveScmUrl(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "scmUrl"),
+            environment("SCM_URL"),
+            publishInfo.scmUrl,
+            inferScmUrl(project)
+        )
+    }
+
+    fun resolveScmConnection(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "scmConnection"),
+            environment("SCM_CONNECTION"),
+            publishInfo.scmConnection,
+            scmConnectionFromUrl(resolveScmUrl(project, publishInfo))
+        )
+    }
+
+    fun resolveScmDeveloperConnection(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "scmDeveloperConnection"),
+            environment("SCM_DEVELOPER_CONNECTION"),
+            publishInfo.scmDeveloperConnection,
+            scmDeveloperConnectionFromUrl(resolveScmUrl(project, publishInfo))
+        )
+    }
+
     fun resolveText(project: Project, propertyName: String, publishInfoValue: String, defaultValue: String = ""): String {
         return firstNotBlank(
             projectProperty(project, propertyName),
@@ -172,6 +201,118 @@ object PublishConfigResolver {
             publishInfoValue,
             defaultValue
         )
+    }
+
+    private fun inferScmUrl(project: Project): String {
+        val githubRepository = environment("GITHUB_REPOSITORY")
+        if (githubRepository.isNotBlank()) {
+            val githubServerUrl = environment("GITHUB_SERVER_URL").ifBlank { "https://github.com" }
+            return "${githubServerUrl.trimEnd('/')}/$githubRepository"
+        }
+
+        return firstNotBlank(
+            environment("CI_PROJECT_URL"),
+            normalizeGitRemoteUrl(environment("GIT_URL")),
+            normalizeGitRemoteUrl(environment("BUILD_REPOSITORY_URI")),
+            normalizeGitRemoteUrl(readGitOriginUrl(project))
+        )
+    }
+
+    private fun readGitOriginUrl(project: Project): String {
+        return findGitConfigs(project.rootProject.projectDir)
+            .firstNotNullOfOrNull { gitConfig ->
+                var inOrigin = false
+                gitConfig.readLines()
+                    .firstNotNullOfOrNull { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                            inOrigin = trimmed == "[remote \"origin\"]"
+                            null
+                        } else if (inOrigin && trimmed.startsWith("url =")) {
+                            trimmed.substringAfter("url =").trim()
+                        } else {
+                            null
+                        }
+                    }
+                    ?.takeIf { it.isNotBlank() }
+            }
+            .orEmpty()
+    }
+
+    private fun findGitConfigs(projectDir: File): List<File> {
+        val gitPath = File(projectDir, ".git")
+        if (gitPath.isDirectory) {
+            return listOfNotNull(File(gitPath, "config").takeIf { it.exists() })
+        }
+        if (!gitPath.isFile) {
+            return emptyList()
+        }
+        val gitDir = gitPath.readLines()
+            .firstOrNull { it.startsWith("gitdir:") }
+            ?.substringAfter("gitdir:")
+            ?.trim()
+            ?: return emptyList()
+        val resolvedGitDir = File(gitDir).takeIf { it.isAbsolute } ?: File(projectDir, gitDir)
+        val commonDir = File(resolvedGitDir, "commondir")
+            .takeIf { it.exists() }
+            ?.readText()
+            ?.trim()
+            ?.let { value ->
+                File(value).takeIf { it.isAbsolute } ?: File(resolvedGitDir, value)
+            }
+
+        return listOfNotNull(
+            File(resolvedGitDir, "config").takeIf { it.exists() },
+            commonDir?.let { File(it, "config").takeIf { config -> config.exists() } }
+        ).distinctBy { it.absolutePath }
+    }
+
+    private fun scmConnectionFromUrl(scmUrl: String): String {
+        val scmParts = parseScmUrl(scmUrl) ?: return ""
+        return "scm:git:git://${scmParts.host}/${scmParts.path}.git"
+    }
+
+    private fun scmDeveloperConnectionFromUrl(scmUrl: String): String {
+        val scmParts = parseScmUrl(scmUrl) ?: return ""
+        return "scm:git:ssh://git@${scmParts.host}/${scmParts.path}.git"
+    }
+
+    private fun parseScmUrl(scmUrl: String): ScmParts? {
+        val normalizedUrl = normalizeGitRemoteUrl(scmUrl)
+        if (normalizedUrl.isBlank()) {
+            return null
+        }
+        return try {
+            val uri = URI(normalizedUrl)
+            val host = uri.host.orEmpty()
+            val path = uri.path.trim('/').removeSuffix(".git")
+            if (host.isBlank() || path.isBlank()) {
+                null
+            } else {
+                ScmParts(host, path)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun normalizeGitRemoteUrl(remoteUrl: String): String {
+        val trimmed = remoteUrl.trim()
+        if (trimmed.isBlank()) {
+            return ""
+        }
+        val sshMatch = Regex("^git@([^:]+):(.+?)(\\.git)?$").matchEntire(trimmed)
+        if (sshMatch != null) {
+            return "https://${sshMatch.groupValues[1]}/${sshMatch.groupValues[2].removeSuffix(".git")}"
+        }
+        val sshUriMatch = Regex("^ssh://git@([^/]+)/(.+?)(\\.git)?$").matchEntire(trimmed)
+        if (sshUriMatch != null) {
+            return "https://${sshUriMatch.groupValues[1]}/${sshUriMatch.groupValues[2].removeSuffix(".git")}"
+        }
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed.removeSuffix(".git")
+        }
+        return ""
     }
 
     private fun projectProperty(project: Project, name: String): String {
@@ -193,4 +334,9 @@ object PublishConfigResolver {
     private fun String.camelToUpperSnake(): String {
         return replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
     }
+
+    private data class ScmParts(
+        val host: String,
+        val path: String
+    )
 }

@@ -95,11 +95,9 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             "developerOrganizationUrl" to PublishConfigResolver.resolveText(
                 project, "developerOrganizationUrl", publishInfo.developerOrganizationUrl
             ),
-            "scmUrl" to PublishConfigResolver.resolveText(project, "scmUrl", publishInfo.scmUrl),
-            "scmConnection" to PublishConfigResolver.resolveText(project, "scmConnection", publishInfo.scmConnection),
-            "scmDeveloperConnection" to PublishConfigResolver.resolveText(
-                project, "scmDeveloperConnection", publishInfo.scmDeveloperConnection
-            )
+            "scmUrl" to PublishConfigResolver.resolveScmUrl(project, publishInfo),
+            "scmConnection" to PublishConfigResolver.resolveScmConnection(project, publishInfo),
+            "scmDeveloperConnection" to PublishConfigResolver.resolveScmDeveloperConnection(project, publishInfo)
         )
         val missingPomFields = requiredPomFields.filterValues { it.isBlank() }.keys
         if (missingPomFields.isNotEmpty()) {

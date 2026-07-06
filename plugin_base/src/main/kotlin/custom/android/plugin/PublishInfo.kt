@@ -1,6 +1,7 @@
 package custom.android.plugin
 
 import groovy.lang.Closure
+import java.time.Year
 
 open class PublishInfo {
 
@@ -58,25 +59,25 @@ open class PublishInfo {
 
     var remotePublishMode: String = "central"
 
-    var centralNamespace: String = ""
+    var centralNamespace: String = "cn.entertech"
     var centralPublishingType: String = "user_managed"
     var centralRepositoryName: String = "CentralStaging"
 
     var pomName: String = ""
     var pomDescription: String = ""
-    var pomInceptionYear: String = ""
+    var pomInceptionYear: String = Year.now().value.toString()
     var pomUrl: String = ""
 
     var licenseName: String = "The Apache License, Version 2.0"
     var licenseUrl: String = "https://www.apache.org/licenses/LICENSE-2.0.txt"
     var licenseDistribution: String = "repo"
 
-    var developerId: String = ""
-    var developerName: String = ""
-    var developerEmail: String = ""
-    var developerOrganization: String = ""
-    var developerOrganizationUrl: String = ""
-    var developerUrl: String = ""
+    var developerId: String = "Entertech"
+    var developerName: String = "Entertech"
+    var developerEmail: String = "developer@entertech.cn"
+    var developerOrganization: String = "Entertech"
+    var developerOrganizationUrl: String = "https://github.com/Entertech"
+    var developerUrl: String = "https://github.com/Entertech"
 
     var scmUrl: String = ""
     var scmConnection: String = ""
