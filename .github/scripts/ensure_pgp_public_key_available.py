@@ -94,24 +94,34 @@ def verify_keyserver_has_key(
     fingerprint: str,
     keyserver: str,
     gpg: str,
-    runner: Callable[[Sequence[str]], CommandResult],
+    runner: Callable[[Sequence[str], Path], CommandResult],
     retries: int,
+    stable_lookups: int,
     retry_delay_seconds: int,
     sleep: Callable[[int], None],
 ) -> bool:
+    successful_lookups = 0
+
     for attempt in range(1, retries + 1):
-        result = runner(
-            [
-                gpg,
-                "--batch",
-                "--keyserver",
-                keyserver,
-                "--recv-keys",
-                fingerprint,
-            ]
-        )
+        with tempfile.TemporaryDirectory() as verify_dir:
+            verify_home = make_gnupg_home(verify_dir)
+            result = runner(
+                [
+                    gpg,
+                    "--batch",
+                    "--keyserver",
+                    keyserver,
+                    "--recv-keys",
+                    fingerprint,
+                ],
+                verify_home,
+            )
         if result.returncode == 0:
-            return True
+            successful_lookups += 1
+            if successful_lookups >= stable_lookups:
+                return True
+        else:
+            successful_lookups = 0
         if attempt < retries:
             sleep(retry_delay_seconds)
 
@@ -125,6 +135,7 @@ def ensure_public_keys_available(
     gpg: str = "gpg",
     runner: Callable[[Sequence[str]], CommandResult] | None = None,
     retries: int = 6,
+    stable_lookups: int = 1,
     retry_delay_seconds: int = 10,
     sleep: Callable[[int], None] = time.sleep,
 ) -> list[str]:
@@ -132,22 +143,23 @@ def ensure_public_keys_available(
         raise ValueError("GPG_KEY_CONTENTS is required")
     if retries < 1:
         raise ValueError("retries must be at least 1")
+    if stable_lookups < 1:
+        raise ValueError("stable_lookups must be at least 1")
 
     selected_keyservers = tuple(keyservers or DEFAULT_KEYSERVERS)
     if not selected_keyservers:
         raise ValueError("at least one keyserver is required")
 
-    with tempfile.TemporaryDirectory() as import_dir, tempfile.TemporaryDirectory() as verify_dir:
+    with tempfile.TemporaryDirectory() as import_dir:
         import_home = make_gnupg_home(import_dir)
-        verify_home = make_gnupg_home(verify_dir)
 
         def run_in_import_home(command: Sequence[str], input_text: str | None = None) -> CommandResult:
             active_runner = runner or run_command
             return active_runner(command, gnupg_home=import_home, input_text=input_text)
 
-        def run_in_verify_home(command: Sequence[str]) -> CommandResult:
+        def run_in_home(command: Sequence[str], gnupg_home: Path) -> CommandResult:
             active_runner = runner or run_command
-            return active_runner(command, gnupg_home=verify_home, input_text=None)
+            return active_runner(command, gnupg_home=gnupg_home, input_text=None)
 
         require_success(
             run_in_import_home([gpg, "--batch", "--import"], input_text=key_contents),
@@ -174,8 +186,9 @@ def ensure_public_keys_available(
                     fingerprint=fingerprint,
                     keyserver=keyserver,
                     gpg=gpg,
-                    runner=run_in_verify_home,
+                    runner=run_in_home,
                     retries=retries,
+                    stable_lookups=stable_lookups,
                     retry_delay_seconds=retry_delay_seconds,
                     sleep=sleep,
                 ):
@@ -194,6 +207,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--keyserver", action="append", dest="keyservers", help="GPG keyserver to publish to")
     parser.add_argument("--gpg", default="gpg", help="gpg executable")
     parser.add_argument("--retries", type=int, default=6, help="Keyserver lookup attempts after upload")
+    parser.add_argument("--stable-lookups", type=int, default=3, help="Consecutive successful fresh lookups required")
     parser.add_argument("--retry-delay-seconds", type=int, default=10, help="Delay between lookup attempts")
     return parser.parse_args(argv)
 
@@ -208,6 +222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             keyservers=args.keyservers or DEFAULT_KEYSERVERS,
             gpg=args.gpg,
             retries=args.retries,
+            stable_lookups=args.stable_lookups,
             retry_delay_seconds=args.retry_delay_seconds,
         )
     except (GpgCommandError, ValueError) as error:
