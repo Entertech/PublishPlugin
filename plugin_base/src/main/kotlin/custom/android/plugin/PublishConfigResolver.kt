@@ -272,16 +272,19 @@ object PublishConfigResolver {
 
     private fun inferScmUrl(project: Project): String {
         val githubRepository = environment("GITHUB_REPOSITORY")
-        if (githubRepository.isNotBlank()) {
+        val githubUrl = if (githubRepository.isNotBlank()) {
             val githubServerUrl = environment("GITHUB_SERVER_URL").ifBlank { "https://github.com" }
-            return "${githubServerUrl.trimEnd('/')}/$githubRepository"
+            "${githubServerUrl.trimEnd('/')}/$githubRepository"
+        } else {
+            ""
         }
 
         return firstNotBlank(
+            GitUrlNormalizer.toHttpsRepositoryUrl(readGitOriginUrl(project)),
+            githubUrl,
             environment("CI_PROJECT_URL"),
             GitUrlNormalizer.toHttpsRepositoryUrl(environment("GIT_URL")),
-            GitUrlNormalizer.toHttpsRepositoryUrl(environment("BUILD_REPOSITORY_URI")),
-            GitUrlNormalizer.toHttpsRepositoryUrl(readGitOriginUrl(project))
+            GitUrlNormalizer.toHttpsRepositoryUrl(environment("BUILD_REPOSITORY_URI"))
         )
     }
 

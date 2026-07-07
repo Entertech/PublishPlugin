@@ -31,6 +31,8 @@ For repository-wide publish fields:
 Gradle property > environment variable > PublishInfo explicit value > local.properties centralPublish.* nonblank value > default/inference
 ```
 
+For inferred POM/SCM URLs, use the current project's `git remote origin` before GitHub Actions, GitLab, or other CI environment variables. This prevents TestKit fixtures and nested builds from inheriting the outer repository's `GITHUB_REPOSITORY`.
+
 For component coordinates:
 
 ```text

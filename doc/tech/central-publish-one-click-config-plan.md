@@ -12,7 +12,7 @@
 如果这些步骤都靠人工处理，容易出现以下问题：
 
 - `centralNamespace` 与 `groupId` 不匹配，发布前才失败。
-- POM 信息不完整或推导失败，例如 `pomUrl` 无法从 CI / git remote 获取。
+- POM 信息不完整或推导失败，例如 `pomUrl` 无法从当前工程 git remote / CI 获取。
 - Central token 或 GPG 私钥被误写进 `build.gradle.kts`、`local.properties`、`gradle.properties` 并提交。
 - CI 里 secret 名称与 reusable workflow 期望不一致。
 - `user_managed` 上传成功后，误以为已经发布到 Maven Central。
@@ -115,7 +115,7 @@ Gradle property > 环境变量 > PublishInfo 显式配置 > local.properties 中
 - `./gradlew :demo-plugin:configureCentralPublish` 只处理 `:demo-plugin`。
 - `groupId`、`artifactId`、`version` 属于组件坐标，必须放在各模块 `PublishInfo` 中。
 - `pluginId`、`implementationClass` 属于 Gradle Plugin 模块必需信息，必须放在该插件模块 `PublishInfo` 中。
-- `pomName`、`pomDescription`、`pomUrl` 属于组件 POM 信息，可在 `PublishInfo` 中显式配置；未配置时分别使用 artifactId、默认描述、Git/CI 推导 URL 兜底。
+- `pomName`、`pomDescription`、`pomUrl` 属于组件 POM 信息，可在 `PublishInfo` 中显式配置；未配置时分别使用 artifactId、默认描述、当前工程 git remote / CI 推导 URL 兜底。
 - `centralNamespace`、`centralPublishingType`、`scmUrl`、Developer、License、workflow、secrets 等多个模块可共用的字段，放在配置文件顶层，作为所有模块 task 的 fallback。
 
 ## 用户配置文件
@@ -183,7 +183,7 @@ centralPublish.developerOrganizationUrl=
 # POM developer URL. Blank uses plugin default https://github.com/Entertech.
 centralPublish.developerUrl=
 
-# SCM browser URL. Blank lets the plugin infer it from CI or git remote origin.
+# SCM browser URL. Blank lets the plugin infer it from the current project git remote origin, then CI.
 centralPublish.scmUrl=
 
 # SCM connection. Blank may be inferred from scmUrl, for example scm:git:https://github.com/owner/repo.git.
@@ -354,10 +354,10 @@ Gradle Plugin 模块还需要在该插件模块的 `PublishInfo` 中配置 `plug
 | `implementationClass` | Gradle Plugin 模块 `PublishInfo` | Gradle Plugin 模块的入口类。 |
 | `pomName` | `PublishInfo` 或默认值 | POM `<name>`；为空时使用最终 artifactId，artifactId 仍为空时使用 `project.name`。 |
 | `pomDescription` | `PublishInfo` 或默认值 | POM `<description>`；Android Library 默认 `Android library published to Central Portal`，Gradle Plugin 默认 `Gradle plugin published to Central Portal`。 |
-| `pomUrl` | `PublishInfo` 或 Git/CI 推导 | POM `<url>`；优先从 GitHub Actions 环境或 `git remote origin` 推导为 HTTPS 仓库地址。 |
+| `pomUrl` | `PublishInfo` 或 Git/CI 推导 | POM `<url>`；优先从当前工程 `git remote origin` 推导为 HTTPS 仓库地址，再使用 GitHub Actions 环境兜底。 |
 | `centralNamespace` | 配置文件顶层或插件默认值 | 仓库内通常相同，默认 `cn.entertech`。 |
 | `centralPublishingType` | 配置文件顶层或插件默认值 | `user_managed` 或 `automatic`。默认 `user_managed`。 |
-| `scmUrl` | 配置文件顶层或 CI / git 推导 | 仓库内通常相同；推导不到时配置。 |
+| `scmUrl` | 配置文件顶层或 git / CI 推导 | 仓库内通常相同；推导不到时配置。 |
 
 配置文件里的组件字段会导致任务失败，不会被写入 `PublishInfo`。多模块仓库按模块分别执行 task，每次只处理当前模块，不从配置文件复制其他模块的组件字段。Developer、License、SCM connection 字段已有插件默认值或推导能力，不要求配置文件必须提供；需要所有模块共用时放配置文件顶层即可。
 
@@ -369,7 +369,7 @@ Gradle Plugin 模块还需要在该插件模块的 `PublishInfo` 中配置 `plug
 | --- | --- |
 | `pomName` | `PublishInfo.pomName` 非空时使用它；否则使用最终 artifactId；artifactId 仍为空时使用 `project.name`。 |
 | `pomDescription` | `PublishInfo.pomDescription` 非空时使用它；Android Library 默认 `Android library published to Central Portal`；Gradle Plugin 默认 `Gradle plugin published to Central Portal`。 |
-| `pomUrl` | `PublishInfo.pomUrl` 非空时使用它；否则优先使用 `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY`；本地使用 `git remote get-url origin`；最后可复用已推导的 `scmUrl`。 |
+| `pomUrl` | `PublishInfo.pomUrl` 非空时使用它；否则优先使用当前工程 `git remote origin`；再使用 `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY`；最后可复用已推导的 `scmUrl`。 |
 
 Git remote URL 归一化规则：
 
@@ -395,7 +395,7 @@ Git remote URL 归一化规则：
 | `developerOrganization` | `Entertech` | POM developer organization。 |
 | `developerOrganizationUrl` | `https://github.com/Entertech` | POM developer organization URL。 |
 | `developerUrl` | `https://github.com/Entertech` | POM developer URL。 |
-| `scmUrl` | CI 或 `git remote origin` 推导 | SCM 浏览地址，例如 `https://github.com/owner/repo`。 |
+| `scmUrl` | 当前工程 `git remote origin` 或 CI 推导 | SCM 浏览地址，例如 `https://github.com/owner/repo`。 |
 | `scmConnection` | 根据 `scmUrl` 推导 | HTTPS 形式 SCM connection，例如 `scm:git:https://github.com/owner/repo.git`。 |
 | `scmDeveloperConnection` | 根据 `scmUrl` 推导 | SSH 形式 SCM developer connection，例如 `scm:git:ssh://git@github.com/owner/repo.git`。 |
 
@@ -698,7 +698,7 @@ centralPublish.centralPublishingType=user_managed
 centralPublish.scmUrl=https://github.com/Entertech/demo-lib
 ```
 
-发布时等价于在 `PublishInfo` 之外补充这些通用字段。`pomName` 会从 artifactId 兜底，`pomDescription` 使用组件类型默认文案，`pomUrl` 从 CI 或 `git remote origin` 推导。配置文件不允许提供组件字段；如果出现 `pomUrl`、`artifactId` 等字段，解析器直接失败并提示移动到当前模块 `PublishInfo`。
+发布时等价于在 `PublishInfo` 之外补充这些通用字段。`pomName` 会从 artifactId 兜底，`pomDescription` 使用组件类型默认文案，`pomUrl` 从当前工程 `git remote origin` 或 CI 推导。配置文件不允许提供组件字段；如果出现 `pomUrl`、`artifactId` 等字段，解析器直接失败并提示移动到当前模块 `PublishInfo`。
 
 实现要求：
 
@@ -831,7 +831,7 @@ git push --force-with-lease --tags
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfig.kt` | properties 配置模型和字段归一化。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfigLoader.kt` | 读取配置文件、解析相对路径、校验必填字段。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfigTemplateWriter.kt` | 生成 key 完整、value 为空且包含字段注释的 `centralPublish.*` 配置块；写入 `local.properties` 时保留已有 `sdk.dir` / `ndk.dir`。 |
-| `plugin_base/src/main/kotlin/custom/android/plugin/config/GitUrlNormalizer.kt` | 把 CI / git remote URL 归一化为 HTTPS 仓库 URL，用于 `pomUrl` 和 `scmUrl` 推导。 |
+| `plugin_base/src/main/kotlin/custom/android/plugin/config/GitUrlNormalizer.kt` | 把 git remote / CI URL 归一化为 HTTPS 仓库 URL，用于 `pomUrl` 和 `scmUrl` 推导。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/PomMetadataDefaults.kt` | 解析 `pomName`、`pomDescription`、`pomUrl` 默认值。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/GitHubSecretClient.kt` | 调用 `gh secret set/delete`。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/GpgKeyManager.kt` | 检查 `gpg`、生成 GPG key、导出 ASCII 私钥文件、读取 key id。 |
@@ -908,8 +908,8 @@ git push --force-with-lease --tags
 - [ ] 新增 `PomMetadataDefaults`，测试 `pomName` 为空时使用最终 artifactId。
 - [ ] 测试 Android Library 的默认 `pomDescription` 为 `Android library published to Central Portal`。
 - [ ] 测试 Gradle Plugin 的默认 `pomDescription` 为 `Gradle plugin published to Central Portal`。
-- [ ] 测试 `pomUrl` 优先从 `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY` 推导。
-- [ ] 测试本地 `pomUrl` 从 `git remote get-url origin` 推导。
+- [ ] 测试 `pomUrl` 优先从当前工程 `git remote origin` 推导，不被外层 CI 的 `GITHUB_REPOSITORY` 污染。
+- [ ] 测试无 git remote 时，`pomUrl` 从 `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY` 推导。
 - [ ] 测试 `PublishInfo.centralNamespace` 显式配置时优先于 `local.properties`。
 - [ ] 测试 `PublishInfo` 未显式配置且本地配置有 `centralPublishingType` 时使用本地配置。
 - [ ] 测试本地配置文件中空 `centralPublishingType=` 不覆盖插件默认值。
