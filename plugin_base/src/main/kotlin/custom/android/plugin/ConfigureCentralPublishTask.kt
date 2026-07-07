@@ -19,12 +19,16 @@ open class ConfigureCentralPublishTask : DefaultTask() {
         if (!configFile.exists()) {
             throw GradleException("Missing ${configFile.name}. Run :${project.name}:generateCentralPublishConfig first.")
         }
+        val config = PublishConfigResolver.loadCentralPublishProperties(project)
         if (GitSafetyChecker.isTracked(project.rootDir, configFile)) {
             throw GradleException("${configFile.name} is tracked by git. Run: git rm --cached ${configFile.name}")
         }
-        GitSafetyChecker.ensureIgnored(project.rootDir, configFile)
+        if (config.dryRunEnabled) {
+            PluginLogUtil.printlnInfoInScreen("Dry run: would ensure ${configFile.name} is ignored by git.")
+        } else {
+            GitSafetyChecker.ensureIgnored(project.rootDir, configFile)
+        }
 
-        val config = PublishConfigResolver.loadCentralPublishProperties(project)
         val publishInfo = project.extensions.findByType(PublishInfo::class.java)
             ?: throw GradleException("Current module does not apply cn.entertech.publish")
         validatePublishInfo(publishInfo)
@@ -43,7 +47,11 @@ open class ConfigureCentralPublishTask : DefaultTask() {
         }
 
         if (config.githubSecretsEnabled) {
-            configureGithubSecrets(config)
+            if (config.dryRunEnabled) {
+                printDryRunGithubSecrets(config)
+            } else {
+                configureGithubSecrets(config)
+            }
         }
         val githubActions = project.findProperty("githubActions")?.toString()?.toBooleanLenientLocal()
             ?: config.githubActionsEnabled
@@ -69,6 +77,20 @@ open class ConfigureCentralPublishTask : DefaultTask() {
         if (publishingType == "user_managed") {
             PluginLogUtil.printlnInfoInScreen("Central publishing type is user_managed; publish manually in Central Portal after upload validation.")
         }
+    }
+
+    private fun printDryRunGithubSecrets(config: custom.android.plugin.config.CentralPublishConfig) {
+        val repo = config.githubRepo.ifBlank { "<inferred repository>" }
+        val secretNames = listOf(
+            config.effectiveMavenCentralUsernameSecret,
+            config.effectiveMavenCentralPasswordSecret,
+            config.effectiveGpgKeySecret,
+            config.effectiveSigningPasswordSecret,
+            config.effectiveSigningKeyIdSecret
+        )
+        PluginLogUtil.printlnInfoInScreen(
+            "Dry run: would configure repository secrets in $repo: ${secretNames.joinToString()}"
+        )
     }
 
     private fun validatePublishInfo(publishInfo: PublishInfo) {
@@ -112,20 +134,27 @@ open class ConfigureCentralPublishTask : DefaultTask() {
         setSecretIfNeeded(gh, repo, config.effectiveMavenCentralUsernameSecret, config.mavenCentralUsername, existingSecrets, overwrite)
         setSecretIfNeeded(gh, repo, config.effectiveMavenCentralPasswordSecret, config.mavenCentralPassword, existingSecrets, overwrite)
 
-        val hasGpgSecrets = config.effectiveGpgKeySecret in existingSecrets &&
-            config.effectiveSigningPasswordSecret in existingSecrets
         if (config.gpgGenerateEnabled) {
             GpgKeyManager(project.findProperty("gpgExecutable")?.toString().orEmpty().ifBlank { "gpg" }).generateKey(config)
         }
-        if (!hasGpgSecrets || overwrite || config.gpgGenerateEnabled) {
+        val shouldWriteGpgKey = overwrite || config.gpgGenerateEnabled || config.effectiveGpgKeySecret !in existingSecrets
+        val shouldWriteSigningPassword =
+            overwrite || config.gpgGenerateEnabled || config.effectiveSigningPasswordSecret !in existingSecrets
+        val shouldWriteSigningKeyId = config.signingKeyId.isNotBlank() &&
+            (overwrite || config.gpgGenerateEnabled || config.effectiveSigningKeyIdSecret !in existingSecrets)
+        if (shouldWriteGpgKey || shouldWriteSigningPassword) {
             if (config.gpgKeyFile.isBlank() || config.signingPassword.isBlank()) {
                 throw GradleException("GPG secrets require centralPublish.gpgKeyFile and centralPublish.signingPassword")
             }
+        }
+        if (shouldWriteGpgKey) {
             gh.setSecretFromFile(repo, config.effectiveGpgKeySecret, File(config.gpgKeyFile))
+        }
+        if (shouldWriteSigningPassword) {
             gh.setSecret(repo, config.effectiveSigningPasswordSecret, config.signingPassword)
-            if (config.signingKeyId.isNotBlank()) {
-                gh.setSecret(repo, config.effectiveSigningKeyIdSecret, config.signingKeyId)
-            }
+        }
+        if (shouldWriteSigningKeyId) {
+            gh.setSecret(repo, config.effectiveSigningKeyIdSecret, config.signingKeyId)
         }
     }
 
