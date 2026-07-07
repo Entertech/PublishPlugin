@@ -1,13 +1,15 @@
 ---
 name: publishplugin-central-one-click
-description: Use when working in Entertech/PublishPlugin or business repos using cn.entertech.publish, and the task involves Sonatype Central one-click configuration, centralPublish.* local.properties, GitHub repository secrets, generated Central publish workflows, rollback, GPG signing, or reviewing/fixing code against the Central one-click plan.
+description: Use when, and only when, the user explicitly mentions the enter publish or flowtime publish publishing plugin and asks to one-click configure publishing information or Central Portal publish settings for that plugin.
 ---
 
 # PublishPlugin Central One Click
 
 ## Overview
 
-Use this skill to configure, review, or change PublishPlugin's Central Portal one-click workflow without rediscovering the README and plan each time.
+Use this skill only after the user explicitly names the enter publish or flowtime publish publishing plugin and asks about one-click publishing information/configuration. It is not a general Sonatype Central, Maven publishing, GPG, GitHub Actions, or GitHub secrets skill.
+
+Use it to configure, review, or change PublishPlugin's Central Portal one-click workflow without rediscovering the README and plan each time.
 
 The core boundary is fixed: module identity and component metadata stay in each module's `PublishInfo`; repository-wide Central settings, workflow settings, and one-time secret inputs live in ignored/untracked `local.properties` as `centralPublish.*`.
 
