@@ -82,18 +82,29 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             )
             return false
         }
+        val publishingType = PublishConfigResolver.resolveCentralPublishingType(project, publishInfo)
+        if (publishingType != "user_managed" && publishingType != "automatic") {
+            PluginLogUtil.printlnErrorInScreen("centralPublishingType only supports user_managed or automatic")
+            return false
+        }
 
         val requiredPomFields = mapOf(
-            "pomDescription" to PublishConfigResolver.resolveText(project, "pomDescription", publishInfo.pomDescription),
-            "pomUrl" to PublishConfigResolver.resolveText(project, "pomUrl", publishInfo.pomUrl),
-            "developerId" to PublishConfigResolver.resolveText(project, "developerId", publishInfo.developerId),
-            "developerName" to PublishConfigResolver.resolveText(project, "developerName", publishInfo.developerName),
-            "developerEmail" to PublishConfigResolver.resolveText(project, "developerEmail", publishInfo.developerEmail),
-            "developerOrganization" to PublishConfigResolver.resolveText(
-                project, "developerOrganization", publishInfo.developerOrganization
+            "pomDescription" to PublishConfigResolver.resolvePomDescription(project, publishInfo),
+            "pomUrl" to PublishConfigResolver.resolvePomUrl(project, publishInfo),
+            "developerId" to PublishConfigResolver.resolvePublishInfoText(
+                project, "developerId", publishInfo, publishInfo.developerId
             ),
-            "developerOrganizationUrl" to PublishConfigResolver.resolveText(
-                project, "developerOrganizationUrl", publishInfo.developerOrganizationUrl
+            "developerName" to PublishConfigResolver.resolvePublishInfoText(
+                project, "developerName", publishInfo, publishInfo.developerName
+            ),
+            "developerEmail" to PublishConfigResolver.resolvePublishInfoText(
+                project, "developerEmail", publishInfo, publishInfo.developerEmail
+            ),
+            "developerOrganization" to PublishConfigResolver.resolvePublishInfoText(
+                project, "developerOrganization", publishInfo, publishInfo.developerOrganization
+            ),
+            "developerOrganizationUrl" to PublishConfigResolver.resolvePublishInfoText(
+                project, "developerOrganizationUrl", publishInfo, publishInfo.developerOrganizationUrl
             ),
             "scmUrl" to PublishConfigResolver.resolveScmUrl(project, publishInfo),
             "scmConnection" to PublishConfigResolver.resolveScmConnection(project, publishInfo),

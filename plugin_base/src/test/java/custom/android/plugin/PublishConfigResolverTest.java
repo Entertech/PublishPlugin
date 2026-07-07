@@ -14,7 +14,7 @@ public class PublishConfigResolverTest {
         publishInfo.setScmUrl("https://github.com/Entertech/PublishPlugin");
 
         assertEquals(
-                "scm:git:git://github.com/Entertech/PublishPlugin.git",
+                "scm:git:https://github.com/Entertech/PublishPlugin.git",
                 PublishConfigResolver.INSTANCE.resolveScmConnection(project, publishInfo)
         );
         assertEquals(
@@ -30,7 +30,7 @@ public class PublishConfigResolverTest {
         publishInfo.setScmUrl("git@github.com:Entertech/PublishPlugin.git");
 
         assertEquals(
-                "scm:git:git://github.com/Entertech/PublishPlugin.git",
+                "scm:git:https://github.com/Entertech/PublishPlugin.git",
                 PublishConfigResolver.INSTANCE.resolveScmConnection(project, publishInfo)
         );
         assertEquals(

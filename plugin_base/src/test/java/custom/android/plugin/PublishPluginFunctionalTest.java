@@ -138,7 +138,7 @@ public class PublishPluginFunctionalTest {
         assertTrue(pom.contains("<organizationUrl>https://github.com/Entertech</organizationUrl>"));
         assertTrue(pom.contains("<url>https://github.com/Entertech</url>"));
         assertTrue(pom.contains("<url>https://github.com/Entertech/PublishPlugin</url>"));
-        assertTrue(pom.contains("<connection>scm:git:git://github.com/Entertech/PublishPlugin.git</connection>"));
+        assertTrue(pom.contains("<connection>scm:git:https://github.com/Entertech/PublishPlugin.git</connection>"));
         assertTrue(pom.contains("<developerConnection>scm:git:ssh://git@github.com/Entertech/PublishPlugin.git</developerConnection>"));
     }
 

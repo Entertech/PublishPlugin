@@ -1,8 +1,11 @@
 package custom.android.plugin
 
+import custom.android.plugin.config.CentralPublishConfig
+import custom.android.plugin.config.CentralPublishConfigLoader
+import custom.android.plugin.config.GitUrlNormalizer
+import custom.android.plugin.config.PomMetadataDefaults
 import org.gradle.api.Project
 import java.io.File
-import java.net.URI
 import java.util.Properties
 
 object PublishConfigResolver {
@@ -31,6 +34,19 @@ object PublishConfigResolver {
             file.inputStream().use { properties.load(it) }
         }
         return properties
+    }
+
+    fun centralPublishConfigFile(project: Project): File {
+        val configuredPath = projectProperty(project, "publishConfig")
+        if (configuredPath.isBlank()) {
+            return project.rootProject.file("local.properties")
+        }
+        val configuredFile = File(configuredPath)
+        return if (configuredFile.isAbsolute) configuredFile else project.rootProject.file(configuredPath)
+    }
+
+    fun loadCentralPublishProperties(project: Project): CentralPublishConfig {
+        return CentralPublishConfigLoader.load(centralPublishConfigFile(project))
     }
 
     fun resolveRemotePublishMode(project: Project, publishInfo: PublishInfo): String {
@@ -63,7 +79,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "centralRepositoryName"),
             environment("CENTRAL_REPOSITORY_NAME"),
-            publishInfo.centralRepositoryName,
+            explicitPublishInfoValue(publishInfo, "centralRepositoryName", publishInfo.centralRepositoryName),
+            loadCentralPublishProperties(project).centralRepositoryName,
             "CentralStaging"
         )
     }
@@ -72,6 +89,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "centralNamespace"),
             environment("CENTRAL_NAMESPACE"),
+            explicitPublishInfoValue(publishInfo, "centralNamespace", publishInfo.centralNamespace),
+            loadCentralPublishProperties(project).centralNamespace,
             publishInfo.centralNamespace
         )
     }
@@ -80,7 +99,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "centralPublishingType"),
             environment("CENTRAL_PUBLISHING_TYPE"),
-            publishInfo.centralPublishingType,
+            explicitPublishInfoValue(publishInfo, "centralPublishingType", publishInfo.centralPublishingType),
+            loadCentralPublishProperties(project).centralPublishingType,
             "user_managed"
         )
     }
@@ -171,7 +191,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "scmUrl"),
             environment("SCM_URL"),
-            publishInfo.scmUrl,
+            explicitPublishInfoValue(publishInfo, "scmUrl", publishInfo.scmUrl),
+            loadCentralPublishProperties(project).scmUrl,
             inferScmUrl(project)
         )
     }
@@ -180,7 +201,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "scmConnection"),
             environment("SCM_CONNECTION"),
-            publishInfo.scmConnection,
+            explicitPublishInfoValue(publishInfo, "scmConnection", publishInfo.scmConnection),
+            loadCentralPublishProperties(project).scmConnection,
             scmConnectionFromUrl(resolveScmUrl(project, publishInfo))
         )
     }
@@ -189,8 +211,37 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "scmDeveloperConnection"),
             environment("SCM_DEVELOPER_CONNECTION"),
-            publishInfo.scmDeveloperConnection,
+            explicitPublishInfoValue(publishInfo, "scmDeveloperConnection", publishInfo.scmDeveloperConnection),
+            loadCentralPublishProperties(project).scmDeveloperConnection,
             scmDeveloperConnectionFromUrl(resolveScmUrl(project, publishInfo))
+        )
+    }
+
+    fun resolvePomName(project: Project, publishInfo: PublishInfo, artifactId: String): String {
+        return firstNotBlank(
+            projectProperty(project, "pomName"),
+            environment("POM_NAME"),
+            explicitPublishInfoValue(publishInfo, "pomName", publishInfo.pomName),
+            PomMetadataDefaults.defaultPomName(project, artifactId)
+        )
+    }
+
+    fun resolvePomDescription(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "pomDescription"),
+            environment("POM_DESCRIPTION"),
+            explicitPublishInfoValue(publishInfo, "pomDescription", publishInfo.pomDescription),
+            PomMetadataDefaults.defaultPomDescription(project)
+        )
+    }
+
+    fun resolvePomUrl(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "pomUrl"),
+            environment("POM_URL"),
+            explicitPublishInfoValue(publishInfo, "pomUrl", publishInfo.pomUrl),
+            inferScmUrl(project),
+            resolveScmUrl(project, publishInfo)
         )
     }
 
@@ -199,6 +250,22 @@ object PublishConfigResolver {
             projectProperty(project, propertyName),
             environment(propertyName.camelToUpperSnake()),
             publishInfoValue,
+            defaultValue
+        )
+    }
+
+    fun resolvePublishInfoText(
+        project: Project,
+        propertyName: String,
+        publishInfo: PublishInfo,
+        publishInfoValue: String,
+        defaultValue: String = publishInfoValue
+    ): String {
+        return firstNotBlank(
+            projectProperty(project, propertyName),
+            environment(propertyName.camelToUpperSnake()),
+            explicitPublishInfoValue(publishInfo, propertyName, publishInfoValue),
+            loadCentralPublishProperties(project).valueFor(propertyName),
             defaultValue
         )
     }
@@ -212,9 +279,9 @@ object PublishConfigResolver {
 
         return firstNotBlank(
             environment("CI_PROJECT_URL"),
-            normalizeGitRemoteUrl(environment("GIT_URL")),
-            normalizeGitRemoteUrl(environment("BUILD_REPOSITORY_URI")),
-            normalizeGitRemoteUrl(readGitOriginUrl(project))
+            GitUrlNormalizer.toHttpsRepositoryUrl(environment("GIT_URL")),
+            GitUrlNormalizer.toHttpsRepositoryUrl(environment("BUILD_REPOSITORY_URI")),
+            GitUrlNormalizer.toHttpsRepositoryUrl(readGitOriginUrl(project))
         )
     }
 
@@ -268,55 +335,19 @@ object PublishConfigResolver {
     }
 
     private fun scmConnectionFromUrl(scmUrl: String): String {
-        val scmParts = parseScmUrl(scmUrl) ?: return ""
-        return "scm:git:git://${scmParts.host}/${scmParts.path}.git"
+        return GitUrlNormalizer.toScmConnection(scmUrl)
     }
 
     private fun scmDeveloperConnectionFromUrl(scmUrl: String): String {
-        val scmParts = parseScmUrl(scmUrl) ?: return ""
-        return "scm:git:ssh://git@${scmParts.host}/${scmParts.path}.git"
-    }
-
-    private fun parseScmUrl(scmUrl: String): ScmParts? {
-        val normalizedUrl = normalizeGitRemoteUrl(scmUrl)
-        if (normalizedUrl.isBlank()) {
-            return null
-        }
-        return try {
-            val uri = URI(normalizedUrl)
-            val host = uri.host.orEmpty()
-            val path = uri.path.trim('/').removeSuffix(".git")
-            if (host.isBlank() || path.isBlank()) {
-                null
-            } else {
-                ScmParts(host, path)
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun normalizeGitRemoteUrl(remoteUrl: String): String {
-        val trimmed = remoteUrl.trim()
-        if (trimmed.isBlank()) {
-            return ""
-        }
-        val sshMatch = Regex("^git@([^:]+):(.+?)(\\.git)?$").matchEntire(trimmed)
-        if (sshMatch != null) {
-            return "https://${sshMatch.groupValues[1]}/${sshMatch.groupValues[2].removeSuffix(".git")}"
-        }
-        val sshUriMatch = Regex("^ssh://git@([^/]+)/(.+?)(\\.git)?$").matchEntire(trimmed)
-        if (sshUriMatch != null) {
-            return "https://${sshUriMatch.groupValues[1]}/${sshUriMatch.groupValues[2].removeSuffix(".git")}"
-        }
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            return trimmed.removeSuffix(".git")
-        }
-        return ""
+        return GitUrlNormalizer.toScmDeveloperConnection(scmUrl)
     }
 
     private fun projectProperty(project: Project, name: String): String {
         return project.findProperty(name)?.toString()?.trim().orEmpty()
+    }
+
+    private fun explicitPublishInfoValue(publishInfo: PublishInfo, fieldName: String, value: String): String {
+        return if (publishInfo.isExplicit(fieldName)) value else ""
     }
 
     private fun environment(name: String): String {
@@ -335,8 +366,4 @@ object PublishConfigResolver {
         return replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
     }
 
-    private data class ScmParts(
-        val host: String,
-        val path: String
-    )
 }

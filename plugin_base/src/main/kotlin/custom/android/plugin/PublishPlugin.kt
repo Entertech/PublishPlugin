@@ -143,6 +143,24 @@ open class PublishPlugin : Plugin<Project> {
                 project.tasks.register(
                     PublishLibraryRemoteTask.TAG, PublishLibraryRemoteTask::class.java
                 )
+                project.tasks.register(
+                    "generateCentralPublishConfig", GenerateCentralPublishConfigTask::class.java
+                )
+                project.tasks.register(
+                    "GenerateCentralPublishConfigTask", GenerateCentralPublishConfigTask::class.java
+                )
+                project.tasks.register(
+                    "configureCentralPublish", ConfigureCentralPublishTask::class.java
+                )
+                project.tasks.register(
+                    "ConfigureCentralPublishTask", ConfigureCentralPublishTask::class.java
+                )
+                project.tasks.register(
+                    "rollbackCentralPublishSecrets", RollbackCentralPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "RollbackCentralPublishSecretsTask", RollbackCentralPublishSecretsTask::class.java
+                )
             }
         }
     }
@@ -417,25 +435,24 @@ open class PublishPlugin : Plugin<Project> {
         artifactId: String
     ) {
         publication.pom { pom ->
-            val pomName = PublishConfigResolver.resolveText(
-                project, "pomName", publishInfo.pomName, artifactId
-            )
+            val pomName = PublishConfigResolver.resolvePomName(project, publishInfo, artifactId)
             if (pomName.isNotBlank()) {
                 pom.name.set(pomName)
             }
 
-            val pomDescription = PublishConfigResolver.resolveText(project, "pomDescription", publishInfo.pomDescription)
+            val pomDescription = PublishConfigResolver.resolvePomDescription(project, publishInfo)
             if (pomDescription.isNotBlank()) {
                 pom.description.set(pomDescription)
             }
 
-            val pomUrl = PublishConfigResolver.resolveText(project, "pomUrl", publishInfo.pomUrl)
+            val pomUrl = PublishConfigResolver.resolvePomUrl(project, publishInfo)
             if (pomUrl.isNotBlank()) {
                 pom.url.set(pomUrl)
             }
 
-            val inceptionYear =
-                PublishConfigResolver.resolveText(project, "pomInceptionYear", publishInfo.pomInceptionYear)
+            val inceptionYear = PublishConfigResolver.resolvePublishInfoText(
+                project, "pomInceptionYear", publishInfo, publishInfo.pomInceptionYear
+            )
             if (inceptionYear.isNotBlank()) {
                 pom.inceptionYear.set(inceptionYear)
             }
@@ -443,14 +460,18 @@ open class PublishPlugin : Plugin<Project> {
             pom.licenses { licenses ->
                 licenses.license { license ->
                     license.name.set(
-                        PublishConfigResolver.resolveText(project, "licenseName", publishInfo.licenseName)
+                        PublishConfigResolver.resolvePublishInfoText(
+                            project, "licenseName", publishInfo, publishInfo.licenseName
+                        )
                     )
                     license.url.set(
-                        PublishConfigResolver.resolveText(project, "licenseUrl", publishInfo.licenseUrl)
+                        PublishConfigResolver.resolvePublishInfoText(
+                            project, "licenseUrl", publishInfo, publishInfo.licenseUrl
+                        )
                     )
                     license.distribution.set(
-                        PublishConfigResolver.resolveText(
-                            project, "licenseDistribution", publishInfo.licenseDistribution
+                        PublishConfigResolver.resolvePublishInfoText(
+                            project, "licenseDistribution", publishInfo, publishInfo.licenseDistribution
                         )
                     )
                 }
@@ -467,34 +488,42 @@ open class PublishPlugin : Plugin<Project> {
             if (developerValues.any { it.isNotBlank() }) {
                 pom.developers { developers ->
                     developers.developer { developer ->
-                        val developerId = PublishConfigResolver.resolveText(project, "developerId", publishInfo.developerId)
+                        val developerId = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerId", publishInfo, publishInfo.developerId
+                        )
                         if (developerId.isNotBlank()) {
                             developer.id.set(developerId)
                         }
-                        val developerName =
-                            PublishConfigResolver.resolveText(project, "developerName", publishInfo.developerName)
+                        val developerName = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerName", publishInfo, publishInfo.developerName
+                        )
                         if (developerName.isNotBlank()) {
                             developer.name.set(developerName)
                         }
-                        val developerEmail =
-                            PublishConfigResolver.resolveText(project, "developerEmail", publishInfo.developerEmail)
+                        val developerEmail = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerEmail", publishInfo, publishInfo.developerEmail
+                        )
                         if (developerEmail.isNotBlank()) {
                             developer.email.set(developerEmail)
                         }
-                        val developerOrganization = PublishConfigResolver.resolveText(
-                            project, "developerOrganization", publishInfo.developerOrganization
+                        val developerOrganization = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerOrganization", publishInfo, publishInfo.developerOrganization
                         )
                         if (developerOrganization.isNotBlank()) {
                             developer.organization.set(developerOrganization)
                         }
-                        val developerOrganizationUrl = PublishConfigResolver.resolveText(
-                            project, "developerOrganizationUrl", publishInfo.developerOrganizationUrl
+                        val developerOrganizationUrl = PublishConfigResolver.resolvePublishInfoText(
+                            project,
+                            "developerOrganizationUrl",
+                            publishInfo,
+                            publishInfo.developerOrganizationUrl
                         )
                         if (developerOrganizationUrl.isNotBlank()) {
                             developer.organizationUrl.set(developerOrganizationUrl)
                         }
-                        val developerUrl =
-                            PublishConfigResolver.resolveText(project, "developerUrl", publishInfo.developerUrl)
+                        val developerUrl = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerUrl", publishInfo, publishInfo.developerUrl
+                        )
                         if (developerUrl.isNotBlank()) {
                             developer.url.set(developerUrl)
                         }
