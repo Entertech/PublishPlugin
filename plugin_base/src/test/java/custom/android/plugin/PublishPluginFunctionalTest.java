@@ -34,10 +34,63 @@ public class PublishPluginFunctionalTest {
                 )
                 .build();
 
-        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0");
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0.jar")));
-        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-sources.jar")));
-        assertFalse(read(versionDir.resolve("fixture-1.0.0.module")).contains("SourcesElements"));
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertFalse(read(versionDir.resolve("fixture-1.0.0-local.module")).contains("SourcesElements"));
+    }
+
+    @Test
+    public void publishToMavenLocalAppendsLocalVersionSuffix() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        File mavenLocal = temporaryFolder.newFolder("local-suffix-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path localVersionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(localVersionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(mavenLocal.toPath().resolve("com/example/fixture/1.0.0")));
+    }
+
+    @Test
+    public void publishLibraryLocalTaskPrintsCompleteDependencyBlocksWithLocalVersion() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        writeSuccessfulGradlew(projectDir);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryLocalTask",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        assertTrue(output.contains("dependencies {\n    implementation 'com.example:fixture:1.0.0-local'\n}"));
+        assertTrue(output.contains("dependencies {\n    implementation(\"com.example:fixture:1.0.0-local\")\n}"));
+    }
+
+    @Test
+    public void publishToMavenLocalKeepsExistingLocalVersionSuffix() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0-local", false);
+        File mavenLocal = temporaryFolder.newFolder("existing-local-suffix-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path localVersionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(localVersionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local-local")));
     }
 
     @Test
@@ -53,9 +106,9 @@ public class PublishPluginFunctionalTest {
                 )
                 .build();
 
-        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-debug");
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-sources.jar")));
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-debug-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-local.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-local-sources.jar")));
     }
 
     @Test
@@ -158,10 +211,10 @@ public class PublishPluginFunctionalTest {
                 )
                 .build();
 
-        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0");
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-sources.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-javadoc.jar")));
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
     }
 
     @Test
@@ -398,16 +451,16 @@ public class PublishPluginFunctionalTest {
     }
 
     private static void assertMavenAarPublication(Path mavenLocal, String artifactId) throws IOException {
-        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0");
-        assertTrue("Missing AAR for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.aar")));
-        assertTrue("Missing POM for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.pom")));
-        assertTrue("Missing module metadata for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.module")));
+        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0-local");
+        assertTrue("Missing AAR for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0-local.aar")));
+        assertTrue("Missing POM for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0-local.pom")));
+        assertTrue("Missing module metadata for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0-local.module")));
         assertFalse("Non-debug publish should not include sources for " + artifactId,
-                Files.exists(versionDir.resolve(artifactId + "-1.0.0-sources.jar")));
+                Files.exists(versionDir.resolve(artifactId + "-1.0.0-local-sources.jar")));
     }
 
     private static void assertMavenArtifactMissing(Path mavenLocal, String artifactId) {
-        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0");
+        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0-local");
         assertFalse("Unexpected Maven publication for " + artifactId, Files.exists(versionDir));
     }
 
@@ -444,6 +497,12 @@ public class PublishPluginFunctionalTest {
 
     private static void write(Path path, String value) throws IOException {
         Files.write(path, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void writeSuccessfulGradlew(File root) throws IOException {
+        Path gradlew = root.toPath().resolve("gradlew");
+        write(gradlew, "#!/bin/sh\nexit 0\n");
+        assertTrue(gradlew.toFile().setExecutable(true));
     }
 
     private static String read(Path path) throws IOException {

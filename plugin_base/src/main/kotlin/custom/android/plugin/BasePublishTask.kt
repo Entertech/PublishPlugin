@@ -150,13 +150,17 @@ abstract class BasePublishTask : DefaultTask() {
             PluginLogUtil.printlnInfoInScreen("===================================================================")
             PluginLogUtil.printlnInfoInScreen("")
             PluginLogUtil.printlnInfoInScreen(
-                "implementation '${publication.groupId}:${publication.artifactId}:${publication.version}'"
+                "dependencies {\n" +
+                    "    implementation '${publication.groupId}:${publication.artifactId}:${publication.version}'\n" +
+                    "}"
             )
             PluginLogUtil.printlnInfoInScreen("")
             PluginLogUtil.printlnInfoInScreen("==================================================================")
             PluginLogUtil.printlnInfoInScreen("")
             PluginLogUtil.printlnInfoInScreen(
-                "implementation (\"${publication.groupId}:${publication.artifactId}:${publication.version}\")"
+                "dependencies {\n" +
+                    "    implementation(\"${publication.groupId}:${publication.artifactId}:${publication.version}\")\n" +
+                    "}"
             )
             PluginLogUtil.printlnInfoInScreen("")
             PluginLogUtil.printlnInfoInScreen("==================================================================")

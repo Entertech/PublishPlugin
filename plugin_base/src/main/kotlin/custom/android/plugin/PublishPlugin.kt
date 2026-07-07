@@ -181,6 +181,7 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
         val publishSources = centralPublish || publishInfo.version.endsWith("-debug")
+        val publicationVersion = resolvePublicationVersion(project, publishInfo)
         skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(
@@ -188,7 +189,7 @@ open class PublishPlugin : Plugin<Project> {
             ) { publication ->
                 publication.groupId = publishInfo.groupId
                 publication.artifactId = artifactId
-                publication.version = publishInfo.version
+                publication.version = publicationVersion
                 publication.from(softwareComponent)
                 configurePom(project, publication, publishInfo, artifactId)
                 if (publishSources) {
@@ -204,6 +205,23 @@ open class PublishPlugin : Plugin<Project> {
                     removeSourcesArtifacts(publication)
                 }
             }
+        }
+    }
+
+    private fun resolvePublicationVersion(project: Project, publishInfo: PublishInfo): String {
+        val version = publishInfo.version
+        if (!isLocalPublishRequested(project) || version.endsWith("-local")) {
+            return version
+        }
+        return "$version-local"
+    }
+
+    private fun isLocalPublishRequested(project: Project): Boolean {
+        return project.gradle.startParameter.taskNames.any { taskName ->
+            val shortTaskName = taskName.substringAfterLast(":")
+            shortTaskName == PublishLibraryLocalTask.TAG ||
+                shortTaskName == "publishToMavenLocal" ||
+                (shortTaskName.startsWith("publish") && shortTaskName.endsWith("PublicationToMavenLocal"))
         }
     }
 

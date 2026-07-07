@@ -361,6 +361,8 @@ affective_local_sdk-breath-noAuth-release.aar
 
 本地发布的 sources 规则：
 
+- 本地发布时，实际 publication version 会使用 `-local` 后缀；`version = "1.0.0"` 会发布为 `1.0.0-local`。
+- 如果 `PublishInfo.version` 已经以 `-local` 结尾，则保持原值，不会追加成 `-local-local`。
 - `version` 以 `-debug` 结尾时，发布 sources jar。
 - 非 debug 版本默认不发布 sources jar。
 - Central 远程发布不受这个规则限制，Central 必须包含 sources 和 javadoc。
@@ -374,16 +376,16 @@ affective_local_sdk-breath-noAuth-release.aar
 例如：
 
 ```text
-~/.m2/repository/cn/entertech/android/affective-offline-sdk/1.0.0/
+~/.m2/repository/cn/entertech/android/affective-offline-sdk/1.0.0-local/
 ```
 
 多 variant 发布时，每个未过滤的 release variant 都会生成独立 artifact 目录，并且目录里应至少包含 `.aar`、`.pom`、`.module`：
 
 ```text
-~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk-authentication/1.3.6/
-~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk/1.3.6/
-~/.m2/repository/cn/entertech/android/sdk-affective-offline-sdk-authentication/1.3.6/
-~/.m2/repository/cn/entertech/android/sdk-affective-offline-sdk/1.3.6/
+~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk-authentication/1.3.6-local/
+~/.m2/repository/cn/entertech/android/breath-affective-offline-sdk/1.3.6-local/
+~/.m2/repository/cn/entertech/android/sdk-affective-offline-sdk-authentication/1.3.6-local/
+~/.m2/repository/cn/entertech/android/sdk-affective-offline-sdk/1.3.6-local/
 ```
 
 验证本地发布不能只看 `BUILD SUCCESSFUL`。如果 Gradle 显示成功但目标 artifact 目录没有 `.aar/.pom/.module`，说明 publication 没有真实执行，应优先检查插件日志和 `publishToMavenLocal --stacktrace` 输出。
@@ -402,7 +404,7 @@ repositories {
 
 ```kotlin
 dependencies {
-    implementation("cn.entertech.android:affective-offline-sdk:1.0.0")
+    implementation("cn.entertech.android:affective-offline-sdk:1.0.0-local")
 }
 ```
 
@@ -410,10 +412,12 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation("cn.entertech.android:breath-affective-offline-sdk-authentication:1.0.0")
-    implementation("cn.entertech.android:breath-affective-offline-sdk:1.0.0")
+    implementation("cn.entertech.android:breath-affective-offline-sdk-authentication:1.0.0-local")
+    implementation("cn.entertech.android:breath-affective-offline-sdk:1.0.0-local")
 }
 ```
+
+使用 `PublishLibraryLocalTask` 发布成功后，控制台会打印可直接复制的 Groovy DSL 和 Kotlin DSL `dependencies { ... }` 依赖代码块。
 
 选择方式：
 
