@@ -12,7 +12,7 @@
 如果这些步骤都靠人工处理，容易出现以下问题：
 
 - `centralNamespace` 与 `groupId` 不匹配，发布前才失败。
-- POM 必需字段漏配，例如 `pomDescription` / `pomUrl`。
+- POM 信息不完整或推导失败，例如 `pomUrl` 无法从 CI / git remote 获取。
 - Central token 或 GPG 私钥被误写进 `build.gradle.kts`、`local.properties`、`gradle.properties` 并提交。
 - CI 里 secret 名称与 reusable workflow 期望不一致。
 - `user_managed` 上传成功后，误以为已经发布到 Maven Central。
@@ -26,25 +26,25 @@
 业务仓库在目标模块执行：
 
 ```bash
-./gradlew :library:configureCentralPublish -PpublishConfig=publish-central.properties
+./gradlew :library:configureCentralPublish
 ```
 
 兼容当前插件已有的大写任务风格，同时注册：
 
 ```bash
-./gradlew :library:ConfigureCentralPublishTask -PpublishConfig=publish-central.properties
+./gradlew :library:ConfigureCentralPublishTask
 ```
 
 回退 GitHub repository secrets 使用：
 
 ```bash
-./gradlew :library:rollbackCentralPublishSecrets -PpublishConfig=publish-central.properties
+./gradlew :library:rollbackCentralPublishSecrets
 ```
 
 兼容大写任务名：
 
 ```bash
-./gradlew :library:RollbackCentralPublishSecretsTask -PpublishConfig=publish-central.properties
+./gradlew :library:RollbackCentralPublishSecretsTask
 ```
 
 生成本地配置模板使用：
@@ -62,8 +62,8 @@
 如果当前仓库存在多个需要发布的 Android Library 或 Gradle Plugin 模块，不额外设计 `modules` 配置字段，也不提供根工程聚合任务。每个模块本来就有自己的 Gradle task，直接按模块执行即可：
 
 ```bash
-./gradlew :demo-lib:configureCentralPublish -PpublishConfig=publish-central.properties
-./gradlew :demo-plugin:configureCentralPublish -PpublishConfig=publish-central.properties
+./gradlew :demo-lib:configureCentralPublish
+./gradlew :demo-plugin:configureCentralPublish
 ```
 
 每个模块 task 读取同一个仓库级配置文件。GitHub repository secrets 是仓库级资源，重复执行时应复用已有 secrets；各模块的组件信息仍由各自 `PublishInfo` 维护。
@@ -78,193 +78,198 @@
 
 最终责任边界：
 
-| 配置类别 | 一键配置行为 | 是否写入仓库 |
+| 配置类别 | 一键配置行为 | 是否进入版本控制 |
 | --- | --- | --- |
 | 组件发布元数据 | 由目标模块 `build.gradle.kts` / `build.gradle` 中的 `PublishInfo` 维护；一键任务只校验，不写入、不覆盖 | 是 |
-| 本地 `publish-central.properties` | 生成 key 已填好、value 为空的模板；只放仓库级通用字段、CI/secrets/workflow 配置；发布运行时作为仓库级通用字段 fallback | 否，必须 gitignore |
+| 本地 `local.properties` | 默认配置落点；追加 `centralPublish.*` key，不覆盖已有 `sdk.dir` / `ndk.dir`；发布运行时作为仓库级通用字段 fallback；task 负责确保文件被 ignore | 否，不能被 git track |
 | Central token | 通过 GitHub CLI 写入 repository secrets | 否 |
 | GPG 私钥和密码 | 通过 GitHub CLI 写入 repository secrets | 否 |
 | GitHub Actions workflow | 生成或更新 workflow 文件 | 是 |
-| `local.properties` | 不作为一键 CI 配置默认落点 | 否 |
 | 历史泄露清理 | 输出安全回退指令，不默认改写历史 | 不自动 |
 
-`local.properties` 继续作为现有插件旧私服字段和本地 fallback 的兼容输入，但一键配置 GitHub CI 发布时，不把 Central token 或 GPG 私钥写入 `local.properties`。新的一键配置文件默认使用 `publish-central.properties`，并要求忽略提交。
+`local.properties` 是 Android 项目的本地配置约定，通常已有 `sdk.dir` 等本机路径，也通常已经在 Android 模板的 `.gitignore` 中。一键配置默认把 `centralPublish.*` 配置块追加到根目录 `local.properties`；如果文件不存在就创建；如果 `.gitignore` 缺少 `local.properties`，task 自动补充；如果 `local.properties` 已经被 git track，task 必须失败并提示先移出版本控制。
 
 ## 配置优先级
 
-发布运行时会读取 `publish-central.properties` 作为仓库级通用配置 fallback，但它不能承载组件发布字段，更不能覆盖 `build.gradle.kts` / `build.gradle` 中已经显式配置的 `PublishInfo` 字段。设计上固定为：仓库级通用字段放配置文件，组件级字段放各模块 `PublishInfo`。
+发布运行时会读取 `local.properties` 作为仓库级通用配置 fallback，但它不能承载组件发布字段，更不能覆盖 `build.gradle.kts` / `build.gradle` 中已经显式配置的 `PublishInfo` 字段。设计上固定为：仓库级通用字段放配置文件，组件级字段放各模块 `PublishInfo`。
 
 推荐优先级：
 
 ```text
-Gradle property > 环境变量 > PublishInfo 显式配置 > publish-central.properties 仓库级非空值 > 插件默认值/推导值
+Gradle property > 环境变量 > PublishInfo 显式配置 > local.properties 中 centralPublish.* 非空值 > 插件默认值/推导值
 ```
 
 说明：
 
 - Gradle property 和环境变量仍用于 CI 或临时发布覆盖，优先级最高。
 - `PublishInfo` 中显式写过的字段优先于本地配置文件。
-- `publish-central.properties` 中 value 为空的 key 会被忽略，等同于没有配置。
-- `publish-central.properties` 不支持 `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl` 等组件字段；发现这些字段时任务失败并提示移动到对应模块 `PublishInfo`。
-- 插件已有默认值或推导值最后兜底，例如 `centralNamespace = "cn.entertech"`、Developer 默认信息、SCM 推导。
+- `local.properties` 中只读取 `centralPublish.*` key；已有 `sdk.dir` / `ndk.dir` 等 Android 本地字段会被保留并忽略。
+- `local.properties` 中 value 为空的 `centralPublish.*` key 会被忽略，等同于没有配置。
+- `local.properties` 不支持 `centralPublish.groupId`、`centralPublish.artifactId`、`centralPublish.version`、`centralPublish.pluginId`、`centralPublish.implementationClass`、`centralPublish.pomName`、`centralPublish.pomDescription`、`centralPublish.pomUrl` 等组件字段；发现这些字段时任务失败并提示移动到对应模块 `PublishInfo`。
+- 插件已有默认值或推导值最后兜底，例如 `centralNamespace = "cn.entertech"`、Developer 默认信息、SCM 推导、POM URL 推导、POM name/description 默认值。
 - 为了准确区分“用户显式配置”和“插件默认值”，实现时需要让 `PublishInfo` 记录被 DSL setter 写过的字段；否则无法判断用户没有配置 `centralNamespace`，还是显式配置了默认值 `cn.entertech`。
 
 多模块仓库也不需要在配置文件声明模块清单。Gradle task path 已经表达了当前目标模块：
 
 - `./gradlew :demo-lib:configureCentralPublish` 只处理 `:demo-lib`。
 - `./gradlew :demo-plugin:configureCentralPublish` 只处理 `:demo-plugin`。
-- `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl` 属于组件信息，必须放在各模块 `PublishInfo` 中。
+- `groupId`、`artifactId`、`version` 属于组件坐标，必须放在各模块 `PublishInfo` 中。
+- `pluginId`、`implementationClass` 属于 Gradle Plugin 模块必需信息，必须放在该插件模块 `PublishInfo` 中。
+- `pomName`、`pomDescription`、`pomUrl` 属于组件 POM 信息，可在 `PublishInfo` 中显式配置；未配置时分别使用 artifactId、默认描述、Git/CI 推导 URL 兜底。
 - `centralNamespace`、`centralPublishingType`、`scmUrl`、Developer、License、workflow、secrets 等多个模块可共用的字段，放在配置文件顶层，作为所有模块 task 的 fallback。
 
 ## 用户配置文件
 
-默认读取仓库根目录的 `publish-central.properties`。也可以通过 `-PpublishConfig=...` 指定相对路径或绝对路径。
+默认读取仓库根目录的 `local.properties`。Android 项目通常已经有这个文件，一键配置只追加 `centralPublish.*` 配置块，不改写已有的 `sdk.dir` / `ndk.dir`。也可以通过 `-PpublishConfig=...` 指定相对路径或绝对路径；自定义文件仍建议使用同一套 `centralPublish.*` key，并由 task 自动检查 ignore/track 状态。
 
-业务仓库可以先生成一个空值模板：
+业务仓库可以先生成或更新本地配置模板：
 
 ```bash
 ./gradlew :library:generateCentralPublishConfig
 ```
 
-生成内容示例：
+如果 `local.properties` 已存在，生成器保留原内容，只追加或更新 `centralPublish` 配置块；如果文件不存在，则创建一个只包含该配置块的 `local.properties`。生成内容示例：
 
 ```properties
+# Android 项目已有内容会被保留。
+sdk.dir=/Users/example/Library/Android/sdk
+
 # GitHub 仓库，格式 owner/repo。为空时尝试通过 gh repo view 或 git remote origin 推导。
-githubRepo=
+centralPublish.githubRepo=
 
 # dry run 开关。
 # true: 只打印将要变更的文件和 secret 名称，不写文件、不调用 gh secret set。
 # false/空: 正常执行。
-dryRun=
+centralPublish.dryRun=
 
 # Sonatype Central namespace。为空时使用插件默认值 cn.entertech。
-centralNamespace=
+centralPublish.centralNamespace=
 
 # Central deployment 发布方式。
 # user_managed: 上传并校验后留在 Central Portal，需要手动点击 Publish 才会发布。
 # automatic: 上传并校验通过后，Central 自动尝试发布到 Maven Central。
-centralPublishingType=
+centralPublish.centralPublishingType=
 
 # Central staging repository 名称。为空时使用插件默认值 CentralStaging。
-centralRepositoryName=
+centralPublish.centralRepositoryName=
 
 # POM inception year。为空时插件使用当前年份。
-pomInceptionYear=
+centralPublish.pomInceptionYear=
 
 # POM license 名称。为空时使用插件默认值 The Apache License, Version 2.0。
-licenseName=
+centralPublish.licenseName=
 
 # POM license URL。为空时使用插件默认值 https://www.apache.org/licenses/LICENSE-2.0.txt。
-licenseUrl=
+centralPublish.licenseUrl=
 
 # POM license distribution。为空时使用插件默认值 repo。
-licenseDistribution=
+centralPublish.licenseDistribution=
 
 # POM developer id。为空时使用插件默认值 Entertech。
-developerId=
+centralPublish.developerId=
 
 # POM developer name。为空时使用插件默认值 Entertech。
-developerName=
+centralPublish.developerName=
 
 # POM developer email。为空时使用插件默认值 developer@entertech.cn。
-developerEmail=
+centralPublish.developerEmail=
 
 # POM developer organization。为空时使用插件默认值 Entertech。
-developerOrganization=
+centralPublish.developerOrganization=
 
 # POM developer organization URL。为空时使用插件默认值 https://github.com/Entertech。
-developerOrganizationUrl=
+centralPublish.developerOrganizationUrl=
 
 # POM developer URL。为空时使用插件默认值 https://github.com/Entertech。
-developerUrl=
+centralPublish.developerUrl=
 
 # SCM 浏览地址。为空时插件尝试从 CI 或 git remote origin 推导。
-scmUrl=
+centralPublish.scmUrl=
 
 # SCM connection。为空时可由 scmUrl 推导，例如 scm:git:https://github.com/owner/repo.git。
-scmConnection=
+centralPublish.scmConnection=
 
 # SCM developer connection。为空时可由 scmUrl 推导，例如 scm:git:ssh://git@github.com/owner/repo.git。
-scmDeveloperConnection=
+centralPublish.scmDeveloperConnection=
 
 # 是否配置 GitHub repository secrets。
 # true: 调用 gh secret set 写入 Central token 和 GPG signing secrets。
 # false/空: 不处理 GitHub secrets。
-githubSecrets=
+centralPublish.githubSecrets=
 
 # repository secret 已存在时是否覆盖。
 # true: 覆盖已有 secrets。
 # false/空: 复用已有 secrets，避免误替换线上 CI 密钥。
-overwriteGithubSecrets=
+centralPublish.overwriteGithubSecrets=
 
 # Central Portal User Token username。默认写入 secret MAVEN_CENTRAL_USERNAME。
-mavenCentralUsername=
+centralPublish.mavenCentralUsername=
 
 # Central Portal User Token password。默认写入 secret MAVEN_CENTRAL_PASSWORD。
-mavenCentralPassword=
+centralPublish.mavenCentralPassword=
 
 # GPG ASCII 私钥文件路径。仓库没有 GPG_KEY_CONTENTS 且 gpgGenerate=false 时必填。
-gpgKeyFile=
+centralPublish.gpgKeyFile=
 
 # GPG 私钥密码。仓库没有 SIGNING_PASSWORD 或 gpgGenerate=true 时必填。
-signingPassword=
+centralPublish.signingPassword=
 
 # GPG key id，可选。为空时 Gradle signing 尝试从私钥内容推断。
-signingKeyId=
+centralPublish.signingKeyId=
 
 # Central username repository secret 名称。为空时使用 MAVEN_CENTRAL_USERNAME。
-mavenCentralUsernameSecret=
+centralPublish.mavenCentralUsernameSecret=
 
 # Central password repository secret 名称。为空时使用 MAVEN_CENTRAL_PASSWORD。
-mavenCentralPasswordSecret=
+centralPublish.mavenCentralPasswordSecret=
 
 # GPG 私钥 repository secret 名称。为空时使用 GPG_KEY_CONTENTS。
-gpgKeySecret=
+centralPublish.gpgKeySecret=
 
 # GPG 私钥密码 repository secret 名称。为空时使用 SIGNING_PASSWORD。
-signingPasswordSecret=
+centralPublish.signingPasswordSecret=
 
 # GPG key id repository secret 名称。为空时使用 SIGNING_KEY_ID。
-signingKeyIdSecret=
+centralPublish.signingKeyIdSecret=
 
 # 是否由 task 调用本机 gpg 生成新的发布签名 key。
 # true: 生成新 GPG key，并覆盖 GPG_KEY_CONTENTS / SIGNING_PASSWORD。
 # false/空: 不生成；如果仓库已有 GPG secrets，则复用已有 secrets。
-gpgGenerate=
+centralPublish.gpgGenerate=
 
 # GPG 密钥类型。第一阶段只支持 RSA。
-gpgKeyType=
+centralPublish.gpgKeyType=
 
 # RSA 密钥长度。推荐 4096。
-gpgKeyLength=
+centralPublish.gpgKeyLength=
 
 # GPG key 有效期。例如 1y、2y、0；0 表示不过期，不建议默认使用。
-gpgKeyExpire=
+centralPublish.gpgKeyExpire=
 
 # GPG uid 姓名，例如 Entertech。
-gpgName=
+centralPublish.gpgName=
 
 # GPG uid 邮箱，例如 developer@entertech.cn。
-gpgEmail=
+centralPublish.gpgEmail=
 
 # GPG uid 注释，例如 Central Publish Signing Key。
-gpgComment=
+centralPublish.gpgComment=
 
 # 是否生成 GitHub Actions workflow。
 # true: 生成或更新 workflowPath 指定的 workflow。
 # false/空: 不处理 workflow。
-githubActions=
+centralPublish.githubActions=
 
 # GitHub Actions workflow 文件路径。为空时按当前模块名生成，例如 .github/workflows/publish-central-demo-lib.yml。
-workflowPath=
+centralPublish.workflowPath=
 
 # reusable workflow 引用，例如 Entertech/PublishPlugin/.github/workflows/central-publish.yml@main。
-workflowUses=
+centralPublish.workflowUses=
 
 # 多模块仓库不需要在配置文件里声明模块列表。
 # 直接执行目标模块自己的 task，例如：
-# ./gradlew :demo-lib:configureCentralPublish -PpublishConfig=publish-central.properties
-# ./gradlew :demo-plugin:configureCentralPublish -PpublishConfig=publish-central.properties
+# ./gradlew :demo-lib:configureCentralPublish
+# ./gradlew :demo-plugin:configureCentralPublish
 ```
 
 模板里的 key 和注释都预先写好，value 默认为空。解析时空值会被忽略；业务仓库只填写仓库级通用字段、CI/secrets/workflow 字段。枚举或布尔字段必须在注释中说明每个选项的含义。
@@ -272,33 +277,43 @@ workflowUses=
 仓库级推荐配置：
 
 ```properties
-githubRepo=Entertech/demo-lib
+centralPublish.githubRepo=Entertech/demo-lib
 
-centralNamespace=cn.entertech
-centralPublishingType=user_managed
-scmUrl=https://github.com/Entertech/demo-lib
+centralPublish.centralNamespace=cn.entertech
+centralPublish.centralPublishingType=user_managed
+centralPublish.scmUrl=https://github.com/Entertech/demo-lib
 
-githubSecrets=true
-overwriteGithubSecrets=false
-mavenCentralUsername=central-token-username
-mavenCentralPassword=central-token-password
-gpgKeyFile=/Users/chengpeng/secrets/gpg-private-key.asc
-signingPassword=gpg-private-key-password
-signingKeyId=
-gpgGenerate=false
-gpgKeyType=RSA
-gpgKeyLength=4096
-gpgKeyExpire=2y
-gpgName=Entertech
-gpgEmail=developer@entertech.cn
-gpgComment=Central Publish Signing Key
+centralPublish.githubSecrets=true
+centralPublish.overwriteGithubSecrets=false
+centralPublish.mavenCentralUsername=central-token-username
+centralPublish.mavenCentralPassword=central-token-password
+centralPublish.gpgKeyFile=/Users/chengpeng/secrets/gpg-private-key.asc
+centralPublish.signingPassword=gpg-private-key-password
+centralPublish.signingKeyId=
+centralPublish.gpgGenerate=false
+centralPublish.gpgKeyType=RSA
+centralPublish.gpgKeyLength=4096
+centralPublish.gpgKeyExpire=2y
+centralPublish.gpgName=Entertech
+centralPublish.gpgEmail=developer@entertech.cn
+centralPublish.gpgComment=Central Publish Signing Key
 
-githubActions=true
-workflowPath=
-workflowUses=Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+centralPublish.githubActions=true
+centralPublish.workflowPath=
+centralPublish.workflowUses=Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
 ```
 
-组件字段不进入 `publish-central.properties`。每个模块继续在自己的 `build.gradle.kts` / `build.gradle` 中维护 `PublishInfo`，例如 Android Library：
+组件字段不进入 `local.properties`。每个模块继续在自己的 `build.gradle.kts` / `build.gradle` 中维护 `PublishInfo`。Android Library 的最小配置：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "demo-lib"
+    version = "1.0.0"
+}
+```
+
+如果需要更准确的公开 POM 信息，可以显式覆盖：
 
 ```kotlin
 PublishInfo {
@@ -312,7 +327,7 @@ PublishInfo {
 }
 ```
 
-Gradle Plugin 模块还需要在该插件模块的 `PublishInfo` 中配置 `pluginId` 和 `implementationClass`。
+Gradle Plugin 模块还需要在该插件模块的 `PublishInfo` 中配置 `pluginId` 和 `implementationClass`；`pomName`、`pomDescription`、`pomUrl` 同样可选覆盖。
 
 ### 配置字段分组
 
@@ -337,14 +352,31 @@ Gradle Plugin 模块还需要在该插件模块的 `PublishInfo` 中配置 `plug
 | `version` | 各模块 `PublishInfo` 或项目统一版本管理 | Maven version，不能包含 `debug`。 |
 | `pluginId` | Gradle Plugin 模块 `PublishInfo` | Gradle Plugin 模块的插件 ID。 |
 | `implementationClass` | Gradle Plugin 模块 `PublishInfo` | Gradle Plugin 模块的入口类。 |
-| `pomName` | 各模块 `PublishInfo` | POM `<name>`；为空时插件可用 artifactId 兜底。 |
-| `pomDescription` | 各模块 `PublishInfo` | POM `<description>`，Central 发布必需。 |
-| `pomUrl` | 各模块 `PublishInfo` | POM `<url>`，Central 发布必需。 |
+| `pomName` | `PublishInfo` 或默认值 | POM `<name>`；为空时使用最终 artifactId，artifactId 仍为空时使用 `project.name`。 |
+| `pomDescription` | `PublishInfo` 或默认值 | POM `<description>`；Android Library 默认 `Android library published to Central Portal`，Gradle Plugin 默认 `Gradle plugin published to Central Portal`。 |
+| `pomUrl` | `PublishInfo` 或 Git/CI 推导 | POM `<url>`；优先从 GitHub Actions 环境或 `git remote origin` 推导为 HTTPS 仓库地址。 |
 | `centralNamespace` | 配置文件顶层或插件默认值 | 仓库内通常相同，默认 `cn.entertech`。 |
 | `centralPublishingType` | 配置文件顶层或插件默认值 | `user_managed` 或 `automatic`。默认 `user_managed`。 |
 | `scmUrl` | 配置文件顶层或 CI / git 推导 | 仓库内通常相同；推导不到时配置。 |
 
 配置文件里的组件字段会导致任务失败，不会被写入 `PublishInfo`。多模块仓库按模块分别执行 task，每次只处理当前模块，不从配置文件复制其他模块的组件字段。Developer、License、SCM connection 字段已有插件默认值或推导能力，不要求配置文件必须提供；需要所有模块共用时放配置文件顶层即可。
+
+#### POM 默认值和推导
+
+`pomName`、`pomDescription`、`pomUrl` 不再要求业务模块必须手写，但显式配置仍然优先级最高。
+
+| 字段 | 推导规则 |
+| --- | --- |
+| `pomName` | `PublishInfo.pomName` 非空时使用它；否则使用最终 artifactId；artifactId 仍为空时使用 `project.name`。 |
+| `pomDescription` | `PublishInfo.pomDescription` 非空时使用它；Android Library 默认 `Android library published to Central Portal`；Gradle Plugin 默认 `Gradle plugin published to Central Portal`。 |
+| `pomUrl` | `PublishInfo.pomUrl` 非空时使用它；否则优先使用 `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY`；本地使用 `git remote get-url origin`；最后可复用已推导的 `scmUrl`。 |
+
+Git remote URL 归一化规则：
+
+- `git@github.com:Entertech/demo.git` 转成 `https://github.com/Entertech/demo`。
+- `ssh://git@github.com/Entertech/demo.git` 转成 `https://github.com/Entertech/demo`。
+- `https://github.com/Entertech/demo.git` 去掉末尾 `.git`。
+- 非 GitHub HTTPS URL 保留原 scheme/host/path，只去掉末尾 `.git`。
 
 #### 仓库级通用发布字段
 
@@ -368,6 +400,8 @@ Gradle Plugin 模块还需要在该插件模块的 `PublishInfo` 中配置 `plug
 | `scmDeveloperConnection` | 根据 `scmUrl` 推导 | SSH 形式 SCM developer connection，例如 `scm:git:ssh://git@github.com/owner/repo.git`。 |
 
 #### GitHub repository secrets
+
+下表展示逻辑字段名；写入 `local.properties` 时统一使用 `centralPublish.<字段名>`，例如 `centralPublish.mavenCentralUsername=`。
 
 | 配置字段 | 默认 secret 名 | 是否必填 | 说明 |
 | --- | --- | --- | --- |
@@ -402,19 +436,19 @@ GPG repository secrets 的处理规则：
 
 | 兼容字段 | 等价字段 |
 | --- | --- |
-| `centralUsername` | `mavenCentralUsername` |
-| `centralPassword` | `mavenCentralPassword` |
-| `signingInMemoryKeyPassword` | `signingPassword` |
-| `signingInMemoryKeyId` | `signingKeyId` |
+| `centralPublish.centralUsername` | `centralPublish.mavenCentralUsername` |
+| `centralPublish.centralPassword` | `centralPublish.mavenCentralPassword` |
+| `centralPublish.signingInMemoryKeyPassword` | `centralPublish.signingPassword` |
+| `centralPublish.signingInMemoryKeyId` | `centralPublish.signingKeyId` |
 
 secret 名称允许覆盖：
 
 ```properties
-mavenCentralUsernameSecret=MAVEN_CENTRAL_USERNAME
-mavenCentralPasswordSecret=MAVEN_CENTRAL_PASSWORD
-gpgKeySecret=GPG_KEY_CONTENTS
-signingPasswordSecret=SIGNING_PASSWORD
-signingKeyIdSecret=SIGNING_KEY_ID
+centralPublish.mavenCentralUsernameSecret=MAVEN_CENTRAL_USERNAME
+centralPublish.mavenCentralPasswordSecret=MAVEN_CENTRAL_PASSWORD
+centralPublish.gpgKeySecret=GPG_KEY_CONTENTS
+centralPublish.signingPasswordSecret=SIGNING_PASSWORD
+centralPublish.signingKeyIdSecret=SIGNING_KEY_ID
 ```
 
 默认 secret 名称必须与本仓库 reusable workflow 保持一致。
@@ -425,24 +459,23 @@ signingKeyIdSecret=SIGNING_KEY_ID
 
 执行顺序：
 
-1. 解析 `-PpublishConfig`，默认 `publish-central.properties`。
+1. 解析 `-PpublishConfig`，默认 `local.properties`。
 2. 在读取敏感字段前检查配置文件安全：
-   - 配置文件必须存在。
-   - 配置文件路径必须在 `.gitignore` 中被忽略。
+   - 配置文件必须存在；不存在时提示先运行 `:module:generateCentralPublishConfig`。
+   - 如果配置文件路径没有被 `.gitignore` 忽略，自动追加该路径到根目录 `.gitignore`。
    - 如果配置文件已被 git track，任务失败；如果其中包含敏感字段，还要额外提示立刻轮换 Central token 和 GPG key。
 3. 加载 properties，忽略空值。
-4. 如果配置文件包含组件字段，任务失败并提示移动到当前模块 `PublishInfo`。
+4. 如果配置文件包含 `centralPublish.groupId` 等组件字段，任务失败并提示移动到当前模块 `PublishInfo`。
 5. 使用当前 Gradle project 作为目标模块，合并当前模块 `PublishInfo`、配置文件仓库级 fallback、插件默认值，得到有效发布信息。
-6. 校验 PublishInfo 必填组件字段：
+6. 校验 PublishInfo 必填坐标字段：
    - `groupId`
    - `artifactId`
    - `version`
-   - `pomDescription`
-   - `pomUrl`
 7. 校验 Central 规则：
    - `version` 不能包含 `debug`。
    - 如果配置 `centralNamespace`，`groupId` 必须等于该 namespace 或以 `${centralNamespace}.` 开头。
    - `centralPublishingType` 只能是 `user_managed` 或 `automatic`。
+   - 最终解析出的 `pomName`、`pomDescription`、`pomUrl` 必须非空；默认值和 Git/CI 推导失败时再要求用户在 `PublishInfo` 显式配置。
 8. 如果 `githubSecrets=true`：
    - 检查 `gh` 是否存在。
    - 执行 `gh auth status`。
@@ -496,10 +529,10 @@ gpg --full-generate-key
 `gpgGenerate=true` 必填字段：
 
 ```properties
-gpgKeyFile=/Users/chengpeng/secrets/gpg-private-key.asc
-signingPassword=gpg-private-key-password
-gpgName=Entertech
-gpgEmail=developer@entertech.cn
+centralPublish.gpgKeyFile=/Users/chengpeng/secrets/gpg-private-key.asc
+centralPublish.signingPassword=gpg-private-key-password
+centralPublish.gpgName=Entertech
+centralPublish.gpgEmail=developer@entertech.cn
 ```
 
 生成后任务继续执行 `gh secret set`：
@@ -519,15 +552,16 @@ gpg --list-secret-keys --keyid-format LONG
 
 执行顺序：
 
-1. 解析 `-PpublishConfig`，默认 `publish-central.properties`。
-2. 如果文件不存在，生成完整 key 模板，所有 value 为空，并为每个字段生成注释。
-3. 如果文件已存在，默认不覆盖；用户传入 `-PoverwritePublishConfig=true` 时才覆盖。
-4. 确保 `.gitignore` 包含配置文件路径。
-5. 打印下一步提示：
+1. 解析 `-PpublishConfig`，默认 `local.properties`。
+2. 如果文件不存在，创建 `local.properties` 并写入完整 `centralPublish.*` key 模板。
+3. 如果文件已存在，保留 `sdk.dir` / `ndk.dir` 和其他已有内容，只追加缺失的 `centralPublish.*` key；已存在的非空 value 默认不覆盖。
+4. 用户传入 `-PoverwritePublishConfig=true` 时，允许重写已存在的 `centralPublish.*` 空模板块，但不能删除 `sdk.dir` / `ndk.dir` 等非 `centralPublish.*` 字段。
+5. 确保 `.gitignore` 包含配置文件路径；缺少时自动追加。
+6. 打印下一步提示：
    - 仓库级通用字段、workflow 字段、secrets 输入字段填入配置文件。
    - 组件级字段始终放在各模块 `PublishInfo`，不要填入配置文件。
    - `PublishInfo` 显式配置优先级高于配置文件。
-   - 敏感字段只用于 `gh secret set`，不要提交配置文件。
+   - 敏感字段只用于 `gh secret set`，`local.properties` 必须保持未被 git track；如果被 track，任务会失败。
    - 枚举字段和布尔字段的可选值已经写在模板注释中。
 
 模板生成器不支持 `-PpublishModules` 或 `-PpublishModuleAliases`。多模块仓库使用同一份仓库级配置文件，然后分别在目标模块执行 `generateCentralPublishConfig` 或 `configureCentralPublish`。
@@ -536,8 +570,8 @@ gpg --list-secret-keys --keyid-format LONG
 
 执行顺序：
 
-1. 加载同一个 `publish-central.properties`。
-2. 解析 `githubRepo`。
+1. 加载同一个 `local.properties`，只读取 `centralPublish.*` 配置。
+2. 解析 `centralPublish.githubRepo`，为空时尝试通过 `gh repo view` 或 `git remote origin` 推导。
 3. 删除配置涉及的 repository secrets：
    - `MAVEN_CENTRAL_USERNAME`
    - `MAVEN_CENTRAL_PASSWORD`
@@ -547,10 +581,10 @@ gpg --list-secret-keys --keyid-format LONG
 4. 如果配置文件被 git track，输出处理建议：
 
 ```bash
-git rm --cached publish-central.properties
+git rm --cached local.properties
 ```
 
-5. 确保 `.gitignore` 中包含配置文件路径。
+5. 确保 `.gitignore` 中包含配置文件路径；缺少时自动追加。
 6. 如果用户传入 `-PremoveGeneratedWorkflow=true`，删除生成的 workflow 文件。
 7. 输出泄露后必须人工完成的动作：
    - 去 Central Portal revoke 旧 token 并重新生成。
@@ -602,7 +636,17 @@ gh secret delete SIGNING_KEY_ID -R OWNER/REPO
 
 一键配置任务不自动修改 `build.gradle.kts` 或 `build.gradle`。如果当前模块没有应用 `cn.entertech.publish`，任务失败并提示用户先接入插件。原因是 plugins block 可能存在 version catalog、buildscript classpath、旧 Groovy apply 等多种写法，自动改动风险高。
 
-如果当前模块缺少 `PublishInfo` 或缺少必填组件字段，任务失败，并输出当前模块可直接参考的 Kotlin DSL 示例：
+如果当前模块缺少 `PublishInfo` 或缺少必填坐标字段，任务失败，并输出当前模块可直接参考的 Kotlin DSL 示例：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "demo-lib"
+    version = "1.0.0"
+}
+```
+
+如果业务方希望公开 POM 信息更精确，可以在 `PublishInfo` 中显式覆盖：
 
 ```kotlin
 PublishInfo {
@@ -626,10 +670,6 @@ PublishInfo {
 
     pluginId = "cn.entertech.demo"
     implementationClass = "cn.entertech.demo.DemoPlugin"
-
-    pomName = "Demo Gradle Plugin"
-    pomDescription = "Gradle plugin published to Central Portal"
-    pomUrl = "https://github.com/Entertech/demo-plugin"
 }
 ```
 
@@ -637,7 +677,7 @@ PublishInfo {
 
 ## 发布运行时读取本地配置文件
 
-除了 `configureCentralPublish` 会读取 `publish-central.properties` 外，正常发布任务也会读取该文件作为 fallback。这样业务仓库可以把仓库级通用字段集中放在本地配置文件中，组件级字段继续留在各模块 `PublishInfo`。
+除了 `configureCentralPublish` 会读取 `local.properties` 外，正常发布任务也会读取该文件中的 `centralPublish.*` 作为仓库级 fallback。这样业务仓库可以把仓库级通用字段集中放在本地配置文件中，组件级字段继续留在各模块 `PublishInfo`。
 
 示例：
 
@@ -646,29 +686,28 @@ PublishInfo {
     groupId = "cn.entertech.android"
     artifactId = "demo-lib"
     version = "1.0.0"
-    pomDescription = "Android library published to Central Portal"
-    pomUrl = "https://github.com/Entertech/demo-lib"
 }
 ```
 
-`publish-central.properties`：
+`local.properties`：
 
 ```properties
-centralNamespace=cn.entertech
-centralPublishingType=user_managed
-scmUrl=https://github.com/Entertech/demo-lib
+centralPublish.centralNamespace=cn.entertech
+centralPublish.centralPublishingType=user_managed
+centralPublish.scmUrl=https://github.com/Entertech/demo-lib
 ```
 
-发布时等价于在 `PublishInfo` 之外补充这些通用字段。配置文件不允许提供组件字段；如果出现 `pomUrl`、`artifactId` 等字段，解析器直接失败并提示移动到当前模块 `PublishInfo`。
+发布时等价于在 `PublishInfo` 之外补充这些通用字段。`pomName` 会从 artifactId 兜底，`pomDescription` 使用组件类型默认文案，`pomUrl` 从 CI 或 `git remote origin` 推导。配置文件不允许提供组件字段；如果出现 `pomUrl`、`artifactId` 等字段，解析器直接失败并提示移动到当前模块 `PublishInfo`。
 
 实现要求：
 
-- `PublishConfigResolver` 增加 `loadCentralPublishProperties(project)`，默认读取 root `publish-central.properties`，并支持 `-PpublishConfig=...`。
+- `PublishConfigResolver` 增加 `loadCentralPublishProperties(project)`，默认读取 root `local.properties`，并支持 `-PpublishConfig=...`。
+- 只解析 `centralPublish.*` 前缀字段；`sdk.dir` / `ndk.dir` 等本地 Android 字段必须忽略。
 - central/developer/license/scm 等仓库级解析方法在 `PublishInfo` 显式字段之后读取本地配置文件非空值。
 - artifact/plugin/pom 基础元数据解析方法不读取本地配置文件。
 - 解析器不支持组件字段；发现 `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl` 时必须失败。
 - 解析器不支持 `module.<alias>.*` 这类 namespaced 字段；发现后必须失败并提示删除该字段，改为执行对应模块自己的 task。
-- `centralUsername` / `centralPassword` 和 GPG signing 不从 `publish-central.properties` 参与本地发布解析，避免用户误以为可以把敏感信息留在本地配置文件中长期使用；这两个类别只由 `configureCentralPublish` 用来写 GitHub secrets。
+- `centralUsername` / `centralPassword` 和 GPG signing 不从 `local.properties` 参与本地发布解析，避免用户误以为可以把敏感信息留在本地配置文件中长期使用；这两个类别只由 `configureCentralPublish` 用来写 GitHub secrets。
 - 若要支持本地发布读取敏感字段，必须新增显式开关，例如 `allowLocalSecretFallback=true`，默认关闭。
 
 ## GitHub Actions workflow 生成
@@ -676,9 +715,9 @@ scmUrl=https://github.com/Entertech/demo-lib
 当在 `:library` 模块执行 task，并配置：
 
 ```properties
-githubActions=true
-workflowPath=.github/workflows/publish-central-library.yml
-workflowUses=Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+centralPublish.githubActions=true
+centralPublish.workflowPath=.github/workflows/publish-central-library.yml
+centralPublish.workflowUses=Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
 ```
 
 生成：
@@ -703,11 +742,9 @@ jobs:
 
 ```bash
 ./gradlew :demo-lib:configureCentralPublish \
-  -PpublishConfig=publish-central.properties \
   -PworkflowPath=.github/workflows/publish-central-demo-lib.yml
 
 ./gradlew :demo-plugin:configureCentralPublish \
-  -PpublishConfig=publish-central.properties \
   -PworkflowPath=.github/workflows/publish-central-demo-plugin.yml
 ```
 
@@ -726,23 +763,24 @@ jobs:
 
 ### 当前工作区误 track
 
-如果 `publish-central.properties` 被 git track，`configureCentralPublish` 必须失败，不写 secret，不写 workflow。即使当前 value 为空，也要先移出版本控制，避免后续填入敏感信息后误提交。
+如果 `local.properties` 被 git track，`configureCentralPublish` 必须失败，不写 secret，不写 workflow。即使当前 value 为空，也要先移出版本控制，避免后续填入敏感信息后误提交。
 
 输出建议：
 
 ```bash
-git rm --cached publish-central.properties
-printf '\npublish-central.properties\n' >> .gitignore
+git rm --cached local.properties
 git add .gitignore
 git commit -m "[codex] ignore central publish config"
 ```
+
+这里不要求用户手工编辑 `.gitignore`。`generateCentralPublishConfig` / `configureCentralPublish` 会在发现缺少 `local.properties` ignore 规则时自动追加；如果文件已经被 git track，只能由用户确认后执行 `git rm --cached`，task 不自动修改暂存区。
 
 ### 已经提交但还没 push
 
 可以用普通交互式 rebase 或 reset 修复，但 task 不自动执行。输出建议：
 
 ```bash
-git rm --cached publish-central.properties
+git rm --cached local.properties
 git commit --amend
 ```
 
@@ -761,7 +799,7 @@ git rebase -i <bad_commit_parent>
 第一类是仓库历史清理。推荐使用 `git filter-repo` 或 BFG。针对误提交整个配置文件：
 
 ```bash
-git filter-repo --path publish-central.properties --invert-paths
+git filter-repo --path local.properties --invert-paths
 git push --force-with-lease --all
 git push --force-with-lease --tags
 ```
@@ -778,7 +816,6 @@ git push --force-with-lease --tags
 
 ```bash
 ./gradlew :library:rollbackCentralPublishSecrets \
-  -PpublishConfig=publish-central.properties \
   -PprintHistoryRewriteGuide=true
 ```
 
@@ -792,10 +829,12 @@ git push --force-with-lease --tags
 | --- | --- |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfig.kt` | properties 配置模型和字段归一化。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfigLoader.kt` | 读取配置文件、解析相对路径、校验必填字段。 |
-| `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfigTemplateWriter.kt` | 生成 key 完整、value 为空且包含字段注释的 `publish-central.properties` 模板。 |
+| `plugin_base/src/main/kotlin/custom/android/plugin/config/CentralPublishConfigTemplateWriter.kt` | 生成 key 完整、value 为空且包含字段注释的 `centralPublish.*` 配置块；写入 `local.properties` 时保留已有 `sdk.dir` / `ndk.dir`。 |
+| `plugin_base/src/main/kotlin/custom/android/plugin/config/GitUrlNormalizer.kt` | 把 CI / git remote URL 归一化为 HTTPS 仓库 URL，用于 `pomUrl` 和 `scmUrl` 推导。 |
+| `plugin_base/src/main/kotlin/custom/android/plugin/config/PomMetadataDefaults.kt` | 解析 `pomName`、`pomDescription`、`pomUrl` 默认值。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/GitHubSecretClient.kt` | 调用 `gh secret set/delete`。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/GpgKeyManager.kt` | 检查 `gpg`、生成 GPG key、导出 ASCII 私钥文件、读取 key id。 |
-| `plugin_base/src/main/kotlin/custom/android/plugin/config/GitSafetyChecker.kt` | 检查配置文件是否被 track、是否被 ignore、GitHub repo 推导。 |
+| `plugin_base/src/main/kotlin/custom/android/plugin/config/GitSafetyChecker.kt` | 检查配置文件是否被 track、是否被 ignore；缺少 ignore 规则时自动追加；支持 GitHub repo 推导。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/config/GitHubActionsWorkflowWriter.kt` | 生成 reusable workflow。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/GenerateCentralPublishConfigTask.kt` | 生成本地配置模板 task。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/ConfigureCentralPublishTask.kt` | 一键配置入口 task。 |
@@ -806,7 +845,7 @@ git push --force-with-lease --tags
 | 文件 | 修改点 |
 | --- | --- |
 | `plugin_base/src/main/kotlin/custom/android/plugin/PublishInfo.kt` | 记录 DSL 显式配置过的字段，用于区分用户配置和插件默认值。 |
-| `plugin_base/src/main/kotlin/custom/android/plugin/PublishConfigResolver.kt` | 增加 `publish-central.properties` 非空值 fallback，优先级低于 `PublishInfo` 显式配置。 |
+| `plugin_base/src/main/kotlin/custom/android/plugin/PublishConfigResolver.kt` | 增加 `local.properties` 非空值 fallback，优先级低于 `PublishInfo` 显式配置。 |
 | `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt` | 注册 `generateCentralPublishConfig` / `GenerateCentralPublishConfigTask` / `configureCentralPublish` / `ConfigureCentralPublishTask` / `rollbackCentralPublishSecrets` / `RollbackCentralPublishSecretsTask`。 |
 | `README.md` | 增加一键配置使用说明。 |
 | `doc/tech/central-publish-one-click-config-plan.md` | 本方案文档。 |
@@ -815,8 +854,10 @@ git push --force-with-lease --tags
 
 | 文件 | 覆盖点 |
 | --- | --- |
-| `plugin_base/src/test/java/custom/android/plugin/config/CentralPublishConfigLoaderTest.java` | properties 解析、兼容字段、必填字段校验。 |
-| `plugin_base/src/test/java/custom/android/plugin/config/CentralPublishConfigTemplateWriterTest.java` | 模板生成、字段注释、枚举说明、空值保留、已存在文件不覆盖。 |
+| `plugin_base/src/test/java/custom/android/plugin/config/CentralPublishConfigLoaderTest.java` | properties 解析、只读取 `centralPublish.*`、忽略 `sdk.dir` / `ndk.dir`、兼容字段、必填字段校验。 |
+| `plugin_base/src/test/java/custom/android/plugin/config/CentralPublishConfigTemplateWriterTest.java` | 模板生成、字段注释、枚举说明、空值保留、已有 `local.properties` 保留 `sdk.dir` / `ndk.dir`、缺少 ignore 规则时自动追加。 |
+| `plugin_base/src/test/java/custom/android/plugin/config/GitUrlNormalizerTest.java` | SSH/HTTPS git remote URL 到 HTTPS 仓库 URL 的归一化。 |
+| `plugin_base/src/test/java/custom/android/plugin/config/PomMetadataDefaultsTest.java` | `pomName`、`pomDescription`、`pomUrl` 默认值和推导规则。 |
 | `plugin_base/src/test/java/custom/android/plugin/config/GitHubSecretClientTest.java` | fake `gh` 验证 secret 通过 stdin 写入，不出现在命令参数。 |
 | `plugin_base/src/test/java/custom/android/plugin/config/GpgKeyManagerTest.java` | fake `gpg` 验证 batch 生成、私钥导出、敏感信息不进入日志。 |
 | `plugin_base/src/test/java/custom/android/plugin/PublishConfigResolverLocalConfigTest.java` | `PublishInfo` 显式配置优先于本地配置文件，本地配置文件空值被忽略，组件字段和 `module.<alias>.*` 字段会失败。 |
@@ -831,6 +872,8 @@ git push --force-with-lease --tags
 
 - [ ] 新增 `CentralPublishConfig` 数据类。
 - [ ] 新增 `CentralPublishConfigLoader`。
+- [ ] 测试只读取 `centralPublish.*` 前缀字段，忽略 `sdk.dir` / `ndk.dir`。
+- [ ] 测试无前缀的 `githubRepo` / `centralNamespace` 不会被当作有效配置读取，并提示使用 `centralPublish.*`。
 - [ ] 测试空 value 会被忽略，不参与配置覆盖。
 - [ ] 测试配置文件出现 `modules` 时失败，并提示执行目标模块自己的 task。
 - [ ] 测试配置文件出现 `module.<alias>.*` 时失败，并提示删除 namespaced 字段。
@@ -844,22 +887,33 @@ git push --force-with-lease --tags
 
 - [ ] 新增 `CentralPublishConfigTemplateWriter`。
 - [ ] 新增 `GenerateCentralPublishConfigTask`。
-- [ ] 测试生成的 `publish-central.properties` 包含所有支持 key，value 为空。
+- [ ] 测试生成的 `local.properties` 包含所有支持 key，value 为空。
 - [ ] 测试生成的模板不包含 `modules` 或 `module.<alias>.*` 字段。
 - [ ] 测试每个字段前都有说明注释。
 - [ ] 测试 `centralPublishingType`、`githubSecrets`、`overwriteGithubSecrets`、`gpgGenerate`、`githubActions` 等枚举/布尔字段包含可选值含义。
-- [ ] 测试文件已存在时不覆盖。
+- [ ] 测试 `local.properties` 已存在时保留 `sdk.dir` / `ndk.dir` 和其他非 `centralPublish.*` 内容。
+- [ ] 测试文件已存在且已有非空 `centralPublish.*` value 时不覆盖。
 - [ ] 测试 `-PoverwritePublishConfig=true` 时允许覆盖。
 - [ ] 测试 `.gitignore` 缺少配置文件路径时自动追加。
+- [ ] 测试 `local.properties` 已被 git track 时任务失败，不继续写入模板或 secrets。
 
 ### Task 1.6：运行时本地配置 fallback
 
 - [ ] 修改 `PublishInfo`，让 DSL setter 记录显式配置字段。
-- [ ] 修改 `PublishConfigResolver`，读取 `publish-central.properties` 非空值。
-- [ ] 测试 `PublishInfo.centralNamespace` 显式配置时优先于 `publish-central.properties`。
+- [ ] 修改 `PublishConfigResolver`，读取 `local.properties` 非空值。
+- [ ] 新增 `GitUrlNormalizer`，测试 `git@github.com:Entertech/demo.git` 转成 `https://github.com/Entertech/demo`。
+- [ ] 测试 `ssh://git@github.com/Entertech/demo.git` 转成 `https://github.com/Entertech/demo`。
+- [ ] 测试 `https://github.com/Entertech/demo.git` 去掉末尾 `.git`。
+- [ ] 新增 `PomMetadataDefaults`，测试 `pomName` 为空时使用最终 artifactId。
+- [ ] 测试 Android Library 的默认 `pomDescription` 为 `Android library published to Central Portal`。
+- [ ] 测试 Gradle Plugin 的默认 `pomDescription` 为 `Gradle plugin published to Central Portal`。
+- [ ] 测试 `pomUrl` 优先从 `GITHUB_SERVER_URL` + `GITHUB_REPOSITORY` 推导。
+- [ ] 测试本地 `pomUrl` 从 `git remote get-url origin` 推导。
+- [ ] 测试 `PublishInfo.centralNamespace` 显式配置时优先于 `local.properties`。
 - [ ] 测试 `PublishInfo` 未显式配置且本地配置有 `centralPublishingType` 时使用本地配置。
 - [ ] 测试本地配置文件中空 `centralPublishingType=` 不覆盖插件默认值。
 - [ ] 测试本地配置文件中 `pomUrl=` 会失败并提示移动到 `PublishInfo`。
+- [ ] 测试本地配置文件中 `centralPublish.pomUrl=` 会失败并提示移动到 `PublishInfo`。
 - [ ] 测试配置文件中的 `module.<alias>.*` 字段会失败并提示执行对应模块 task。
 - [ ] 测试本地配置文件中的敏感字段不会被发布解析器读取为 signing/token fallback。
 
@@ -894,14 +948,15 @@ git push --force-with-lease --tags
 ### Task 4：configureCentralPublish functional test
 
 - [ ] 构造 TestKit fixture，模块应用 `cn.entertech.publish`。
-- [ ] 准备 `publish-central.properties`。
+- [ ] 准备 `local.properties`。
 - [ ] 使用 fake `gh` 跑 `:fixture:configureCentralPublish`。
 - [ ] 验证 `build.gradle` 不会被写入或改写 `PublishInfo`。
-- [ ] 验证缺少 `PublishInfo` 必填字段时任务失败，并输出 Kotlin DSL 示例。
+- [ ] 验证 `PublishInfo` 只配置 `groupId` / `artifactId` / `version` 时任务成功，`pomName` / `pomDescription` / `pomUrl` 由默认值和 git 推导补齐。
+- [ ] 验证缺少 `groupId` / `artifactId` / `version` 时任务失败，并输出 Kotlin DSL 示例。
 - [ ] 验证默认 `.github/workflows/publish-central-fixture.yml` 生成，或 `-PworkflowPath=...` 指定路径时生成指定文件。
 - [ ] 验证 fake `gh` 收到 4 个必需 secret。
 - [ ] 验证 `dryRun=true` 不写文件、不调用 fake `gh`。
-- [ ] 在同一个 TestKit fixture 中增加 `:demo-lib` 和 `:demo-plugin`，用同一份 `publish-central.properties` 分别运行两个模块 task。
+- [ ] 在同一个 TestKit fixture 中增加 `:demo-lib` 和 `:demo-plugin`，用同一份 `local.properties` 分别运行两个模块 task。
 - [ ] 验证两个模块 task 分别读取自己的 `PublishInfo`，并复用同一份仓库级通用配置。
 - [ ] 验证两个模块使用不同 `workflowPath` 时分别生成 workflow。
 - [ ] 验证配置文件包含 `modules` 或 `module.<alias>.*` 时任务失败。
@@ -924,16 +979,18 @@ git push --force-with-lease --tags
 
 ## 验收标准
 
-1. 业务仓库准备一个 `publish-central.properties` 后，执行 `:module:configureCentralPublish` 能完成单模块 `PublishInfo` 校验、GitHub secrets 写入和 workflow 生成。
+1. 业务仓库执行 `:module:generateCentralPublishConfig` 能生成或更新根目录 `local.properties`，保留 Android 已有 `sdk.dir` / `ndk.dir`，并自动确保 `.gitignore` 包含 `local.properties`。
 2. 多模块仓库不需要 `modules` 字段；分别执行 `:demo-lib:configureCentralPublish`、`:demo-plugin:configureCentralPublish` 时，每个 task 只处理当前模块，并复用同一份仓库级通用配置。
-3. 业务仓库执行 `:module:generateCentralPublishConfig` 能生成 key 完整、value 为空且带字段注释的配置模板；枚举/布尔字段注释说明每个选项含义。
-4. 发布解析时，`PublishInfo` 显式配置优先于 `publish-central.properties`；本地配置文件中的空值被忽略。
-5. 配置文件不支持 `modules`、`module.<alias>.*` 或组件字段；出现这些字段时任务失败并提示执行目标模块自己的 task 或移动到 `PublishInfo`。
-6. 敏感信息不会写入 `build.gradle.kts`、`local.properties` 或 `gradle.properties`。
-7. 调用 `gh secret set` 时 secret value 不出现在命令参数和 Gradle 日志中。
-8. 仓库已有 `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` 且未显式 `gpgGenerate=true` 时，任务复用已有 secrets，不生成 GPG key。
-9. 配置 `gpgGenerate=true` 时，任务能通过本机 `gpg` 生成 key、导出私钥文件，并写入 `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` repository secrets。
-10. 配置文件被 git track 时任务必须失败；如果已包含敏感字段，还必须提示轮换密钥。
-11. `rollbackCentralPublishSecrets` 能删除对应 repository secrets。
-12. 文档清楚说明 `git replace` 不能清理远程泄露，history rewrite 和密钥轮换都必须执行。
-13. 所有新增测试和现有 `plugin_base`、`demo-lib`、`demo-plugin` 测试通过。
+3. `PublishInfo` 最小只需要 `groupId`、`artifactId`、`version`；`pomName`、`pomDescription`、`pomUrl` 能通过默认值和 Git/CI 推导得到。
+4. 执行 `:module:configureCentralPublish` 能完成单模块 `PublishInfo` 校验、GitHub secrets 写入和 workflow 生成。
+5. 发布解析时，`PublishInfo` 显式配置优先于 `local.properties`；本地配置文件中的空值被忽略。
+6. 配置文件不支持 `modules`、`module.<alias>.*` 或组件字段；出现这些字段时任务失败并提示执行目标模块自己的 task 或移动到 `PublishInfo`。
+7. 生成的 `local.properties` 模板 key 完整、value 为空且带字段注释；枚举/布尔字段注释说明每个选项含义。
+8. Central token、GPG 私钥和 GPG 密码不会写入 `build.gradle.kts`、`gradle.properties` 或任何 tracked 文件；`local.properties` 可作为本机一次性输入来源，但必须被 ignore 且不能被 git track。
+9. 调用 `gh secret set` 时 secret value 不出现在命令参数和 Gradle 日志中。
+10. 仓库已有 `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` 且未显式 `gpgGenerate=true` 时，任务复用已有 secrets，不生成 GPG key。
+11. 配置 `gpgGenerate=true` 时，任务能通过本机 `gpg` 生成 key、导出私钥文件，并写入 `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` repository secrets。
+12. 配置文件被 git track 时任务必须失败；如果已包含敏感字段，还必须提示轮换密钥。
+13. `rollbackCentralPublishSecrets` 能删除对应 repository secrets。
+14. 文档清楚说明 `git replace` 不能清理远程泄露，history rewrite 和密钥轮换都必须执行。
+15. 所有新增测试和现有 `plugin_base`、`demo-lib`、`demo-plugin` 测试通过。
