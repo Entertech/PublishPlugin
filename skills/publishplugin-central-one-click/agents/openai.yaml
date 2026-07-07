@@ -1,0 +1,4 @@
+interface:
+  display_name: "PublishPlugin Central One Click"
+  short_description: "Central one-click publishing guide"
+  default_prompt: "Use $publishplugin-central-one-click to configure or review PublishPlugin Central one-click publishing."
