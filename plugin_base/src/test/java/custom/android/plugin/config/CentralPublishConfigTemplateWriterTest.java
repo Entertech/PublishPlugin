@@ -58,8 +58,50 @@ public class CentralPublishConfigTemplateWriterTest {
         String content = read(localProperties);
         assertTrue(content.contains("user_managed:"));
         assertTrue(content.contains("automatic:"));
-        assertTrue(content.contains("true: 调用 gh secret set"));
-        assertTrue(content.contains("false/空: 不生成"));
+        assertTrue(content.contains("true: Call gh secret set"));
+        assertTrue(content.contains("false/blank: Do not generate"));
+    }
+
+    @Test
+    public void generatedTemplateCommentsAreAsciiSafeForPropertiesEditors() throws Exception {
+        File rootDir = temporaryFolder.newFolder("project");
+        File localProperties = new File(rootDir, "local.properties");
+
+        CentralPublishConfigTemplateWriter.INSTANCE.writeTemplate(rootDir, localProperties, false);
+
+        byte[] bytes = Files.readAllBytes(localProperties.toPath());
+        for (byte value : bytes) {
+            assertTrue("Generated template contains non-ASCII byte: " + (value & 0xff), (value & 0x80) == 0);
+        }
+        String utf8Content = new String(bytes, StandardCharsets.UTF_8);
+        String latin1Content = new String(bytes, StandardCharsets.ISO_8859_1);
+        assertEquals(utf8Content, latin1Content);
+        assertTrue(utf8Content.contains("# GitHub repository in owner/repo format."));
+    }
+
+    @Test
+    public void overwriteRewritesTemplateCommentsAndPreservesExistingValues() throws Exception {
+        File rootDir = temporaryFolder.newFolder("project");
+        File localProperties = new File(rootDir, "local.properties");
+        Files.write(localProperties.toPath(), (
+                "# Android local SDK path\n"
+                        + "sdk.dir=/Users/example/Library/Android/sdk\n\n"
+                        + "# Old generated GitHub repository comment\n"
+                        + "centralPublish.githubRepo=Entertech/demo-lib\n\n"
+                        + "# Old generated GitHub secrets comment\n"
+                        + "centralPublish.githubSecrets=true\n"
+        ).getBytes(StandardCharsets.UTF_8));
+
+        CentralPublishConfigTemplateWriter.INSTANCE.writeTemplate(rootDir, localProperties, true);
+
+        String content = read(localProperties);
+        assertTrue(content.contains("# Android local SDK path\nsdk.dir=/Users/example/Library/Android/sdk"));
+        assertTrue(content.contains("# GitHub repository in owner/repo format."));
+        assertTrue(content.contains("centralPublish.githubRepo=Entertech/demo-lib"));
+        assertTrue(content.contains("centralPublish.githubSecrets=true"));
+        assertEquals(1, count(content, "centralPublish.githubRepo="));
+        assertEquals(1, count(content, "centralPublish.githubSecrets="));
+        assertEquals(false, content.contains("Old generated"));
     }
 
     private static String read(File file) throws Exception {

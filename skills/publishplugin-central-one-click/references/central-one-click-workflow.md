@@ -61,6 +61,8 @@ signingInMemoryKeyPassword / SIGNING_PASSWORD
 - Create or update the config file.
 - Preserve Android fields such as `sdk.dir` and `ndk.dir`.
 - Append missing `centralPublish.*` keys only.
+- Keep generated template comments ASCII-only English to avoid mojibake in Java `.properties` and IDE readers.
+- With `-PoverwritePublishConfig=true`, refresh generated template comments while preserving existing `centralPublish.*` values and non-`centralPublish.*` lines.
 - Do not add `modules` or `module.<alias>.*`.
 - Ensure the config path is ignored.
 - Fail if the config file is already tracked.

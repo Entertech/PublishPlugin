@@ -128,146 +128,146 @@ Gradle property > 环境变量 > PublishInfo 显式配置 > local.properties 中
 ./gradlew :library:generateCentralPublishConfig
 ```
 
-如果 `local.properties` 已存在，生成器保留原内容，只追加或更新 `centralPublish` 配置块；如果文件不存在，则创建一个只包含该配置块的 `local.properties`。生成内容示例：
+如果 `local.properties` 已存在，生成器保留原内容，只追加或更新 `centralPublish` 配置块；如果文件不存在，则创建一个只包含该配置块的 `local.properties`。生成模板里的注释使用 ASCII English，避免 IDE 按 `.properties` 默认编码打开时出现中文注释乱码。已有旧模板需要刷新注释时，可以传入 `-PoverwritePublishConfig=true`，task 会重写模板注释并保留已有 `centralPublish.*` value。生成内容示例：
 
 ```properties
-# Android 项目已有内容会被保留。
+# Existing Android project content is preserved.
 sdk.dir=/Users/example/Library/Android/sdk
 
-# GitHub 仓库，格式 owner/repo。为空时尝试通过 gh repo view 或 git remote origin 推导。
+# GitHub repository in owner/repo format. Blank tries gh repo view, then git remote origin.
 centralPublish.githubRepo=
 
-# dry run 开关。
-# true: 只打印将要变更的文件和 secret 名称，不写文件、不调用 gh secret set。
-# false/空: 正常执行。
+# Dry-run switch.
+# true: Print planned files and secret names only. Do not write files or call gh secret set.
+# false/blank: Run normally.
 centralPublish.dryRun=
 
-# Sonatype Central namespace。为空时使用插件默认值 cn.entertech。
+# Sonatype Central namespace. Blank uses plugin default cn.entertech.
 centralPublish.centralNamespace=
 
-# Central deployment 发布方式。
-# user_managed: 上传并校验后留在 Central Portal，需要手动点击 Publish 才会发布。
-# automatic: 上传并校验通过后，Central 自动尝试发布到 Maven Central。
+# Central deployment publishing type.
+# user_managed: Upload and validate, then leave the deployment in Central Portal for manual Publish.
+# automatic: Upload and validate, then Central tries to publish to Maven Central automatically.
 centralPublish.centralPublishingType=
 
-# Central staging repository 名称。为空时使用插件默认值 CentralStaging。
+# Central staging repository name. Blank uses plugin default CentralStaging.
 centralPublish.centralRepositoryName=
 
-# POM inception year。为空时插件使用当前年份。
+# POM inception year. Blank uses the current year.
 centralPublish.pomInceptionYear=
 
-# POM license 名称。为空时使用插件默认值 The Apache License, Version 2.0。
+# POM license name. Blank uses plugin default The Apache License, Version 2.0.
 centralPublish.licenseName=
 
-# POM license URL。为空时使用插件默认值 https://www.apache.org/licenses/LICENSE-2.0.txt。
+# POM license URL. Blank uses plugin default https://www.apache.org/licenses/LICENSE-2.0.txt.
 centralPublish.licenseUrl=
 
-# POM license distribution。为空时使用插件默认值 repo。
+# POM license distribution. Blank uses plugin default repo.
 centralPublish.licenseDistribution=
 
-# POM developer id。为空时使用插件默认值 Entertech。
+# POM developer id. Blank uses plugin default Entertech.
 centralPublish.developerId=
 
-# POM developer name。为空时使用插件默认值 Entertech。
+# POM developer name. Blank uses plugin default Entertech.
 centralPublish.developerName=
 
-# POM developer email。为空时使用插件默认值 developer@entertech.cn。
+# POM developer email. Blank uses plugin default developer@entertech.cn.
 centralPublish.developerEmail=
 
-# POM developer organization。为空时使用插件默认值 Entertech。
+# POM developer organization. Blank uses plugin default Entertech.
 centralPublish.developerOrganization=
 
-# POM developer organization URL。为空时使用插件默认值 https://github.com/Entertech。
+# POM developer organization URL. Blank uses plugin default https://github.com/Entertech.
 centralPublish.developerOrganizationUrl=
 
-# POM developer URL。为空时使用插件默认值 https://github.com/Entertech。
+# POM developer URL. Blank uses plugin default https://github.com/Entertech.
 centralPublish.developerUrl=
 
-# SCM 浏览地址。为空时插件尝试从 CI 或 git remote origin 推导。
+# SCM browser URL. Blank lets the plugin infer it from CI or git remote origin.
 centralPublish.scmUrl=
 
-# SCM connection。为空时可由 scmUrl 推导，例如 scm:git:https://github.com/owner/repo.git。
+# SCM connection. Blank may be inferred from scmUrl, for example scm:git:https://github.com/owner/repo.git.
 centralPublish.scmConnection=
 
-# SCM developer connection。为空时可由 scmUrl 推导，例如 scm:git:ssh://git@github.com/owner/repo.git。
+# SCM developer connection. Blank may be inferred from scmUrl, for example scm:git:ssh://git@github.com/owner/repo.git.
 centralPublish.scmDeveloperConnection=
 
-# 是否配置 GitHub repository secrets。
-# true: 调用 gh secret set 写入 Central token 和 GPG signing secrets。
-# false/空: 不处理 GitHub secrets。
+# Whether to configure GitHub repository secrets.
+# true: Call gh secret set for Central token and GPG signing secrets.
+# false/blank: Do not process GitHub secrets.
 centralPublish.githubSecrets=
 
-# repository secret 已存在时是否覆盖。
-# true: 覆盖已有 secrets。
-# false/空: 复用已有 secrets，避免误替换线上 CI 密钥。
+# Whether to overwrite existing repository secrets.
+# true: Overwrite existing secrets.
+# false/blank: Reuse existing secrets to avoid replacing CI credentials by mistake.
 centralPublish.overwriteGithubSecrets=
 
-# Central Portal User Token username。默认写入 secret MAVEN_CENTRAL_USERNAME。
+# Central Portal User Token username. Default secret is MAVEN_CENTRAL_USERNAME.
 centralPublish.mavenCentralUsername=
 
-# Central Portal User Token password。默认写入 secret MAVEN_CENTRAL_PASSWORD。
+# Central Portal User Token password. Default secret is MAVEN_CENTRAL_PASSWORD.
 centralPublish.mavenCentralPassword=
 
-# GPG ASCII 私钥文件路径。仓库没有 GPG_KEY_CONTENTS 且 gpgGenerate=false 时必填。
+# GPG ASCII private key file path. Required when GPG_KEY_CONTENTS is missing and gpgGenerate=false.
 centralPublish.gpgKeyFile=
 
-# GPG 私钥密码。仓库没有 SIGNING_PASSWORD 或 gpgGenerate=true 时必填。
+# GPG private key password. Required when SIGNING_PASSWORD is missing or gpgGenerate=true.
 centralPublish.signingPassword=
 
-# GPG key id，可选。为空时 Gradle signing 尝试从私钥内容推断。
+# GPG key id, optional. Blank lets Gradle signing infer it from the private key.
 centralPublish.signingKeyId=
 
-# Central username repository secret 名称。为空时使用 MAVEN_CENTRAL_USERNAME。
+# Central username repository secret name. Blank uses MAVEN_CENTRAL_USERNAME.
 centralPublish.mavenCentralUsernameSecret=
 
-# Central password repository secret 名称。为空时使用 MAVEN_CENTRAL_PASSWORD。
+# Central password repository secret name. Blank uses MAVEN_CENTRAL_PASSWORD.
 centralPublish.mavenCentralPasswordSecret=
 
-# GPG 私钥 repository secret 名称。为空时使用 GPG_KEY_CONTENTS。
+# GPG private key repository secret name. Blank uses GPG_KEY_CONTENTS.
 centralPublish.gpgKeySecret=
 
-# GPG 私钥密码 repository secret 名称。为空时使用 SIGNING_PASSWORD。
+# GPG private key password repository secret name. Blank uses SIGNING_PASSWORD.
 centralPublish.signingPasswordSecret=
 
-# GPG key id repository secret 名称。为空时使用 SIGNING_KEY_ID。
+# GPG key id repository secret name. Blank uses SIGNING_KEY_ID.
 centralPublish.signingKeyIdSecret=
 
-# 是否由 task 调用本机 gpg 生成新的发布签名 key。
-# true: 生成新 GPG key，并覆盖 GPG_KEY_CONTENTS / SIGNING_PASSWORD。
-# false/空: 不生成；如果仓库已有 GPG secrets，则复用已有 secrets。
+# Whether this task should call local gpg to generate a new publishing signing key.
+# true: Generate a new GPG key and overwrite GPG_KEY_CONTENTS / SIGNING_PASSWORD.
+# false/blank: Do not generate. Reuse existing GPG secrets when present.
 centralPublish.gpgGenerate=
 
-# GPG 密钥类型。第一阶段只支持 RSA。
+# GPG key type. The first phase supports RSA only.
 centralPublish.gpgKeyType=
 
-# RSA 密钥长度。推荐 4096。
+# RSA key length. Recommended value is 4096.
 centralPublish.gpgKeyLength=
 
-# GPG key 有效期。例如 1y、2y、0；0 表示不过期，不建议默认使用。
+# GPG key expiration, for example 1y, 2y, or 0. 0 means no expiration and is not recommended by default.
 centralPublish.gpgKeyExpire=
 
-# GPG uid 姓名，例如 Entertech。
+# GPG uid name, for example Entertech.
 centralPublish.gpgName=
 
-# GPG uid 邮箱，例如 developer@entertech.cn。
+# GPG uid email, for example developer@entertech.cn.
 centralPublish.gpgEmail=
 
-# GPG uid 注释，例如 Central Publish Signing Key。
+# GPG uid comment, for example Central Publish Signing Key.
 centralPublish.gpgComment=
 
-# 是否生成 GitHub Actions workflow。
-# true: 生成或更新 workflowPath 指定的 workflow。
-# false/空: 不处理 workflow。
+# Whether to generate a GitHub Actions workflow.
+# true: Generate or update the workflow specified by workflowPath.
+# false/blank: Do not process workflow files.
 centralPublish.githubActions=
 
-# GitHub Actions workflow 文件路径。为空时按当前模块名生成，例如 .github/workflows/publish-central-demo-lib.yml。
+# GitHub Actions workflow file path. Blank uses the current module name, for example .github/workflows/publish-central-demo-lib.yml.
 centralPublish.workflowPath=
 
-# reusable workflow 引用，例如 Entertech/PublishPlugin/.github/workflows/central-publish.yml@main。
+# Reusable workflow reference, for example Entertech/PublishPlugin/.github/workflows/central-publish.yml@main.
 centralPublish.workflowUses=
 
-# 多模块仓库不需要在配置文件里声明模块列表。
-# 直接执行目标模块自己的 task，例如：
+# Multi-module repositories do not declare a module list in this file.
+# Run each target module task directly, for example:
 # ./gradlew :demo-lib:configureCentralPublish
 # ./gradlew :demo-plugin:configureCentralPublish
 ```
@@ -554,10 +554,11 @@ gpg --list-secret-keys --keyid-format LONG
 
 1. 解析 `-PpublishConfig`，默认 `local.properties`。
 2. 如果文件不存在，创建 `local.properties` 并写入完整 `centralPublish.*` key 模板。
-3. 如果文件已存在，保留 `sdk.dir` / `ndk.dir` 和其他已有内容，只追加缺失的 `centralPublish.*` key；已存在的非空 value 默认不覆盖。
-4. 用户传入 `-PoverwritePublishConfig=true` 时，允许重写已存在的 `centralPublish.*` 空模板块，但不能删除 `sdk.dir` / `ndk.dir` 等非 `centralPublish.*` 字段。
-5. 确保 `.gitignore` 包含配置文件路径；缺少时自动追加。
-6. 打印下一步提示：
+3. 模板注释必须使用 ASCII-only English，避免 `.properties` 文件在 IDE 或 Java properties 语义下显示乱码。
+4. 如果文件已存在，保留 `sdk.dir` / `ndk.dir` 和其他已有内容，只追加缺失的 `centralPublish.*` key；已存在的非空 value 默认不覆盖。
+5. 用户传入 `-PoverwritePublishConfig=true` 时，允许重写已存在的 `centralPublish.*` 模板注释并保留已有 value，不能删除 `sdk.dir` / `ndk.dir` 等非 `centralPublish.*` 字段。
+6. 确保 `.gitignore` 包含配置文件路径；缺少时自动追加。
+7. 打印下一步提示：
    - 仓库级通用字段、workflow 字段、secrets 输入字段填入配置文件。
    - 组件级字段始终放在各模块 `PublishInfo`，不要填入配置文件。
    - `PublishInfo` 显式配置优先级高于配置文件。
@@ -985,7 +986,7 @@ git push --force-with-lease --tags
 4. 执行 `:module:configureCentralPublish` 能完成单模块 `PublishInfo` 校验、GitHub secrets 写入和 workflow 生成。
 5. 发布解析时，`PublishInfo` 显式配置优先于 `local.properties`；本地配置文件中的空值被忽略。
 6. 配置文件不支持 `modules`、`module.<alias>.*` 或组件字段；出现这些字段时任务失败并提示执行目标模块自己的 task 或移动到 `PublishInfo`。
-7. 生成的 `local.properties` 模板 key 完整、value 为空且带字段注释；枚举/布尔字段注释说明每个选项含义。
+7. 生成的 `local.properties` 模板 key 完整、value 为空且带 ASCII-only English 字段注释；枚举/布尔字段注释说明每个选项含义。
 8. Central token、GPG 私钥和 GPG 密码不会写入 `build.gradle.kts`、`gradle.properties` 或任何 tracked 文件；`local.properties` 可作为本机一次性输入来源，但必须被 ignore 且不能被 git track。
 9. 调用 `gh secret set` 时 secret value 不出现在命令参数和 Gradle 日志中。
 10. 仓库已有 `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` 且未显式 `gpgGenerate=true` 时，任务复用已有 secrets，不生成 GPG key。

@@ -153,6 +153,8 @@ publishPassword=password
 
 `generateCentralPublishConfig` 默认生成或更新根目录 `local.properties`。Android 项目通常已经有这个文件，task 会保留已有 `sdk.dir` / `ndk.dir`，只追加 `centralPublish.*` 配置块；如果 `.gitignore` 缺少 `local.properties`，task 会自动补充。如果 `local.properties` 已经被 git track，任务会失败，避免敏感信息继续进入版本控制。
 
+生成模板的注释使用 ASCII English，避免 IDE 按 `.properties` 默认编码打开时出现中文注释乱码。已有旧模板需要刷新注释时，可以传入 `-PoverwritePublishConfig=true`，task 会重写模板注释并保留已有 `centralPublish.*` value。
+
 `local.properties` 中只放仓库级通用字段和一键配置输入，例如：
 
 ```properties

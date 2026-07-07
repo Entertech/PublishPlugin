@@ -54,6 +54,8 @@ Check these invariants first:
 - `local.properties` may contain repository-wide fields only. It must reject component fields such as `centralPublish.groupId`, `centralPublish.artifactId`, `centralPublish.version`, `centralPublish.pluginId`, `centralPublish.implementationClass`, `centralPublish.pomName`, `centralPublish.pomDescription`, and `centralPublish.pomUrl`.
 - `modules` and `module.<alias>.*` are unsupported. Multi-module repos run each module's task separately.
 - `PublishInfo` explicit values outrank `local.properties`; blank `centralPublish.*` values are ignored.
+- `generateCentralPublishConfig` template comments must stay ASCII-only English so Java `.properties` and IDE readers do not render raw UTF-8 comments as mojibake.
+- `overwritePublishConfig=true` may refresh generated template comments, but it must preserve existing `centralPublish.*` values and non-`centralPublish.*` lines such as `sdk.dir`.
 - Central token and GPG secret values are one-time inputs for `configureCentralPublish`; runtime publish must use Gradle properties or environment variables, not local secret fallback.
 - `dryRun=true` has no side effects.
 - `overwriteGithubSecrets=false` never overwrites an existing repository secret; missing secrets are filled individually.
