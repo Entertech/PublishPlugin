@@ -84,6 +84,29 @@ apply plugin: 'cn.entertech.publish'
 | `demo-lib` | Android Library 发布示例 | `PublishInfo` 基础坐标、POM/Central 元数据、多 flavor release variant、`artifactIdForVariant`。 |
 | `demo-plugin` | Gradle Plugin 发布示例 | `java-gradle-plugin`、`pluginId`、`implementationClass`、Gradle 插件入口类、本地 Maven 发布。 |
 
+## 与 Vanniktech 方案对比
+
+`com.vanniktech.maven.publish` 是成熟的通用 Maven 发布插件。它对 Maven Central、签名、sources/javadoc、KMP 等场景支持更完整，但直接替换当前插件会改变已有业务项目的 DSL、任务名和版本基线。以下对比基于当前 `cn.entertech.publish` 设计，以及 Vanniktech 官方文档中 2026-07-07 可见的 `0.37.0` 版本信息；后续版本要求以 [Vanniktech changelog](https://vanniktech.github.io/gradle-maven-publish-plugin/changelog/) 为准。
+
+| 维度 | 当前自研 `cn.entertech.publish` | 直接使用 `com.vanniktech.maven.publish` | 判断 |
+| --- | --- | --- | --- |
+| 接入方式 | 业务项目继续配置 `PublishInfo { ... }` | 需要改为 `mavenPublishing { ... }` 或 Vanniktech 约定属性 | 自研对已有项目迁移成本更低 |
+| 旧项目兼容 | 保留 `publishUrl`、`publishUserName`、`publishPassword`、`PublishLibraryLocalTask`、`PublishLibraryRemoteTask` | DSL、任务名、属性名都不同 | 自研更适合公司存量项目 |
+| 版本基线 | 当前仓库 wrapper 为 Gradle 8.0；插件自身按 Java 8 target、AGP 4.2.0 compileOnly 维护兼容 | `0.37.0` 最低要求 JDK 17、Gradle 9.0.0、AGP 8.13.0、KGP 2.2.0 | 直接引入 Vanniktech 会带来明显升级压力 |
+| Central Portal 支持 | 已封装 Central staging 上传和 manual upload；状态轮询、deployment validation 仍偏轻 | 内置 Central Portal 发布、自动发布、deployment validation 等能力 | Vanniktech 更成熟 |
+| POM 元数据 | Entertech 默认 license/developer/SCM 规则内置，可由 `PublishInfo`、Gradle property、环境变量覆盖 | 使用通用 DSL 或 Gradle properties 配置 | 自研更贴公司默认值，Vanniktech 更标准 |
+| GPG 签名 | 已支持 in-memory key，但签名属性解析和校验由本插件维护 | 内置 CI 友好的 signing 配置 | Vanniktech 维护成本更低 |
+| sources/javadoc | 本地 debug 版本才附带 sources；Central 远程发布强制 sources/javadoc | 自动配置 sources/javadoc，可配合 Dokka | Vanniktech 更完整 |
+| Android 多 variant | 只发布 release component，支持 `artifactIdForVariant` 和 `skipVariantIf` | 支持 Android variant 发布和过滤，但 DSL 不同 | 两者都能做，自研更贴现有业务规则 |
+| Gradle Plugin 发布 | 支持 `java-gradle-plugin`，并复用公司坐标和 POM 规则 | 也支持 Gradle Plugin 发布 | 能力接近 |
+| 旧私服发布 | 保留 `remotePublishMode = "customRepository"` 和旧私服字段 | 支持发布到任意 Maven repository，但配置方式不同 | 自研迁移成本更低 |
+| CI 密钥管理 | 支持公司约定的 Central token、GPG key、SCM fallback 变量 | 支持标准 Gradle properties 和环境变量 | 都可用，Vanniktech 更通用 |
+| 维护成本 | Central API、checksum、validation 行为变化需要自研跟进 | 社区插件持续维护这些细节 | Vanniktech 维护成本更低 |
+| 可控性 | 可按公司规则定制任务名、默认值、校验和输出日志 | 受第三方插件 DSL 和版本策略约束 | 自研可控性更强 |
+| 生态覆盖 | 主要覆盖 Android Library 和 Gradle Plugin | 覆盖 Android、Java、Kotlin Multiplatform、version catalog 等 | Vanniktech 覆盖面更广 |
+
+推荐策略：已有业务项目继续使用 `cn.entertech.publish`，以保持 `PublishInfo` 和旧任务名兼容；新项目如果已经满足较新的 Gradle/AGP/Kotlin 基线，可以评估直接使用 Vanniktech。后续也可以在本插件内部增加可选 backend：外部 DSL 仍保持 `PublishInfo`，环境满足要求时内部委托 Vanniktech，否则继续走当前兼容实现。
+
 ## PublishInfo 配置速查
 
 `PublishInfo` 描述要发布的 Maven 坐标、远程仓库模式、POM 元数据以及多 variant 规则。不同发布场景需要的字段不同：
