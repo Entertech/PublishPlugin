@@ -1,135 +1,143 @@
-# PublishPlugin 可扩展功能实施计划
+# PublishPlugin 后续规划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `release-engineering` plus `superpowers:subagent-driven-development` or `superpowers:executing-plans` when implementing this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在现有 Android Library / Gradle Plugin 发布能力基础上，补齐发布前诊断、版本覆盖、产物报告、Snapshot、Portal API、Variant DSL、CI 和兼容性验证等可扩展功能。
+**Goal:** 基于当前已落地的 GitHub Packages 默认发布、一键发布配置、Central 兼容发布、多 variant publication 和 demo 能力，继续补齐发布前统一校验、发布证据、Snapshot、Central Portal 原生 API、variant DSL、CI 兼容性矩阵和技能生命周期。
 
-**Architecture:** 保持 `PublishInfo` 作为业务项目唯一接入入口，把新增能力拆到配置解析、发布校验、任务注册、上传客户端和报告生成几个边界清晰的模块中。旧任务名 `PublishLibraryLocalTask` / `PublishLibraryRemoteTask` 保持兼容，新能力通过新增 task、可选字段和 CLI property 渐进启用。
+**Architecture:** `PublishInfo` 继续作为组件级发布入口，`local.properties` 的 `publish.*` 继续作为仓库级配置入口，`PublishLibraryLocalTask` / `PublishLibraryRemoteTask` 继续保持兼容。新能力优先拆到 resolver、校验、报告、workflow、配置 task 和上传 client 中，不把发布目标、secrets、workflow、variant 规则混进单个大任务。
 
-**Tech Stack:** Gradle Plugin、Kotlin JVM、Android Gradle Plugin、Gradle Maven Publish、Gradle Signing、Gradle TestKit、GitHub Actions、Python workflow helper scripts。
+**Tech Stack:** Gradle Plugin、Kotlin JVM、Android Gradle Plugin、Gradle Maven Publish、Gradle Signing、Gradle TestKit、GitHub Actions、GitHub CLI、GPG、Codex Skill。
 
 ---
 
-## 现有功能基线
+## 当前功能基线
 
-当前项目已经具备这些能力：
+当前项目已经具备以下能力，后续规划不再把它们当作待实现项：
 
-- `cn.entertech.publish` Gradle 插件入口在 `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`。
-- `PublishInfo` DSL 支持 Maven 坐标、Gradle Plugin 坐标、旧私服字段、Central 字段、POM 元数据、license、developer、SCM、动态 `artifactIdForVariant` 和 `skipVariantIf`。
-- Android Library 自动创建 `EnterPublish` 或 `<VariantName>EnterPublish` publication；Gradle Plugin 模块发布 `java` component。
-- `PublishLibraryLocalTask` 通过嵌套 Gradle 调用执行 `publishToMavenLocal`。
-- `PublishLibraryRemoteTask` 支持 Central Staging API 兼容层和 `customRepository` 两种远程模式，多 publication 时执行 `publishAllPublicationsTo<RepositoryName>Repository`。
-- Central 发布时强制 POM 元数据、凭据、签名配置，上传后调用 manual upload endpoint 生成 Central Portal deployment。
-- 本地发布对非 debug 版本移除 sources；Central 发布补齐 sources 和 javadoc artifact。
-- Gradle TestKit 已覆盖 sources 规则、Central POM 覆盖、多 flavor artifactId、多 variant 本地发布、variant 过滤、sources configuration mismatch。
-- `.github/workflows` 已提供业务项目 reusable workflow、插件自身 PR 校验和插件自身 Central 发布流程。
-- `.github/scripts` 已覆盖版本规范化、README 版本同步、签名 key id 规范化、PGP 公钥可用性、publication 元数据验证。
+- `cn.entertech.publish` 插件入口在 `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`。
+- Android application 模块会被跳过；Android Library 和 Gradle Plugin 模块会自动应用 `maven-publish`。
+- Android Library 支持单 release publication 和多 flavor release publication，publication 名为 `EnterPublish` 或 `<VariantName>EnterPublish`。
+- Gradle Plugin 模块支持 `java-gradle-plugin`，使用 `pluginId` 和 `implementationClass` 创建 plugin marker。
+- `PublishInfo` 支持 `artifactIdForVariant`、`groupIdForVariant`、`versionForVariant` 和 `skipVariantIf`。
+- 本地 Maven 发布会执行 `publishToMavenLocal`，普通版本自动追加 `-local` 后缀，已带 `-local` 的版本不重复追加。
+- `PublishConfigResolver.resolveVersion(...)` 已支持 `-PpublishVersion`、`PUBLISH_VERSION` 和显式命令行 `-Pversion` 覆盖。
+- 默认远程发布模式是 `githubPackages`；显式 `remotePublishMode=central` 使用 Sonatype Central；`customRepository` 保留旧私服兼容。
+- GitHub Packages 支持 `githubPackagesRepository` / `githubPackagesUrl` 推导和 `GITHUB_ACTOR` / `GITHUB_TOKEN` / `gpr.user` / `gpr.key` 凭据来源。
+- Central 兼容路径使用 OSSRH Staging API repository 上传，再调用 manual upload endpoint 创建 Portal deployment。
+- Central 发布强制校验 namespace、publishing type、POM/SCM 元数据、Central token、GPG signing。
+- POM 元数据支持默认 Entertech developer/license、当前年份、SCM URL 推导，以及 `publish.*` 仓库级 fallback。
+- `local.properties` 的 `publish.*` 配置由 `PublishConfigLoader` 读取；旧 `centralPublish.*` 仍兼容。
+- `generatePublishConfig` / `configurePublish` / `rollbackPublishSecrets` 已落地，并保留 `Central` 旧任务别名。
+- `configurePublish` 支持 dry-run、GitHub repository secrets 写入、GPG key 生成、workflow 生成、workflow overwrite 保护。
+- `scripts/configure-publish-offline.sh` 已提供不依赖 Codex 的本地入口。
+- `.github/workflows/publish.yml` 是新的业务仓库 reusable workflow，支持 `github_packages`、`central`、`all` 三种目标。
+- `.github/workflows/publish-plugin-pr-check.yml` 和 `publish-plugin-central.yml` 继续负责本插件自身的版本、Central 发布、tag 和 main 合并流程。
+- `demo-lib` 已作为 Android Library 多 flavor 发布样例，`demo-plugin` 已作为 Gradle Plugin 发布样例。
+- `skills/publishplugin-one-click-publish/` 是仓库内 Codex skill 源文件，运行时 skill 应通过 `scripts/install-codex-skill.sh` 链接。
 
-已有技术方案文档：
+相关设计文档：
 
 - `doc/tech/central-portal-publish-plugin-plan.md`
 - `doc/tech/multi-variant-publish-plugin-plan.md`
+- `doc/tech/publish-one-click-config-plan.md`
 
-## 当前可扩展缺口
+## 当前缺口
 
-1. `publish.yml` 已支持 `version` 输入并传入 `-Pversion=...`，但插件代码当前直接使用 `PublishInfo.version`，没有通过 resolver 读取 CLI 覆盖值。
-2. 发布前没有独立的 dry-run / doctor 任务；用户只能通过真实发布或 `generatePomFileFor...` 间接发现配置问题。
-3. 发布成功日志只打印坐标和仓库地址，没有机器可读的 publication manifest，CI 难以沉淀发布证据。
-4. 远程发布只覆盖 release Central 和自定义 Maven 仓库，尚未提供 Snapshot 场景。
-5. Central Portal 当前走 OSSRH Staging API 兼容层 + manual upload，尚未提供原生 Portal Publisher API 路径。
-6. Android variant 目前固定发布 release build type，缺少显式 include/exclude variant、build type 选择、artifactId 模板等更易用 DSL。
-7. POM 元数据需要每个业务模块重复填写，缺少 root/project 级默认配置。
-8. reusable workflow 当前一次发布一个 module，缺少多模块矩阵、发布前 check task、manifest 上传和更细的输入校验。
-9. 兼容性测试集中在当前 TestKit fixture，缺少 Gradle / AGP / JDK 组合矩阵。
-10. `demo-lib`、`demo-plugin` 目前更像普通 Android Library 模块，未形成可直接验证插件接入方式的样例矩阵。
+1. 远程发布校验逻辑仍散落在 `PublishLibraryRemoteTask` 和 `ConfigurePublishTask`，缺少一个可复用的 validation model。
+2. 还没有独立的 `PublishLibraryCheckTask` / publish doctor；用户无法在不上传 artifact 的情况下验证当前 publication、仓库模式、凭据来源和 POM 状态。
+3. 发布成功只输出人类可读日志，没有机器可读的 manifest，CI 无法保存本次发布证据。
+4. `.github/workflows/publish.yml` 已支持多个目标，但没有 check-only 模式，也没有上传 manifest；Central secrets 仍在 job 级环境中暴露给所有步骤。
+5. 还不支持 `-SNAPSHOT` 到 Central Snapshot repository 的发布路径。
+6. Central Portal 仍走 staging API 兼容层，缺少原生 Publisher API bundle 上传、状态轮询、publish/drop 能力。
+7. Android variant 仍固定 release build type；没有 `publishBuildTypes`、显式 include、artifactId 模板。
+8. 一键配置已有 macOS/bash 离线入口，但缺少 Linux/Windows 支持策略和更完整的自校验输出。
+9. TestKit 主要固定 Gradle 8.7 / AGP 8.1.3，缺少 Gradle / AGP / JDK 兼容性矩阵。
+10. Codex skill 已落地，但 README、skill、tech 文档、`doc/plan.md` 之间还没有自动一致性检查。
 
 ## 优先级路线
 
 | 优先级 | 扩展项 | 价值 | 风险 |
 | --- | --- | --- | --- |
-| P0 | CLI version 覆盖闭环 | 修复 workflow 已暴露但插件未真正支持的能力 | 低 |
-| P0 | 发布前诊断任务 | 降低 Central 发布失败成本，避免假成功 | 中 |
-| P1 | 发布产物 manifest | 让 CI、排障、审计可以读取结构化结果 | 低 |
-| P1 | Snapshot 发布模式 | 支持预发布和多项目联调 | 中 |
-| P2 | 原生 Portal Publisher API | 摆脱 staging 兼容层，形成完整 Portal 生命周期 | 高 |
-| P2 | Variant DSL 增强 | 降低多 flavor 项目接入复杂度 | 中 |
-| P2 | POM 默认配置 | 减少业务仓库重复配置 | 中 |
-| P2 | reusable workflow v2 | 支持多模块和可审计发布 | 中 |
-| P3 | 兼容性矩阵 | 降低 Gradle / AGP 升级回归 | 中 |
-| P3 | demo 和文档样例 | 提升接入可复制性 | 低 |
+| P0 | 统一发布校验与 check task | 发布前发现配置和 publication 问题 | 中 |
+| P0 | 发布 manifest | 为 CI、排障和审计留下结构化发布证据 | 低 |
+| P0 | reusable workflow 加固 | 降低 secrets 暴露面，支持 check-only 和 manifest 上传 | 中 |
+| P1 | Snapshot 发布 | 支持预发布、内部联调和灰度依赖 | 中 |
+| P1 | 一键配置体验增强 | 让脚本、task、skill 输出一致且可验证 | 中 |
+| P2 | Central Portal 原生 API | 摆脱 staging 兼容层，形成完整 deployment 生命周期 | 高 |
+| P2 | Variant DSL 增强 | 支持更多业务 variant 命名和发布策略 | 中 |
+| P2 | 兼容性矩阵 | 降低 Gradle / AGP / JDK 升级回归 | 中 |
+| P3 | 发布安全与回退增强 | 增强 secret 泄露防护和发布后修复路径 | 中 |
+| P3 | Skill 与文档一致性 | 让一键发布技能跟代码、README 同步演进 | 低 |
 
-## Task 1: CLI Version 覆盖闭环
+## Task 1: 统一发布校验与 Check Task
 
 **Files:**
 
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishConfigResolver.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`
+- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishValidation.kt`
+- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryCheckTask.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryRemoteTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ConfigurePublishTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
+- Test: `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
 - Docs: `README.md`
 
-- [ ] **Step 1: 增加版本解析方法**
+- [ ] **Step 1: 定义校验结果模型**
 
-在 `PublishConfigResolver` 中增加：
-
-```kotlin
-fun resolveVersion(project: Project, publishInfo: PublishInfo): String {
-    return firstNotBlank(
-        projectProperty(project, "publishVersion"),
-        environment("PUBLISH_VERSION"),
-        projectProperty(project, "version"),
-        publishInfo.version
-    )
-}
-```
-
-说明：`publishVersion` 优先于通用 `version`，避免和 Gradle project version 语义混淆；保留 `-Pversion` 是为了兼容当前 workflow。
-
-- [ ] **Step 2: publication 使用解析后的版本**
-
-在 `PublishPlugin.createPublication(...)` 中把：
+新增 `PublishValidationResult`：
 
 ```kotlin
-publication.version = publishInfo.version
-val publishSources = centralPublish || publishInfo.version.endsWith("-debug")
+data class PublishValidationResult(
+    val valid: Boolean,
+    val errors: List<String>,
+    val warnings: List<String>,
+    val mode: String,
+    val repositoryName: String,
+    val publications: List<PublishValidationPublication>
+)
+
+data class PublishValidationPublication(
+    val name: String,
+    val groupId: String,
+    val artifactId: String,
+    val version: String
+)
 ```
 
-替换为：
+- [ ] **Step 2: 抽出远程发布校验**
+
+`PublishValidation.validateRemote(project, publishInfo)` 负责：
+
+- 检查 `groupId`、`artifactId`、`resolveVersion(...)`。
+- 检查 `version` 不包含 `debug`。
+- `githubPackages` 模式检查 URL 和用户名/token 来源。
+- `central` 模式检查 namespace、publishing type、POM/SCM、Central token、GPG signing。
+- `customRepository` 模式检查 `publishUrl`。
+- 收集当前 `PublishingExtension` 中所有 `*EnterPublish` publication 坐标。
+
+- [ ] **Step 3: 复用校验**
+
+`PublishLibraryRemoteTask.checkPublishInfo(...)` 不再维护一套单独校验逻辑，改为调用 `PublishValidation.validateRemote(...)` 并逐条打印 error/warning。
+
+`ConfigurePublishTask.validatePublishInfo(...)` 保留配置阶段特有逻辑，但坐标、version、Gradle Plugin module 字段校验复用 `PublishValidation` 中的公共函数。
+
+- [ ] **Step 4: 新增 check task**
+
+注册：
 
 ```kotlin
-val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo)
-publication.version = resolvedVersion
-val publishSources = centralPublish || resolvedVersion.endsWith("-debug")
+project.tasks.register("PublishLibraryCheckTask", PublishLibraryCheckTask::class.java)
+project.tasks.register("checkPublish", PublishLibraryCheckTask::class.java)
 ```
 
-- [ ] **Step 3: 远程校验使用解析后的版本**
+行为：
 
-在 `PublishLibraryRemoteTask.checkPublishInfo(...)` 中使用 `resolvedVersion` 判断空值和 `debug`：
+- 不执行上传。
+- 不调用 GitHub secrets。
+- 打印 mode、repository、publication 坐标、凭据来源摘要。
+- 校验失败时抛出 `GradleException("发布配置校验失败")`。
 
-```kotlin
-val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo)
-if (resolvedVersion.isBlank()) {
-    PluginLogUtil.printlnErrorInScreen("PublishInfo.version is required")
-    return false
-}
-if (resolvedVersion.contains("debug", ignoreCase = true)) {
-    PluginLogUtil.printlnErrorInScreen("$resolvedVersion contains debug")
-    return false
-}
-```
-
-- [ ] **Step 4: 嵌套 Gradle 调用转发版本参数**
-
-在 `PublishLibraryRemoteTask.forwardedProjectProperties` 中加入：
-
-```kotlin
-"publishVersion",
-"version",
-```
-
-- [ ] **Step 5: 增加 TestKit 覆盖**
-
-新增测试：传入 `-PpublishVersion=1.2.3` 和 `-Pversion=1.2.4` 时，POM 中优先出现 `1.2.3`；只传 `-Pversion=1.2.4` 时，POM 中出现 `1.2.4`。
+- [ ] **Step 5: 测试**
 
 Run:
 
@@ -137,207 +145,132 @@ Run:
 ./gradlew :plugin_base:test --tests custom.android.plugin.PublishPluginFunctionalTest --stacktrace
 ```
 
-Expected: PASS。
+覆盖：
 
-## Task 2: 发布前诊断任务
+- GitHub Packages 缺少 token 时 check task 失败。
+- Central 缺少 signing 时 check task 失败。
+- `customRepository` 缺少 `publishUrl` 时 check task 失败。
+- 多 variant module check task 输出多个 publication。
+- Gradle Plugin module 缺少 `pluginId` 或 `implementationClass` 时失败。
 
-**Files:**
-
-- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishValidation.kt`
-- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryCheckTask.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryRemoteTask.kt`
-- Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
-- Docs: `README.md`
-
-- [ ] **Step 1: 抽出发布校验模型**
-
-新增 `PublishValidation.kt`：
-
-```kotlin
-package custom.android.plugin
-
-data class PublishValidationResult(
-    val valid: Boolean,
-    val errors: List<String>,
-    val warnings: List<String>
-)
-
-object PublishValidation {
-    fun validateRemote(project: org.gradle.api.Project, publishInfo: PublishInfo): PublishValidationResult {
-        val errors = mutableListOf<String>()
-        val warnings = mutableListOf<String>()
-        val version = PublishConfigResolver.resolveVersion(project, publishInfo)
-        if (publishInfo.groupId.isBlank()) errors += "PublishInfo.groupId is required"
-        if (publishInfo.artifactId.isBlank()) errors += "PublishInfo.artifactId is required"
-        if (version.isBlank()) errors += "PublishInfo.version is required"
-        if (version.contains("debug", ignoreCase = true)) errors += "$version contains debug"
-
-        val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        if (mode == PublishConfigResolver.MODE_CENTRAL) {
-            val namespace = PublishConfigResolver.resolveCentralNamespace(project, publishInfo)
-            if (namespace.isBlank()) errors += "Central publish requires centralNamespace"
-            if (namespace.isNotBlank() && publishInfo.groupId != namespace && !publishInfo.groupId.startsWith("$namespace.")) {
-                errors += "PublishInfo.groupId(${publishInfo.groupId}) must be under centralNamespace($namespace)"
-            }
-            val requiredPomFields = mapOf(
-                "pomDescription" to PublishConfigResolver.resolveText(project, "pomDescription", publishInfo.pomDescription),
-                "pomUrl" to PublishConfigResolver.resolveText(project, "pomUrl", publishInfo.pomUrl),
-                "developerId" to PublishConfigResolver.resolveText(project, "developerId", publishInfo.developerId),
-                "developerName" to PublishConfigResolver.resolveText(project, "developerName", publishInfo.developerName),
-                "developerEmail" to PublishConfigResolver.resolveText(project, "developerEmail", publishInfo.developerEmail),
-                "developerOrganization" to PublishConfigResolver.resolveText(project, "developerOrganization", publishInfo.developerOrganization),
-                "developerOrganizationUrl" to PublishConfigResolver.resolveText(project, "developerOrganizationUrl", publishInfo.developerOrganizationUrl),
-                "scmUrl" to PublishConfigResolver.resolveText(project, "scmUrl", publishInfo.scmUrl),
-                "scmConnection" to PublishConfigResolver.resolveText(project, "scmConnection", publishInfo.scmConnection),
-                "scmDeveloperConnection" to PublishConfigResolver.resolveText(project, "scmDeveloperConnection", publishInfo.scmDeveloperConnection)
-            )
-            val missingPomFields = requiredPomFields.filterValues { it.isBlank() }.keys
-            if (missingPomFields.isNotEmpty()) {
-                errors += "Central publish missing POM fields: ${missingPomFields.joinToString()}"
-            }
-            val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo)
-            if (credentials.username.isBlank() || credentials.password.isBlank()) {
-                errors += "Central publish requires centralUsername/centralPassword"
-            }
-            val signing = PublishConfigResolver.resolveSigningCredentials(project)
-            if (signing.key.isBlank() || signing.password.isBlank()) {
-                errors += "Central publish requires signingInMemoryKey and signingInMemoryKeyPassword"
-            }
-        } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
-            val url = PublishConfigResolver.resolveCustomRepositoryUrl(project, publishInfo)
-            if (url.isBlank()) errors += "customRepository mode requires publishUrl"
-        } else {
-            errors += "Unsupported remotePublishMode: $mode"
-        }
-        return PublishValidationResult(errors.isEmpty(), errors, warnings)
-    }
-}
-```
-
-- [ ] **Step 2: 远程任务复用校验模型**
-
-`PublishLibraryRemoteTask.checkPublishInfo(...)` 调用 `PublishValidation.validateRemote(...)`，逐条打印 `errors`，返回 `result.valid`。
-
-- [ ] **Step 3: 新增 check task**
-
-新增 `PublishLibraryCheckTask`，只做配置解析和 publication 列表输出，不执行上传：
-
-```kotlin
-open class PublishLibraryCheckTask : org.gradle.api.DefaultTask() {
-    companion object {
-        const val TAG = "PublishLibraryCheckTask"
-    }
-
-    init {
-        group = "customPlugin"
-        description = "Validate PublishInfo and print publish publications without uploading artifacts."
-    }
-
-    @org.gradle.api.tasks.TaskAction
-    fun check() {
-        val publishInfo = project.extensions.getByType(PublishInfo::class.java)
-        val result = PublishValidation.validateRemote(project, publishInfo)
-        result.warnings.forEach { PluginLogUtil.printlnInfoInScreen(it) }
-        result.errors.forEach { PluginLogUtil.printlnErrorInScreen(it) }
-        if (!result.valid) {
-            throw org.gradle.api.GradleException("发布配置校验失败")
-        }
-        PluginLogUtil.printlnInfoInScreen("发布配置校验通过")
-    }
-}
-```
-
-- [ ] **Step 4: 注册任务**
-
-在 `PublishPlugin.apply(...)` 已注册本地和远程任务的位置追加：
-
-```kotlin
-project.tasks.register(PublishLibraryCheckTask.TAG, PublishLibraryCheckTask::class.java)
-```
-
-- [ ] **Step 5: 覆盖成功和失败测试**
-
-TestKit 增加两个用例：
-
-```bash
-./gradlew :fixture:PublishLibraryCheckTask -PcentralNamespace=com.example --stacktrace
-```
-
-Expected: 缺少 signing 时失败并输出 `signingInMemoryKey`。
-
-```bash
-./gradlew :fixture:PublishLibraryCheckTask \
-  -PcentralNamespace=com.example \
-  -PcentralUsername=user \
-  -PcentralPassword=password \
-  -PsigningInMemoryKey=dummy \
-  -PsigningInMemoryKeyPassword=password \
-  --stacktrace
-```
-
-Expected: 校验通过。
-
-## Task 3: 发布产物 Manifest
+## Task 2: 发布 Manifest
 
 **Files:**
 
 - Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishReport.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/BasePublishTask.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryCheckTask.kt`
+- Modify: `.github/workflows/publish.yml`
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
+- Test: `.github/scripts/reusable_publish_workflow_test.py`
 - Docs: `README.md`
 
-- [ ] **Step 1: 定义 report 输出格式**
+- [ ] **Step 1: 定义输出路径**
 
-输出到：
+发布或 check 后写入：
 
 ```text
 <module>/build/reports/publish/publish-manifest.json
 <module>/build/reports/publish/publish-manifest.md
 ```
 
-JSON 字段：
+- [ ] **Step 2: 定义 JSON contract**
 
 ```json
 {
-  "modulePath": ":library",
-  "mode": "central",
-  "repositoryName": "CentralStaging",
+  "modulePath": ":demo-lib",
+  "mode": "githubPackages",
+  "repositoryName": "GitHubPackages",
+  "repositoryUrl": "https://maven.pkg.github.com/owner/repo",
+  "dryRun": false,
   "publications": [
     {
-      "name": "EnterPublish",
-      "groupId": "cn.entertech.android",
-      "artifactId": "publish",
-      "version": "1.2.1"
+      "name": "BreathAuthReleaseEnterPublish",
+      "groupId": "cn.entertech.android.demo",
+      "artifactId": "breath-publish-demo-lib-authentication",
+      "version": "1.0.0"
     }
   ]
 }
 ```
 
-- [ ] **Step 2: 实现 `PublishReport.write(...)`**
+敏感字段不得进入 manifest。
 
-从 `PublishingExtension.publications.withType(MavenPublication::class.java)` 收集 publication 坐标，避免解析 Gradle 输出字符串。
+- [ ] **Step 3: 写入 report**
 
-- [ ] **Step 3: 发布成功后写 report**
+`BasePublishTask` 在远程或本地发布成功后调用 `PublishReport.write(...)`。
 
-在 `BasePublishTask.afterPublishSuccess(...)` 调用之后写 manifest；`PublishLibraryCheckTask` 校验通过时也写一份 dry-run manifest。
+`PublishLibraryCheckTask` 在校验通过后写入 dry-run manifest。
 
-- [ ] **Step 4: CI 上传 manifest**
+- [ ] **Step 4: workflow 上传 artifact**
 
-在 `.github/workflows/publish.yml` 的发布步骤后增加 artifact 上传：
+`.github/workflows/publish.yml` 增加：
 
 ```yaml
 - name: Upload publish manifest
+  if: always()
   uses: actions/upload-artifact@v4
   with:
     name: publish-manifest
     path: "**/build/reports/publish/publish-manifest.*"
 ```
 
-- [ ] **Step 5: 测试 manifest**
+- [ ] **Step 5: 测试**
 
-TestKit 执行 `PublishLibraryCheckTask` 后断言 JSON 存在，并包含 `modulePath`、`mode`、`publications`。
+TestKit 执行 `:fixture:checkPublish` 和 `:fixture:PublishLibraryRemoteTask`，断言 manifest 存在、坐标正确、没有 token/password/key 字样。
+
+## Task 3: Reusable Workflow 加固
+
+**Files:**
+
+- Modify: `.github/workflows/publish.yml`
+- Modify: `.github/scripts/reusable_publish_workflow_test.py`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/config/GitHubActionsWorkflowWriter.kt`
+- Modify: `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
+- Docs: `README.md`
+
+- [ ] **Step 1: 增加 check-only 输入**
+
+```yaml
+check_only:
+  description: "Validate publication configuration without uploading artifacts"
+  required: false
+  default: false
+  type: boolean
+```
+
+`check_only=true` 时只执行：
+
+```bash
+./gradlew "${MODULE_PATH}:checkPublish" --no-daemon --stacktrace
+```
+
+- [ ] **Step 2: 收窄 secrets 暴露**
+
+不要把 Central token、GPG private key、signing password 放在 job 级 `env`。只在 `Publish to Central Portal` 步骤注入：
+
+```yaml
+env:
+  CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+  CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+  GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+  SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+```
+
+GitHub Packages 步骤只注入 GitHub Packages 需要的 token。
+
+- [ ] **Step 3: 生成 workflow 支持 check-only**
+
+`GitHubActionsWorkflowWriter.writeWorkflow(...)` 增加可选 input，默认生成发布 workflow；后续可以由 `publish.checkOnly=true` 生成只校验 workflow。
+
+- [ ] **Step 4: workflow 文本测试**
+
+扩展 `.github/scripts/reusable_publish_workflow_test.py`：
+
+- 断言 `check_only` 输入存在。
+- 断言 check-only 分支不包含 Central secrets。
+- 断言 manifest artifact 上传步骤存在。
+- 断言 GitHub Packages 步骤不接收 GPG secrets。
 
 ## Task 4: Snapshot 发布模式
 
@@ -352,39 +285,107 @@ TestKit 执行 `PublishLibraryCheckTask` 后断言 JSON 存在，并包含 `modu
 
 - [ ] **Step 1: 增加模式常量**
 
-在 `PublishConfigResolver` 增加：
-
 ```kotlin
 const val MODE_CENTRAL_SNAPSHOT = "centralSnapshot"
+const val CENTRAL_SNAPSHOT_URL = "https://central.sonatype.com/repository/maven-snapshots/"
 ```
 
-- [ ] **Step 2: 自动识别 Snapshot**
+- [ ] **Step 2: 模式解析**
 
-`resolveRemotePublishMode(...)` 在解析后的 mode 为空或为 `central`，且版本以 `-SNAPSHOT` 结尾时，返回 `centralSnapshot`；如果用户配置了 `customRepository`，不改写发布模式。
+规则：
 
-- [ ] **Step 3: Snapshot 仓库配置**
+- 显式 `remotePublishMode=customRepository` 或 `githubPackages` 时不自动改写。
+- 显式 `remotePublishMode=centralSnapshot` 时必须要求版本以 `-SNAPSHOT` 结尾。
+- 未显式设置 mode，且版本以 `-SNAPSHOT` 结尾时，默认使用 `centralSnapshot`。
+- release 版本继续默认 `githubPackages`，保持当前兼容行为。
 
-新增 `configureCentralSnapshotRepository(...)`，repository name 使用 `CentralSnapshot`。Snapshot 模式仍要求 Central token，但不调用 manual upload。
+- [ ] **Step 3: repository 配置**
 
-- [ ] **Step 4: 调整远程任务选择**
+新增 `configureCentralSnapshotRepository(...)`，repository name 使用 `CentralSnapshot`。
 
-`PublishLibraryRemoteTask.initPublishCommandLine()` 在 Snapshot 模式下返回：
+Snapshot 模式需要 Central token，但不调用 `CentralPortalClient.manualUpload(...)`。
+
+- [ ] **Step 4: 任务选择**
+
+单 publication：
 
 ```text
-:publishEnterPublishPublicationToCentralSnapshotRepository
+publishEnterPublishPublicationToCentralSnapshotRepository
 ```
 
-多 publication 时返回：
+多 publication：
 
 ```text
-:publishAllPublicationsToCentralSnapshotRepository
+publishAllPublicationsToCentralSnapshotRepository
 ```
 
-- [ ] **Step 5: 增加测试**
+- [ ] **Step 5: 测试**
 
-用 `version = "1.2.3-SNAPSHOT"` 的 fixture 执行 `:fixture:tasks --all`，断言输出包含 `publishEnterPublishPublicationToCentralSnapshotRepository`，并断言 `afterPublishSuccess` 不调用 manual upload。
+覆盖：
 
-## Task 5: 原生 Central Portal Publisher API
+- `1.2.3-SNAPSHOT` 生成 CentralSnapshot repository task。
+- `remotePublishMode=centralSnapshot` + release version 失败。
+- Snapshot 成功路径不调用 manual upload。
+
+## Task 5: 一键配置体验增强
+
+**Files:**
+
+- Modify: `scripts/configure-publish-offline.sh`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ConfigurePublishTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/config/PublishConfig.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/config/PublishConfigTemplateWriter.kt`
+- Modify: `skills/publishplugin-one-click-publish/SKILL.md`
+- Modify: `skills/publishplugin-one-click-publish/references/one-click-publish-workflow.md`
+- Test: `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
+- Docs: `README.md`
+
+- [ ] **Step 1: 增加配置摘要输出**
+
+`configurePublish` 成功后输出：
+
+- module path。
+- publish target。
+- workflow path。
+- secret names。
+- dry-run 状态。
+- 下一条可执行命令。
+
+不输出 secret value。
+
+- [ ] **Step 2: 脚本增加 check-only**
+
+`scripts/configure-publish-offline.sh` 增加：
+
+```bash
+--check-only
+```
+
+行为：执行 `:module:checkPublish`，不生成配置模板、不写 workflow、不写 secrets。
+
+- [ ] **Step 3: 明确 Linux 支持策略**
+
+当前脚本是 bash 实现，Linux 理论可运行。需要在脚本和 README 中明确：
+
+- macOS: supported。
+- Linux: supported when bash, Java, Gradle wrapper, gh, gpg are available。
+- Windows: use Git Bash / WSL, or run Gradle tasks manually。
+
+- [ ] **Step 4: 同步 Skill**
+
+如果修改 `skills/publishplugin-one-click-publish/**`，必须运行：
+
+```bash
+./scripts/install-codex-skill.sh --check
+```
+
+如果 symlink 不存在，运行：
+
+```bash
+./scripts/install-codex-skill.sh
+```
+
+## Task 6: Central Portal 原生 Publisher API
 
 **Files:**
 
@@ -396,31 +397,45 @@ const val MODE_CENTRAL_SNAPSHOT = "centralSnapshot"
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
 - Docs: `README.md`
 
-- [ ] **Step 1: 新增上传模式字段**
-
-在 `PublishInfo` 增加：
+- [ ] **Step 1: 增加上传模式字段**
 
 ```kotlin
 var centralUploadMode: String = "stagingApi" // stagingApi / portalApi
 ```
 
-- [ ] **Step 2: 生成本地 Central bundle**
+默认继续走 `stagingApi`，避免改变现有发布行为。
 
-新增 `CentralPortalBundle`：执行 `publishAllPublicationsToCentralBundleRepository` 后，校验 Maven layout 中每个 publication 都包含 main artifact、POM、module metadata、sources、javadoc 和 `.asc`。
+- [ ] **Step 2: 生成 Portal bundle**
 
-- [ ] **Step 3: Portal API 上传**
+实现 `CentralPortalBundle`：
 
-`CentralPortalClient` 增加 `uploadBundle(...)`、`pollDeployment(...)`、`publishDeployment(...)`、`dropDeployment(...)` 方法。HTTP 客户端继续使用 JDK 标准库，避免给插件引入额外运行时依赖。
+- 发布到本地 staging 目录。
+- 校验 Maven layout。
+- 校验 POM、module metadata、sources、javadoc、`.asc`。
+- 打 zip bundle。
 
-- [ ] **Step 4: 远程任务分流**
+- [ ] **Step 3: Client 能力**
 
-`centralUploadMode = "stagingApi"` 保持现有行为；`centralUploadMode = "portalApi"` 走 bundle 上传和 deployment 轮询。
+`CentralPortalClient` 增加：
 
-- [ ] **Step 5: 测试边界**
+- `uploadBundle(...)`
+- `deploymentStatus(...)`
+- `publishDeployment(...)`
+- `dropDeployment(...)`
 
-不在单元测试里请求真实 Central。测试 `CentralPortalBundle` 的文件校验、HTTP request 构造、失败响应脱敏、deployment id 解析。
+HTTP 继续使用 JDK 标准库，避免给插件增加运行时依赖。
 
-## Task 6: Variant DSL 增强
+- [ ] **Step 4: 测试边界**
+
+不请求真实 Central。用 fake HTTP server 或 request builder 单测覆盖：
+
+- Authorization header。
+- multipart/bundle 路径。
+- 失败响应脱敏。
+- deployment id 解析。
+- poll timeout。
+
+## Task 7: Variant DSL 增强
 
 **Files:**
 
@@ -431,175 +446,94 @@ var centralUploadMode: String = "stagingApi" // stagingApi / portalApi
 
 - [ ] **Step 1: 支持 build type 选择**
 
-新增 DSL：
+新增：
 
 ```kotlin
 fun publishBuildTypes(vararg names: String)
 ```
 
-默认仍为 `release`，保持兼容。
+默认仍为 `release`。
 
-- [ ] **Step 2: 支持显式 variant include**
+- [ ] **Step 2: 支持显式 include**
 
-新增 DSL：
+新增：
 
 ```kotlin
 fun publishVariantIf(action: (PublishVariantInfo) -> Boolean)
-fun publishVariantIf(action: groovy.lang.Closure<*>)
+fun publishVariantIf(action: Closure<*>)
 ```
 
-解析规则：先按 `publishBuildTypes` 生成候选 variants，再应用 `publishVariantIf`，最后应用已有 `skipVariantIf`。
+解析顺序：
 
-- [ ] **Step 3: 支持 artifactId 模板**
+```text
+build type candidates -> publishVariantIf include -> skipVariantIf exclude
+```
 
-新增字段：
+- [ ] **Step 3: 支持坐标模板**
+
+已有 `groupIdForVariant`、`artifactIdForVariant`、`versionForVariant` 继续优先。新增模板作为简单场景替代闭包：
 
 ```kotlin
 var artifactIdPattern: String = ""
 ```
 
-支持占位符：
+模板变量：
 
 ```text
 {artifactId}
 {variant}
 {buildType}
-{flavor.project}
-{flavor.authentication}
+{flavor.<dimension>}
 ```
 
-如果同时配置 `artifactIdForVariant` 和 `artifactIdPattern`，闭包优先。
+- [ ] **Step 4: 测试**
 
-- [ ] **Step 4: 覆盖 Groovy / Kotlin DSL**
+覆盖：
 
-TestKit fixture 分别用 Groovy DSL 和 Kotlin DSL 验证 include、skip、pattern 的优先级。
+- debug/release build type 选择。
+- `publishVariantIf` 和 `skipVariantIf` 组合。
+- pattern 与 closure 同时存在时 closure 优先。
+- Groovy DSL 和 Kotlin DSL 都可用。
 
-## Task 7: POM 默认配置
-
-**Files:**
-
-- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishDefaults.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishConfigResolver.kt`
-- Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
-- Docs: `README.md`
-
-- [ ] **Step 1: 新增 root 级 extension**
-
-插件在 root project 注册：
-
-```kotlin
-project.rootProject.extensions.create("PublishDefaults", PublishDefaults::class.java)
-```
-
-字段与 `PublishInfo` 的 POM、license、developer、SCM 字段保持同名。
-
-- [ ] **Step 2: 调整解析优先级**
-
-POM 相关字段解析顺序：
-
-```text
-Gradle property > 环境变量 > PublishInfo 字段 > PublishDefaults 字段 > 默认值
-```
-
-- [ ] **Step 3: 支持多模块复用**
-
-业务项目可以在根工程配置一次：
-
-```kotlin
-PublishDefaults {
-    developerId = "Entertech"
-    developerName = "Entertech"
-    developerEmail = "developer@entertech.cn"
-    licenseName = "The Apache License, Version 2.0"
-}
-```
-
-子模块只保留 `groupId`、`artifactId`、`version`、`pomDescription`。
-
-- [ ] **Step 4: TestKit 验证覆盖顺序**
-
-根配置 developer，子模块覆盖 `pomDescription`，CLI 覆盖 `pomUrl`；生成 POM 后逐项断言。
-
-## Task 8: Reusable Workflow v2
-
-**Files:**
-
-- Modify: `.github/workflows/publish.yml`
-- Modify: `.github/workflows/publish-plugin-pr-check.yml`
-- Modify: `.github/scripts/publish_plugin_central_workflow_test.py`
-- Docs: `README.md`
-
-- [ ] **Step 1: 增加 check-only 模式**
-
-新增 workflow input：
-
-```yaml
-check_only:
-  required: false
-  default: false
-  type: boolean
-```
-
-`check_only = true` 时执行 `${module}:PublishLibraryCheckTask`，不执行远程发布。
-
-- [ ] **Step 2: 支持多 module**
-
-新增 `modules` 输入，格式为逗号分隔 Gradle path。workflow 用 shell 拆分后逐个执行 check 或 publish。
-
-- [ ] **Step 3: 统一版本覆盖参数**
-
-workflow 优先传：
-
-```bash
--PpublishVersion="${PUBLISH_VERSION}"
-```
-
-为兼容旧输入，可在一个版本内同时保留 `-Pversion`。
-
-- [ ] **Step 4: 上传 manifest**
-
-发布或 check 完成后上传 `build/reports/publish/publish-manifest.*`。
-
-- [ ] **Step 5: Workflow 文本测试**
-
-扩展 `.github/scripts/publish_plugin_central_workflow_test.py`，断言发布 secrets 只注入发布步骤，check-only 不接收 Central 密码和 GPG 私钥。
-
-## Task 9: 兼容性矩阵
+## Task 8: 兼容性矩阵
 
 **Files:**
 
 - Modify: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
+- Modify: `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
 - Create: `.github/workflows/compatibility-matrix.yml`
 - Docs: `README.md`
 
-- [ ] **Step 1: 参数化 TestKit Gradle 版本**
+- [ ] **Step 1: 参数化 TestKit 版本**
 
-把 `TEST_GRADLE_VERSION` 改为读取系统属性：
+把测试中的固定值改成：
 
 ```java
 private static final String TEST_GRADLE_VERSION =
         System.getProperty("testGradleVersion", "8.7");
 ```
 
-- [ ] **Step 2: 参数化 Android Gradle Plugin 版本**
+AGP fixture version 改成读取：
 
-fixture build script 中的 `com.android.library` version 改为读取系统属性 `testAgpVersion`，默认 `8.1.3`。
+```java
+System.getProperty("testAgpVersion", "8.1.3")
+```
 
-- [ ] **Step 3: CI matrix**
-
-新增 matrix：
+- [ ] **Step 2: 建立手动矩阵 workflow**
 
 ```yaml
+on:
+  workflow_dispatch:
+
 strategy:
   fail-fast: false
   matrix:
+    java: ["17", "21"]
     gradle: ["8.7", "8.10"]
     agp: ["8.1.3", "8.5.2"]
-    java: ["17", "21"]
 ```
 
-运行：
+- [ ] **Step 3: 运行命令**
 
 ```bash
 ./gradlew :plugin_base:test \
@@ -608,41 +542,103 @@ strategy:
   --stacktrace
 ```
 
-- [ ] **Step 4: 失败策略**
+- [ ] **Step 4: 接入策略**
 
-matrix workflow 先作为手动触发 `workflow_dispatch`；连续稳定后再接入 PR 必跑。
+先作为手动 workflow。连续稳定后，再把最小矩阵接入 PR 必跑。
 
-## Task 10: Demo 和文档样例
+## Task 9: 发布安全与回退增强
 
 **Files:**
 
-- Modify: `demo-lib/build.gradle.kts`
-- Modify: `demo-plugin/build.gradle.kts`
-- Create: `demo-gradle-plugin/build.gradle.kts`
-- Modify: `settings.gradle.kts`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/config/GitSafetyChecker.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ConfigurePublishTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/RollbackPublishSecretsTask.kt`
+- Test: `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
 - Docs: `README.md`
 
-- [ ] **Step 1: `demo-lib` 接入 Android Library 发布样例**
+- [ ] **Step 1: tracked secret 扫描**
 
-`demo-lib` 应用 `cn.entertech.publish`，配置本地发布可用的最小 `PublishInfo`。
+`configurePublish` 在写 secrets 前扫描 tracked files 中是否出现明显敏感 key 名：
 
-- [ ] **Step 2: 新增 Gradle Plugin 样例模块**
+- `publish.mavenCentralPassword`
+- `publish.signingPassword`
+- `publish.gpgKeyFile`
+- `GPG_KEY_CONTENTS`
+- `SIGNING_PASSWORD`
 
-新增 `demo-gradle-plugin`，应用 `java-gradle-plugin` 和 `cn.entertech.publish`，配置 `pluginId` 与 `implementationClass`。
+命中时阻断并提示轮换 secret。
 
-- [ ] **Step 3: 增加多 variant 样例**
+- [ ] **Step 2: gh 身份摘要**
 
-在 `demo-lib` 增加两个 flavor 维度，并配置 `artifactIdForVariant` 与 `skipVariantIf`。
+写 secret 前输出：
 
-- [ ] **Step 4: 文档补充可复制命令**
+- `gh auth status` 是否通过。
+- 目标 repository。
+- 将写入或跳过的 secret name。
 
-README 增加：
+不输出值。
+
+- [ ] **Step 3: rollback dry-run**
+
+`rollbackPublishSecrets` 支持：
 
 ```bash
-./gradlew :demo-lib:PublishLibraryCheckTask
-./gradlew :demo-lib:PublishLibraryLocalTask
-./gradlew :demo-gradle-plugin:PublishLibraryLocalTask
+-PdryRun=true
 ```
+
+只输出将删除的 secret 和 workflow path，不执行删除。
+
+- [ ] **Step 4: workflow 回退更明确**
+
+删除 workflow 前必须确认包含生成标记：
+
+```text
+# Generated by PublishPlugin configurePublish
+```
+
+缺少标记时输出 warning，不删除。
+
+## Task 10: Skill 与文档一致性
+
+**Files:**
+
+- Modify: `skills/publishplugin-one-click-publish/SKILL.md`
+- Modify: `skills/publishplugin-one-click-publish/references/one-click-publish-workflow.md`
+- Modify: `README.md`
+- Modify: `doc/tech/publish-one-click-config-plan.md`
+- Modify: `doc/plan.md`
+- Create: `.github/scripts/verify_publishplugin_docs.py`
+- Test: `.github/scripts/verify_publishplugin_docs.py`
+
+- [ ] **Step 1: 增加文档一致性检查脚本**
+
+检查这些固定事实是否一致：
+
+- 默认 remote publish mode 是 `githubPackages`。
+- reusable workflow 是 `.github/workflows/publish.yml`。
+- 默认 generated workflow marker 是 `# Generated by PublishPlugin configurePublish`。
+- 一键配置字段前缀是 `publish.*`。
+- skill 目录必须是 `skills/publishplugin-one-click-publish/`。
+
+- [ ] **Step 2: 接入 PR 校验**
+
+在 `.github/workflows/publish-plugin-pr-check.yml` 中执行：
+
+```bash
+python3 .github/scripts/verify_publishplugin_docs.py
+./scripts/install-codex-skill.sh --check
+```
+
+只在仓库环境存在可检查 symlink 时强制 `--check`；CI 没有 Codex home 时，脚本应给出清晰跳过原因。
+
+- [ ] **Step 3: 更新技能规则**
+
+如果发布流程、workflow 输入、secret 名或 config 字段改变，必须同步：
+
+- README 的用户入口。
+- skill `SKILL.md` 的工作流。
+- skill reference 的行为清单。
+- 本计划的当前基线。
 
 ## 验收命令
 
@@ -653,42 +649,59 @@ README 增加：
 ./gradlew :plugin_base:build --stacktrace
 ./gradlew :plugin_base:publishToMavenLocal --stacktrace
 python3 .github/scripts/validate_publish_plugin_publications.py
-python3 .github/scripts/publish_plugin_central_workflow_test.py
+python3 .github/scripts/reusable_publish_workflow_test.py
 ```
 
-涉及 demo 修改时追加：
+涉及一键配置时追加：
 
 ```bash
-./gradlew :demo-lib:PublishLibraryCheckTask --stacktrace
-./gradlew :demo-lib:PublishLibraryLocalTask --stacktrace
+./gradlew :plugin_base:test --tests custom.android.plugin.OneClickPublishTaskFunctionalTest --stacktrace
+scripts/configure-publish-offline.sh :demo-lib --generate-only -- --stacktrace
 ```
 
-涉及 workflow 修改时追加：
+涉及 workflow 时追加：
 
 ```bash
 python3 .github/scripts/ensure_publish_version_test.py
 python3 .github/scripts/normalize_signing_key_id_test.py
 python3 .github/scripts/sync_readme_publish_version_test.py
+python3 .github/scripts/reusable_publish_workflow_test.py
+```
+
+涉及 skill 时追加：
+
+```bash
+./scripts/install-codex-skill.sh --check
+```
+
+涉及 demo 时追加：
+
+```bash
+./gradlew :demo-lib:publishToMavenLocal --stacktrace
+./gradlew :demo-plugin:publishToMavenLocal --stacktrace
 ```
 
 ## 风险控制
 
-- 不删除或重命名现有 `PublishInfo` 字段，避免旧业务项目配置期失败。
+- 不删除或重命名现有 `PublishInfo` 字段。
 - 不改变 `PublishLibraryLocalTask` / `PublishLibraryRemoteTask` 任务名。
-- 新字段必须提供默认值；远程发布必需项只在远程发布或 check task 中校验。
-- 所有凭据只做存在性校验，不写入 report，不打印原始值。
-- 原生 Portal API、Snapshot、workflow 多模块发布必须先在 TestKit 或 workflow 文本测试中覆盖失败路径，再进入真实发布流程。
-- 多 variant 相关扩展必须继续用真实 `publishToMavenLocal` 验收，不能只依赖 POM 生成任务。
+- `githubPackages` 继续作为默认远程发布模式；Central 必须显式选择。
+- 新字段必须有默认值；远程必需项只在 remote publish、check task 或 configure task 中校验。
+- `local.properties` 只承载仓库级配置和一次性 secret 输入，不承载组件坐标。
+- 所有 secret 值只能通过环境变量、Gradle property、ignored config 或 stdin 传递，不打印、不写 manifest。
+- Central Portal 原生 API、Snapshot、workflow 多目标发布必须先覆盖失败路径，再进入真实发布流程。
+- 多 variant 扩展必须用真实 `publishToMavenLocal` 验收，不能只跑 POM 生成任务。
+- 修改 `skills/publishplugin-one-click-publish/**` 时，不直接编辑本地 Codex runtime copy；用 `scripts/install-codex-skill.sh` 安装或校验 symlink。
 
 ## 推荐执行顺序
 
-1. Task 1: CLI Version 覆盖闭环。
-2. Task 2: 发布前诊断任务。
-3. Task 3: 发布产物 Manifest。
-4. Task 8: Reusable Workflow v2 中的 check-only、version 参数、manifest 上传。
+1. Task 1: 统一发布校验与 Check Task。
+2. Task 2: 发布 Manifest。
+3. Task 3: Reusable Workflow 加固。
+4. Task 5: 一键配置体验增强。
 5. Task 4: Snapshot 发布模式。
-6. Task 6: Variant DSL 增强。
-7. Task 7: POM 默认配置。
-8. Task 9: 兼容性矩阵。
-9. Task 10: Demo 和文档样例。
-10. Task 5: 原生 Central Portal Publisher API。
+6. Task 8: 兼容性矩阵。
+7. Task 7: Variant DSL 增强。
+8. Task 9: 发布安全与回退增强。
+9. Task 10: Skill 与文档一致性。
+10. Task 6: Central Portal 原生 Publisher API。
