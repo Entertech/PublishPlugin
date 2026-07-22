@@ -99,6 +99,36 @@ buildscript {
 apply(plugin = "cn.entertech.demo")
 ```
 
+### 4. Central Portal 一键配置
+
+如果目标是发布到 Sonatype Central Portal，模块仍然维护自己的 `PublishInfo` 坐标和 POM 元数据；仓库级配置、GitHub repository secrets、GitHub Actions workflow 使用一键配置流程生成。
+
+AI Skill 方式适合在 Codex 中交互式完成配置、校验和问题修复：
+
+```text
+使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
+```
+
+离线脚本方式适合不依赖 AI 助手的本地终端执行。先生成仓库级配置模板：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --generate-only
+```
+
+然后在根目录 `local.properties` 中填写 `centralPublish.*` 仓库级字段。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
+
+完成配置后执行：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+```
+
+如果配置文件已填好，也可以直接一键执行生成与配置：
+
+```bash
+scripts/configure-central-publish-offline.sh :library -- --stacktrace
+```
+
 ## 仓库内 demo
 
 本仓库提供两个可运行示例：

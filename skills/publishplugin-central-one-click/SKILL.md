@@ -47,6 +47,17 @@ For full operational detail, load `references/central-one-click-workflow.md`.
    ./gradlew :library:configureCentralPublish
    ```
 
+### Offline Script Wrapper
+
+For users who want the same workflow without an AI assistant, use the repository script from the target repository root:
+
+```bash
+scripts/configure-central-publish-offline.sh :library --generate-only
+scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+```
+
+The script only orchestrates the existing Gradle tasks. It must not accept Central token, GPG private key, or signing password values as command arguments.
+
 ### Review or Fix Implementation
 
 Check these invariants first:
