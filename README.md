@@ -6,72 +6,7 @@
 
 ## 快速开始
 
-### 1. Skill 配置
-
-Skill 配置目前仅支持 Codex。适用于在 Codex 中交互式完成发布配置、发布目标选择、配置校验和问题修复：
-
-```text
-使用 $publishplugin-central-one-click，帮我为 :library 配置发布。
-```
-
-Skill 会根据目标发布方式引导配置：
-
-| 发布目标 | 配置重点 |
-| --- | --- |
-| 本地 Maven 发布 | 校验模块 `PublishInfo`，执行 `publishToMavenLocal` 或 `PublishLibraryLocalTask`。 |
-| GitHub Packages 发布 | 配置 GitHub Packages 仓库、凭据来源和远程发布命令。 |
-| Sonatype Central Portal 发布 | 配置 Central namespace、Central token、GPG signing、POM/SCM 元数据、GitHub Actions workflow。 |
-| 旧自定义 Maven 仓库 | 配置 `remotePublishMode = "customRepository"` 以及旧私服字段。 |
-
-### 2. 本地脚本配置
-
-本地脚本配置用于不依赖 Codex 的终端执行。目前仅支持 macOS 环境。
-
-| 系统环境 | 支持状态 | 入口 |
-| --- | --- | --- |
-| macOS | 支持 | `scripts/configure-central-publish-offline.sh` |
-| Linux | 暂不支持 | 使用 Codex Skill 或手动执行 Gradle task。 |
-| Windows | 暂不支持 | 使用 Codex Skill 或手动执行 Gradle task。 |
-
-当前离线脚本封装的是 Sonatype Central Portal 所需的仓库级配置流程。先生成配置模板：
-
-```bash
-scripts/configure-central-publish-offline.sh :library --generate-only
-```
-
-然后在根目录 `local.properties` 中填写 `centralPublish.*` 仓库级字段。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
-
-完成配置后执行：
-
-```bash
-scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
-```
-
-如果配置文件已填好，也可以直接一键执行生成与配置：
-
-```bash
-scripts/configure-central-publish-offline.sh :library -- --stacktrace
-```
-
-本地 Maven 发布不需要执行一键配置脚本，可直接运行：
-
-```bash
-./gradlew :library:publishToMavenLocal
-```
-
-GitHub Packages 是默认远程发布目标，配置仓库和凭据后执行：
-
-```bash
-GITHUB_ACTOR=<github-user> \
-GITHUB_TOKEN=<token-with-package-write> \
-./gradlew :library:PublishLibraryRemoteTask \
-  -PgithubPackagesRepository=owner/repo \
-  --stacktrace
-```
-
-### 3. 代码配置
-
-#### 3.1 根工程引入插件
+### 1. 根工程引入插件
 
 在根工程 `build.gradle.kts` 中加入插件依赖：
 
@@ -89,7 +24,7 @@ buildscript {
 }
 ```
 
-#### 3.2 发布 Android Library
+### 2. 发布 Android Library
 
 在需要发布的 Android Library 模块中应用插件：
 
@@ -100,7 +35,7 @@ plugins {
 }
 ```
 
-最小 `PublishInfo`：
+配置最小 `PublishInfo`：
 
 ```kotlin
 PublishInfo {
@@ -110,15 +45,21 @@ PublishInfo {
 }
 ```
 
-消费方模块可通过 Maven 坐标声明依赖：
+发布到本机 Maven 仓库：
+
+```bash
+./gradlew :library:publishToMavenLocal
+```
+
+消费方启用 `mavenLocal()` 后，通过 Maven 坐标依赖本地发布产物：
 
 ```kotlin
 dependencies {
-    implementation("cn.entertech.android:base:0.0.1")
+    implementation("cn.entertech.android:base:0.0.1-local")
 }
 ```
 
-#### 3.3 发布 Gradle Plugin
+### 3. 发布 Gradle Plugin
 
 Gradle Plugin 模块需要同时应用 `cn.entertech.publish` 和 `java-gradle-plugin`：
 
@@ -148,12 +89,18 @@ PublishInfo {
 }
 ```
 
-消费方可通过 buildscript classpath 引入插件 artifact：
+发布到本机 Maven 仓库：
+
+```bash
+./gradlew :demo-plugin:publishToMavenLocal
+```
+
+消费方启用 `mavenLocal()` 后，可通过 buildscript classpath 引入插件 artifact：
 
 ```kotlin
 buildscript {
     dependencies {
-        classpath("cn.entertech.android:demo-publish-plugin:1.0.0")
+        classpath("cn.entertech.android:demo-publish-plugin:1.0.0-local")
     }
 }
 ```
@@ -163,6 +110,66 @@ buildscript {
 ```kotlin
 apply(plugin = "cn.entertech.demo")
 ```
+
+### 4. 选择发布目标
+
+`PublishLibraryRemoteTask` 是统一远程发布入口。默认远程发布目标是 GitHub Packages；Sonatype Central Portal 和旧自定义 Maven 仓库需要显式选择。
+
+| 目标 | 关键配置 | 命令 |
+| --- | --- | --- |
+| 本地 Maven | `groupId`、`artifactId`、`version` | `./gradlew :library:publishToMavenLocal` |
+| GitHub Packages | `githubPackagesRepository=owner/repo` 或 `githubPackagesUrl=...`，并提供 GitHub Packages 凭据 | `./gradlew :library:PublishLibraryRemoteTask` |
+| Sonatype Central Portal | `remotePublishMode=central`，Central token，GPG signing，POM/SCM 元数据 | `./gradlew :library:PublishLibraryRemoteTask -PremotePublishMode=central` |
+| 旧自定义 Maven 仓库 | `remotePublishMode=customRepository`、`publishUrl`，按需配置用户名和密码 | `./gradlew :library:PublishLibraryRemoteTask -PremotePublishMode=customRepository` |
+
+发布到 GitHub Packages：
+
+```bash
+GITHUB_ACTOR=<github-user> \
+GITHUB_TOKEN=<token-with-package-write> \
+./gradlew :library:PublishLibraryRemoteTask \
+  -PgithubPackagesRepository=owner/repo \
+  --stacktrace
+```
+
+发布到 Sonatype Central Portal：
+
+```bash
+CENTRAL_USERNAME=<central-token-username> \
+CENTRAL_PASSWORD=<central-token-password> \
+ORG_GRADLE_PROJECT_signingInMemoryKey=<gpg-private-key> \
+ORG_GRADLE_PROJECT_signingInMemoryKeyPassword=<gpg-password> \
+./gradlew :library:PublishLibraryRemoteTask \
+  -PremotePublishMode=central \
+  -PcentralNamespace=cn.entertech \
+  --stacktrace
+```
+
+### 5. 可选配置助手
+
+Central Portal 首次接入需要配置 GitHub repository secrets、GPG signing 和 workflow。可以用 Codex Skill 或本地脚本生成配置模板并执行一次性仓库配置；本地 Maven 和 GitHub Packages 发布不需要执行这一步。
+
+Codex 方式：
+
+```text
+使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
+```
+
+macOS 离线脚本方式：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --generate-only
+scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+```
+
+Gradle task 方式：
+
+```bash
+./gradlew :library:generateCentralPublishConfig
+./gradlew :library:configureCentralPublish
+```
+
+配置助手只处理仓库级 Central 配置。组件坐标、Gradle Plugin ID、实现类和组件 POM 信息仍放在目标模块的 `PublishInfo` 中。
 
 ## 仓库内 demo
 
