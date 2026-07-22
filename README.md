@@ -116,6 +116,7 @@ apply plugin: 'cn.entertech.publish'
 | 本地 Maven 发布 | `groupId`、`artifactId`、`version` | 执行 `PublishLibraryLocalTask` 或 `publishToMavenLocal`。不要求 Central 凭据、签名和完整 POM 元数据。 |
 | Android Library 远程发 Central | `groupId`、`artifactId`、`version` | `pomDescription` 默认使用 `Android library published to Central Portal`，`pomUrl` 优先从当前工程 `git remote origin` 推导，再使用 CI 环境兜底。非 `cn.entertech` namespace 必须覆盖 `centralNamespace`。`version` 不能包含 `debug`。 |
 | Gradle Plugin 远程发 Central | Android Library 远程字段 + `pluginId`、`implementationClass` | `pluginId` 是用户使用 `plugins { id("...") }` 时看到的插件 ID。 |
+| GitHub Packages 发布 | `groupId`、`artifactId`、`version`、`remotePublishMode = "githubPackages"` | 配置 `githubPackagesRepository=owner/repo` 或 `githubPackagesUrl=https://maven.pkg.github.com/owner/repo`。凭据建议用 `GITHUB_ACTOR` / `GITHUB_TOKEN`，也兼容 `gpr.user` / `gpr.key`。 |
 | 旧私服发布 | `groupId`、`artifactId`、`version`、`remotePublishMode = "customRepository"`、`publishUrl` | `publishUserName`、`publishPassword` 按仓库权限需要配置。 |
 
 字段值解析优先级按用途分组：
@@ -124,6 +125,7 @@ apply plugin: 'cn.entertech.publish'
 - Central、License、Developer、SCM 等仓库级字段支持命令行和本地通用配置覆盖：`Gradle property > 环境变量 > PublishInfo 显式配置 > local.properties 中 centralPublish.* 非空值 > 默认/推导值`。
 - `pomName`、`pomDescription`、`pomUrl` 属于组件 POM 信息，不从 `local.properties` 读取；未显式配置时分别使用 artifactId、组件类型默认描述、当前工程 git remote / CI 推导 URL。
 - `publishUrl`、`publishUserName`、`publishPassword` 兼容 `local.properties`：`Gradle property > PublishInfo 字段 > local.properties`。
+- GitHub Packages URL 可由 `githubPackagesRepository=owner/repo` 推导；凭据优先使用 Gradle property / 环境变量，再回退到 `PublishInfo` 和 `local.properties` 中的 GitHub Packages 专用字段或旧私服字段。
 - Central token 不建议写进 `PublishInfo`。优先使用 `-PcentralUsername/-PcentralPassword` 或 `CENTRAL_USERNAME/CENTRAL_PASSWORD`。
 - GPG signing 信息不是 `PublishInfo` 字段；发布运行时只能通过 Gradle property 或环境变量传入。一键配置时可先放在 ignored/untracked 的 `local.properties` 中，用于写入 GitHub repository secrets。
 
@@ -224,10 +226,20 @@ Central token 和 GPG 字段只用于 `configureCentralPublish` 调用 `gh secre
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `remotePublishMode` | `central` | 远程发布模式。`central` 使用 Sonatype Central Portal；`customRepository` 使用旧自定义 Maven 仓库。 |
+| `remotePublishMode` | `central` | 远程发布模式。`central` 使用 Sonatype Central Portal；`githubPackages` 使用 GitHub Packages；`customRepository` 使用旧自定义 Maven 仓库。 |
 | `centralNamespace` | `cn.entertech` | Central namespace。发布前会校验 `groupId` 必须等于该 namespace 或以 `${centralNamespace}.` 开头。非 Entertech namespace 必须覆盖该值。 |
 | `centralPublishingType` | `user_managed` | Central Portal deployment 发布方式。`user_managed` 表示上传并通过校验后，只在 Portal 生成一个待发布的 deployment，需要手动点击 Publish 才会真正发布到 Maven Central，也可以点击 Drop 丢弃；`automatic` 表示通过校验后自动发布到 Maven Central。Sonatype OSSRH Staging API 还支持 `portal_api`，但当前插件不会继续调用 Portal Publisher API 跟踪状态，因此不作为推荐值。 |
 | `centralRepositoryName` | `CentralStaging` | Gradle repository 名称，会影响任务名，例如 `publishEnterPublishPublicationToCentralStagingRepository`。一般不需要改。 |
+
+### GitHub Packages 字段
+
+| 字段 | 生效场景 | 说明 |
+| --- | --- | --- |
+| `githubPackagesRepository` | `remotePublishMode = "githubPackages"` | GitHub 仓库，格式为 `owner/repo`。为空时会尝试使用 `GITHUB_REPOSITORY` 或当前工程 `git remote origin` 推导。 |
+| `githubPackagesUrl` | `githubPackages` | Maven 仓库完整地址。优先级高于 `githubPackagesRepository` 推导值。 |
+| `githubPackagesRepositoryName` | `githubPackages` | Gradle repository 名称，默认 `GitHubPackages`，会生成 `publishEnterPublishPublicationToGitHubPackagesRepository`。 |
+| `githubPackagesUsername` | `githubPackages` | GitHub Packages 用户名；CI 通常使用 `GITHUB_ACTOR`。 |
+| `githubPackagesPassword` | `githubPackages` | GitHub token；CI 通常使用 `GITHUB_TOKEN`。 |
 
 ### 旧私服字段
 
@@ -635,7 +647,11 @@ CI 或本地临时发布时，建议用 Gradle property 或环境变量覆盖敏
 
 | 用途 | Gradle property | 环境变量 | 说明 |
 | --- | --- | --- | --- |
-| 发布模式 | `-PremotePublishMode=central` | `REMOTE_PUBLISH_MODE` | 可选 `central` / `customRepository`。 |
+| 发布模式 | `-PremotePublishMode=central` | `REMOTE_PUBLISH_MODE` | 可选 `central` / `githubPackages` / `customRepository`。 |
+| GitHub Packages 仓库 | `-PgithubPackagesRepository=owner/repo` | `GITHUB_PACKAGES_REPOSITORY` / `GITHUB_REPOSITORY` | 用于推导 `https://maven.pkg.github.com/owner/repo`。 |
+| GitHub Packages URL | `-PgithubPackagesUrl=...` | `GITHUB_PACKAGES_URL` | 显式覆盖完整 Maven repository URL。 |
+| GitHub Packages 用户名 | `-PgithubPackagesUsername=...` / `-Pgpr.user=...` | `GITHUB_PACKAGES_USER` / `GITHUB_ACTOR` / `USERNAME` | GitHub Packages repository credentials username。 |
+| GitHub Packages Token | `-PgithubPackagesPassword=...` / `-Pgpr.key=...` | `GITHUB_PACKAGES_TOKEN` / `GITHUB_TOKEN` / `TOKEN` | GitHub Packages repository credentials password/token。 |
 | Central namespace | `-PcentralNamespace=...` | `CENTRAL_NAMESPACE` | 覆盖 `PublishInfo.centralNamespace`。 |
 | Central 发布方式 | `-PcentralPublishingType=user_managed` | `CENTRAL_PUBLISHING_TYPE` | 可选 `user_managed` / `automatic`。 |
 | Central repository 名称 | `-PcentralRepositoryName=CentralStaging` | `CENTRAL_REPOSITORY_NAME` | 一般不需要改。 |

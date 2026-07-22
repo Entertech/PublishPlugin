@@ -166,6 +166,49 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void githubPackagesModeAddsGitHubPackagesRepository() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        String tasksOutput = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:tasks",
+                        "--all",
+                        "-PremotePublishMode=githubPackages",
+                        "-PgithubPackagesRepository=Entertech/fixture",
+                        "-PgithubPackagesUsername=github-user",
+                        "-PgithubPackagesPassword=github-token",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        assertTrue(tasksOutput.contains("publishEnterPublishPublicationToGitHubPackagesRepository"));
+    }
+
+    @Test
+    public void remoteTaskPublishesToGitHubPackagesRepository() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        writeRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PremotePublishMode=githubPackages",
+                        "-PgithubPackagesRepository=Entertech/fixture",
+                        "-Pgpr.user=github-user",
+                        "-Pgpr.key=github-token",
+                        "--stacktrace"
+                )
+                .build();
+
+        String invoked = read(projectDir.toPath().resolve("gradlew.args"));
+        String environment = read(projectDir.toPath().resolve("gradlew.env"));
+        assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToGitHubPackagesRepository"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesUsername=github-user"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesPassword=github-token"));
+    }
+
+    @Test
     public void pomUsesEntertechDefaultsAndDerivesScmConnectionsFromScmUrl() throws IOException {
         File projectDir = createGradlePluginProject(
                 "1.0.0",
@@ -502,6 +545,14 @@ public class PublishPluginFunctionalTest {
     private static void writeSuccessfulGradlew(File root) throws IOException {
         Path gradlew = root.toPath().resolve("gradlew");
         write(gradlew, "#!/bin/sh\nexit 0\n");
+        assertTrue(gradlew.toFile().setExecutable(true));
+    }
+
+    private static void writeRecordingGradlew(File root) throws IOException {
+        Path gradlew = root.toPath().resolve("gradlew");
+        String argsPath = root.toPath().resolve("gradlew.args").toAbsolutePath().toString();
+        String envPath = root.toPath().resolve("gradlew.env").toAbsolutePath().toString();
+        write(gradlew, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsPath + "'\nenv | sort > '" + envPath + "'\nexit 0\n");
         assertTrue(gradlew.toFile().setExecutable(true));
     }
 

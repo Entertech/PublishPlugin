@@ -236,6 +236,8 @@ open class PublishPlugin : Plugin<Project> {
             configureCentralRepository(project, publishing, publishInfo, properties)
         } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             configureCustomRepository(project, publishing, publishInfo, properties)
+        } else if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
+            configureGitHubPackagesRepository(project, publishing, publishInfo, properties)
         }
     }
 
@@ -616,6 +618,32 @@ open class PublishPlugin : Plugin<Project> {
             }
         }
         PluginLogUtil.printlnDebugInScreen("$TAG custom repository is $publishUrl")
+    }
+
+    private fun configureGitHubPackagesRepository(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo,
+        properties: java.util.Properties
+    ) {
+        val publishUrl = PublishConfigResolver.resolveGitHubPackagesUrl(project, publishInfo, properties)
+        if (publishUrl.isBlank()) {
+            return
+        }
+        val credentials = PublishConfigResolver.resolveGitHubPackagesCredentials(project, publishInfo, properties)
+        val repositoryName = PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)
+        publishing.repositories { artifactRepositories ->
+            artifactRepositories.maven { repository ->
+                repository.name = repositoryName
+                repository.url = URI(publishUrl)
+                allowInsecureProtocolIfSupported(repository)
+                repository.credentials { passwordCredentials ->
+                    passwordCredentials.username = credentials.username
+                    passwordCredentials.password = credentials.password
+                }
+            }
+        }
+        PluginLogUtil.printlnDebugInScreen("$TAG GitHub Packages repository is $publishUrl")
     }
 
     private fun configureSigning(project: Project, publication: MavenPublication) {

@@ -15,8 +15,15 @@ object PublishConfigResolver {
         "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository"
     const val MODE_CENTRAL = "central"
     const val MODE_CUSTOM_REPOSITORY = "customRepository"
+    const val MODE_GITHUB_PACKAGES = "githubPackages"
+    const val DEFAULT_GITHUB_PACKAGES_REPOSITORY_NAME = "GitHubPackages"
 
     data class CentralCredentials(
+        val username: String,
+        val password: String
+    )
+
+    data class RepositoryCredentials(
         val username: String,
         val password: String
     )
@@ -165,6 +172,59 @@ object PublishConfigResolver {
         )
     }
 
+    fun resolveGitHubPackagesRepositoryName(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "githubPackagesRepositoryName"),
+            environment("GITHUB_PACKAGES_REPOSITORY_NAME"),
+            publishInfo.githubPackagesRepositoryName,
+            DEFAULT_GITHUB_PACKAGES_REPOSITORY_NAME
+        )
+    }
+
+    fun resolveGitHubPackagesUrl(
+        project: Project,
+        publishInfo: PublishInfo,
+        localProperties: Properties = loadLocalProperties(project)
+    ): String {
+        return firstNotBlank(
+            projectProperty(project, "githubPackagesUrl"),
+            environment("GITHUB_PACKAGES_URL"),
+            publishInfo.githubPackagesUrl,
+            localProperties.getProperty("githubPackagesUrl"),
+            githubPackagesUrlFromRepository(resolveGitHubPackagesRepository(project, publishInfo, localProperties))
+        )
+    }
+
+    fun resolveGitHubPackagesCredentials(
+        project: Project,
+        publishInfo: PublishInfo,
+        localProperties: Properties = loadLocalProperties(project)
+    ): RepositoryCredentials {
+        val username = firstNotBlank(
+            projectProperty(project, "githubPackagesUsername"),
+            projectProperty(project, "gpr.user"),
+            environment("GITHUB_PACKAGES_USER"),
+            environment("GITHUB_ACTOR"),
+            environment("USERNAME"),
+            publishInfo.githubPackagesUsername,
+            publishInfo.publishUserName,
+            localProperties.getProperty("githubPackagesUsername"),
+            localProperties.getProperty("publishUserName")
+        )
+        val password = firstNotBlank(
+            projectProperty(project, "githubPackagesPassword"),
+            projectProperty(project, "gpr.key"),
+            environment("GITHUB_PACKAGES_TOKEN"),
+            environment("GITHUB_TOKEN"),
+            environment("TOKEN"),
+            publishInfo.githubPackagesPassword,
+            publishInfo.publishPassword,
+            localProperties.getProperty("githubPackagesPassword"),
+            localProperties.getProperty("publishPassword")
+        )
+        return RepositoryCredentials(username, password)
+    }
+
     fun resolveSigningCredentials(project: Project): SigningCredentials {
         return SigningCredentials(
             keyId = firstNotBlank(
@@ -286,6 +346,50 @@ object PublishConfigResolver {
             GitUrlNormalizer.toHttpsRepositoryUrl(environment("GIT_URL")),
             GitUrlNormalizer.toHttpsRepositoryUrl(environment("BUILD_REPOSITORY_URI"))
         )
+    }
+
+    private fun resolveGitHubPackagesRepository(
+        project: Project,
+        publishInfo: PublishInfo,
+        localProperties: Properties
+    ): String {
+        return normalizeOwnerRepo(
+            firstNotBlank(
+                projectProperty(project, "githubPackagesRepository"),
+                environment("GITHUB_PACKAGES_REPOSITORY"),
+                publishInfo.githubPackagesRepository,
+                localProperties.getProperty("githubPackagesRepository"),
+                environment("GITHUB_REPOSITORY"),
+                repositoryFromGitOrigin(project)
+            )
+        )
+    }
+
+    private fun githubPackagesUrlFromRepository(repository: String): String {
+        return if (repository.isBlank()) {
+            ""
+        } else {
+            "https://maven.pkg.github.com/$repository"
+        }
+    }
+
+    private fun repositoryFromGitOrigin(project: Project): String {
+        return normalizeOwnerRepo(GitUrlNormalizer.toHttpsRepositoryUrl(readGitOriginUrl(project)))
+    }
+
+    private fun normalizeOwnerRepo(value: String): String {
+        val trimmed = value.trim().trimEnd('/')
+        if (trimmed.isBlank()) {
+            return ""
+        }
+        val withoutGit = trimmed.removeSuffix(".git")
+        return when {
+            withoutGit.startsWith("https://github.com/") -> withoutGit.removePrefix("https://github.com/")
+            withoutGit.startsWith("http://github.com/") -> withoutGit.removePrefix("http://github.com/")
+            withoutGit.startsWith("git@github.com:") -> withoutGit.removePrefix("git@github.com:")
+            withoutGit.startsWith("ssh://git@github.com/") -> withoutGit.removePrefix("ssh://git@github.com/")
+            else -> withoutGit
+        }
     }
 
     private fun readGitOriginUrl(project: Project): String {

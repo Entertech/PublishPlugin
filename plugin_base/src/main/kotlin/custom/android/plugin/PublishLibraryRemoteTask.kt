@@ -16,10 +16,11 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
     override fun initPublishCommandLine(): String {
         val publishInfo = project.extensions.getByType(PublishInfo::class.java)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        val repositoryName = if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
-            "Maven"
-        } else {
-            PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
+        val repositoryName = when (mode) {
+            PublishConfigResolver.MODE_CUSTOM_REPOSITORY -> "Maven"
+            PublishConfigResolver.MODE_GITHUB_PACKAGES ->
+                PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)
+            else -> PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
         }
         if (hasMultipleEnterPublications()) {
             return ":publishAllPublicationsTo${repositoryName}Repository"
@@ -53,6 +54,9 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             return checkCustomRepositoryPublishInfo(publishInfo)
         }
+        if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
+            return checkGitHubPackagesPublishInfo(publishInfo)
+        }
         if (mode != PublishConfigResolver.MODE_CENTRAL) {
             PluginLogUtil.printlnErrorInScreen("Unsupported remotePublishMode: $mode")
             return false
@@ -65,6 +69,25 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         val publishUrl = PublishConfigResolver.resolveCustomRepositoryUrl(project, publishInfo, properties)
         if (publishUrl.isBlank()) {
             PluginLogUtil.printlnErrorInScreen("customRepository mode requires publishUrl")
+            return false
+        }
+        return true
+    }
+
+    private fun checkGitHubPackagesPublishInfo(publishInfo: PublishInfo): Boolean {
+        val properties = PublishConfigResolver.loadLocalProperties(project)
+        val publishUrl = PublishConfigResolver.resolveGitHubPackagesUrl(project, publishInfo, properties)
+        if (publishUrl.isBlank()) {
+            PluginLogUtil.printlnErrorInScreen(
+                "githubPackages mode requires githubPackagesRepository or githubPackagesUrl"
+            )
+            return false
+        }
+        val credentials = PublishConfigResolver.resolveGitHubPackagesCredentials(project, publishInfo, properties)
+        if (credentials.username.isBlank() || credentials.password.isBlank()) {
+            PluginLogUtil.printlnErrorInScreen(
+                "githubPackages mode requires githubPackagesUsername/githubPackagesPassword or GITHUB_ACTOR/GITHUB_TOKEN"
+            )
             return false
         }
         return true
@@ -138,7 +161,12 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         if (mode == PublishConfigResolver.MODE_CENTRAL) {
             return PublishConfigResolver.CENTRAL_STAGING_URL
         }
-        return (publishing.repositories.findByName("Maven") as? MavenArtifactRepository)
+        val repositoryName = if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
+            PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)
+        } else {
+            "Maven"
+        }
+        return (publishing.repositories.findByName(repositoryName) as? MavenArtifactRepository)
             ?.url
             ?.toString()
             .orEmpty()
@@ -162,6 +190,9 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             val value = project.findProperty(propertyName)?.toString()
             if (!value.isNullOrBlank()) {
                 exec.environment("ORG_GRADLE_PROJECT_$propertyName", value)
+                forwardedProjectPropertyAliases[propertyName]?.let { alias ->
+                    exec.environment("ORG_GRADLE_PROJECT_$alias", value)
+                }
             }
         }
     }
@@ -178,6 +209,13 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         "publishUrl",
         "publishUserName",
         "publishPassword",
+        "githubPackagesRepository",
+        "githubPackagesUrl",
+        "githubPackagesRepositoryName",
+        "githubPackagesUsername",
+        "githubPackagesPassword",
+        "gpr.user",
+        "gpr.key",
         "centralNamespace",
         "centralPublishingType",
         "centralRepositoryName",
@@ -206,5 +244,10 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         "signingInMemoryKeyPassword",
         "signingKeyId",
         "signingPassword"
+    )
+
+    private val forwardedProjectPropertyAliases = mapOf(
+        "gpr.user" to "githubPackagesUsername",
+        "gpr.key" to "githubPackagesPassword"
     )
 }

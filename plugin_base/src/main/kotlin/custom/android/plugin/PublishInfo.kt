@@ -79,6 +79,12 @@ open class PublishInfo {
 
     var remotePublishMode: String = "central"
 
+    var githubPackagesRepository: String = ""
+    var githubPackagesUrl: String = ""
+    var githubPackagesRepositoryName: String = "GitHubPackages"
+    var githubPackagesUsername: String = ""
+    var githubPackagesPassword: String = ""
+
     var centralNamespace: String = "cn.entertech"
         set(value) {
             markExplicit("centralNamespace")
