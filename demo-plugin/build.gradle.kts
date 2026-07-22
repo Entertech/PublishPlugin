@@ -3,7 +3,7 @@ plugins {
     `java-gradle-plugin`
 }
 
-group = "cn.entertech.android.demo"
+group = "cn.entertech.android"
 version = "1.0.0"
 
 java {
@@ -12,7 +12,7 @@ java {
 }
 
 PublishInfo {
-    groupId = "cn.entertech.android.demo"
+    groupId = "cn.entertech.android"
     artifactId = "demo-publish-plugin"
     version = "1.0.0"
 

@@ -44,24 +44,13 @@ android {
 }
 
 PublishInfo {
-    groupId = "cn.entertech.android.demo"
+    groupId = "cn.entertech.android"
     artifactId = baseArtifactId
-    version = "1.0.0"
+    version = "1.0.2"
 
     pomName = "Entertech Publish Demo Library"
     pomDescription = "Android Library demo for cn.entertech.publish with multiple release variants."
     pomUrl = "https://github.com/Entertech/PublishPlugin"
-
-    artifactIdForVariant { variant ->
-        val productPrefix = "${variant.flavor("project")}-"
-        val authSuffix = if (variant.flavor("authentication") == "auth") {
-            "-authentication"
-        } else {
-            ""
-        }
-
-        "$productPrefix$baseArtifactId$authSuffix"
-    }
 }
 
 dependencies {
