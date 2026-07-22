@@ -4,6 +4,7 @@ import custom.android.plugin.config.PublishConfig
 import custom.android.plugin.config.PublishConfigLoader
 import custom.android.plugin.config.GitUrlNormalizer
 import custom.android.plugin.config.PomMetadataDefaults
+import org.gradle.api.GradleException
 import org.gradle.api.Project
 import java.io.File
 import java.util.Properties
@@ -239,10 +240,12 @@ object PublishConfigResolver {
         publishInfo: PublishInfo,
         localProperties: Properties = loadLocalProperties(project)
     ): String {
+        val publishProperties = loadPublishProperties(project)
         return firstNotBlank(
             projectProperty(project, "githubPackagesUrl"),
             environment("GITHUB_PACKAGES_URL"),
             publishInfo.githubPackagesUrl,
+            publishProperties.githubPackagesUrl,
             localProperties.getProperty("githubPackagesUrl"),
             githubPackagesUrlFromRepository(resolveGitHubPackagesRepository(project, publishInfo, localProperties))
         )
@@ -393,7 +396,7 @@ object PublishConfigResolver {
         }
 
         return firstNotBlank(
-            GitUrlNormalizer.toHttpsRepositoryUrl(readGitOriginUrl(project)),
+            GitUrlNormalizer.toHttpsRepositoryUrl(readPreferredGitRemoteUrl(project)),
             githubUrl,
             environment("CI_PROJECT_URL"),
             GitUrlNormalizer.toHttpsRepositoryUrl(environment("GIT_URL")),
@@ -406,11 +409,13 @@ object PublishConfigResolver {
         publishInfo: PublishInfo,
         localProperties: Properties
     ): String {
+        val publishProperties = loadPublishProperties(project)
         return normalizeOwnerRepo(
             firstNotBlank(
                 projectProperty(project, "githubPackagesRepository"),
                 environment("GITHUB_PACKAGES_REPOSITORY"),
                 publishInfo.githubPackagesRepository,
+                publishProperties.githubPackagesRepository,
                 localProperties.getProperty("githubPackagesRepository"),
                 environment("GITHUB_REPOSITORY"),
                 repositoryFromGitOrigin(project)
@@ -427,7 +432,7 @@ object PublishConfigResolver {
     }
 
     private fun repositoryFromGitOrigin(project: Project): String {
-        return normalizeOwnerRepo(GitUrlNormalizer.toHttpsRepositoryUrl(readGitOriginUrl(project)))
+        return normalizeOwnerRepo(GitUrlNormalizer.toHttpsRepositoryUrl(readPreferredGitRemoteUrl(project)))
     }
 
     private fun normalizeOwnerRepo(value: String): String {
@@ -445,26 +450,58 @@ object PublishConfigResolver {
         }
     }
 
-    private fun readGitOriginUrl(project: Project): String {
-        return findGitConfigs(project.rootProject.projectDir)
-            .firstNotNullOfOrNull { gitConfig ->
-                var inOrigin = false
-                gitConfig.readLines()
-                    .firstNotNullOfOrNull { line ->
-                        val trimmed = line.trim()
-                        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                            inOrigin = trimmed == "[remote \"origin\"]"
-                            null
-                        } else if (inOrigin && trimmed.startsWith("url =")) {
-                            trimmed.substringAfter("url =").trim()
-                        } else {
-                            null
-                        }
-                    }
-                    ?.takeIf { it.isNotBlank() }
+    private fun readPreferredGitRemoteUrl(project: Project): String {
+        val remotes = findGitConfigs(project.rootProject.projectDir)
+            .flatMap { readGitRemotes(it) }
+        val githubRemotes = remotes
+            .mapNotNull { remote ->
+                val repositoryUrl = GitUrlNormalizer.toHttpsRepositoryUrl(remote.url)
+                if (repositoryUrl.startsWith("https://github.com/")) {
+                    GitRemote(remote.name, remote.url, repositoryUrl)
+                } else {
+                    null
+                }
             }
-            .orEmpty()
+            .distinctBy { it.repositoryUrl }
+        if (githubRemotes.size > 1) {
+            val details = githubRemotes.joinToString(", ") { "${it.name}=${it.url}" }
+            throw GradleException(
+                "Multiple GitHub git remotes found: $details. " +
+                    "Configure publish.githubPackagesRepository=owner/repo or publish.githubPackagesUrl=https://maven.pkg.github.com/owner/repo explicitly."
+            )
+        }
+        return firstNotBlank(
+            githubRemotes.singleOrNull()?.url.orEmpty(),
+            remotes.firstOrNull { GitUrlNormalizer.toHttpsRepositoryUrl(it.url).isNotBlank() }?.url.orEmpty()
+        )
     }
+
+    private fun readGitRemotes(gitConfig: File): List<GitRemote> {
+        val remotes = mutableListOf<GitRemote>()
+        var currentRemoteName = ""
+        gitConfig.readLines().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                currentRemoteName = Regex("""^\[remote "(.+)"\]$""")
+                    .matchEntire(trimmed)
+                    ?.groupValues
+                    ?.get(1)
+                    .orEmpty()
+            } else if (currentRemoteName.isNotBlank() && trimmed.startsWith("url =")) {
+                val url = trimmed.substringAfter("url =").trim()
+                if (url.isNotBlank()) {
+                    remotes += GitRemote(currentRemoteName, url)
+                }
+            }
+        }
+        return remotes
+    }
+
+    private data class GitRemote(
+        val name: String,
+        val url: String,
+        val repositoryUrl: String = ""
+    )
 
     private fun findGitConfigs(projectDir: File): List<File> {
         val gitPath = File(projectDir, ".git")
