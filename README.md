@@ -806,6 +806,8 @@ PublishInfo {
 https://maven.pkg.github.com/owner/repo
 ```
 
+这个 URL 是 Gradle/Maven repository endpoint，不是浏览器网页详情页；直接在浏览器打开可能显示 `404 page not found`。发布成功后请在 GitHub 仓库或组织的 Packages 页面查看包，或带 GitHub Packages 认证访问具体 POM/metadata 路径验证。
+
 如果需要直接覆盖完整地址，使用 `githubPackagesUrl`：
 
 ```bash

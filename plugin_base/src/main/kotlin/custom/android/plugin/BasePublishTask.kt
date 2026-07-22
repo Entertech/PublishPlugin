@@ -112,6 +112,10 @@ abstract class BasePublishTask : DefaultTask() {
 
     abstract fun getPublishingExtensionRepositoriesPath(publishing: PublishingExtension): String
 
+    protected open fun appendPublicationGroupPathToRepositoryPath(): Boolean = false
+
+    protected open fun printRemoteArtifactVerificationPath(): Boolean = false
+
     protected open fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
     }
 
@@ -137,16 +141,25 @@ abstract class BasePublishTask : DefaultTask() {
         }
         PluginLogUtil.printlnInfoInScreen("构建成功")
         publications.forEach { publication ->
-            val fileNames = publication.groupId.split(".")
-            val pathSb = StringBuilder()
-            pathSb.append(getPublishingExtensionRepositoriesPath(publishing))
-            fileNames.forEach {
-                pathSb.append(it)
-                pathSb.append(File.separatorChar)
+            val repositoryPath = getPublishingExtensionRepositoriesPath(publishing)
+            val pathSb = StringBuilder(repositoryPath)
+            if (appendPublicationGroupPathToRepositoryPath()) {
+                pathSb.clear()
+                pathSb.append(repositoryPath.trimEnd('/', File.separatorChar))
+                pathSb.append("/")
+                pathSb.append(publication.groupId.replace('.', '/'))
+                pathSb.append("/")
             }
 //                    pathSb.append(artifactId)
 //                    pathSb.append(File.separatorChar)
-            PluginLogUtil.printlnInfoInScreen("仓库地址：  $pathSb")
+            PluginLogUtil.printlnInfoInScreen("Maven 仓库地址（Gradle/Maven 配置用）：  $pathSb")
+            if (printRemoteArtifactVerificationPath()) {
+                PluginLogUtil.printlnInfoInScreen(
+                    "POM 验证地址（需要 GitHub Packages 认证）：  " +
+                        remotePomPath(repositoryPath, publication)
+                )
+                PluginLogUtil.printlnInfoInScreen("网页查看入口：  GitHub 仓库或组织的 Packages 页面")
+            }
             PluginLogUtil.printlnInfoInScreen("===================================================================")
             PluginLogUtil.printlnInfoInScreen("")
             PluginLogUtil.printlnInfoInScreen(
@@ -165,6 +178,14 @@ abstract class BasePublishTask : DefaultTask() {
             PluginLogUtil.printlnInfoInScreen("")
             PluginLogUtil.printlnInfoInScreen("==================================================================")
         }
+    }
+
+    private fun remotePomPath(repositoryPath: String, publication: MavenPublication): String {
+        val baseUrl = repositoryPath.trimEnd('/')
+        val groupPath = publication.groupId.replace('.', '/')
+        val artifactId = publication.artifactId
+        val version = publication.version
+        return "$baseUrl/$groupPath/$artifactId/$version/$artifactId-$version.pom"
     }
 
     /**

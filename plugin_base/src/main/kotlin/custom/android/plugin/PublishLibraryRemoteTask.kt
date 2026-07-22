@@ -173,6 +173,8 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             .orEmpty()
     }
 
+    override fun printRemoteArtifactVerificationPath(): Boolean = true
+
     override fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
         if (mode == PublishConfigResolver.MODE_CENTRAL) {

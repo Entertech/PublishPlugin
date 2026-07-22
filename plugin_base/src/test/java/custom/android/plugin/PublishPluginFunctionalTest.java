@@ -222,7 +222,7 @@ public class PublishPluginFunctionalTest {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeRecordingGradlew(projectDir);
 
-        gradleRunner(projectDir)
+        String output = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:PublishLibraryRemoteTask",
                         "-PgithubPackagesRepository=Entertech/fixture",
@@ -230,13 +230,23 @@ public class PublishPluginFunctionalTest {
                         "-Pgpr.key=github-token",
                         "--stacktrace"
                 )
-                .build();
+                .build()
+                .getOutput();
 
         String invoked = read(projectDir.toPath().resolve("gradlew.args"));
         String environment = read(projectDir.toPath().resolve("gradlew.env"));
         assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToGitHubPackagesRepository"));
         assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesUsername=github-user"));
         assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesPassword=github-token"));
+        assertTrue(output.contains("Maven 仓库地址（Gradle/Maven 配置用）：  https://maven.pkg.github.com/Entertech/fixture"));
+        assertTrue(output.contains(
+                "POM 验证地址（需要 GitHub Packages 认证）：  "
+                        + "https://maven.pkg.github.com/Entertech/fixture/com/example/fixture/1.0.0/fixture-1.0.0.pom"
+        ));
+        assertTrue(output.contains("网页查看入口：  GitHub 仓库或组织的 Packages 页面"));
+        assertFalse(output.contains(
+                "Maven 仓库地址（Gradle/Maven 配置用）：  https://maven.pkg.github.com/Entertech/fixture/com/example/"
+        ));
     }
 
     @Test
