@@ -356,6 +356,7 @@ open class PublishPlugin : Plugin<Project> {
         val buildTypeComponents = components.filter { isBuildTypeComponent(it.name, buildTypeName) }
         val singleReleaseComponent =
             buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals(buildTypeName, ignoreCase = true)
+        val useBasePublicationName = singleReleaseComponent || !publishInfo.hasVariantCoordinateResolvers()
 
         val publishableVariantNames = if (singleReleaseComponent) {
             null
@@ -371,12 +372,12 @@ open class PublishPlugin : Plugin<Project> {
         }
 
         return publishableComponents.map { component ->
-            val publicationName = if (singleReleaseComponent) {
+            val publicationName = if (useBasePublicationName) {
                 MAVEN_PUBLICATION_NAME
             } else {
                 "${component.name.capitalizeAscii()}$MAVEN_PUBLICATION_NAME"
             }
-            val variantInfo = if (singleReleaseComponent) {
+            val variantInfo = if (useBasePublicationName) {
                 null
             } else {
                 createAndroidVariantInfo(project, component.name, buildTypeName)

@@ -386,6 +386,7 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         assertMavenAarPublication(mavenLocal.toPath(), "affective-offline-sdk");
+        assertPomContainsArtifactId(projectDir.toPath(), "EnterPublish", "affective-offline-sdk");
     }
 
     @Test

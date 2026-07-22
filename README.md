@@ -943,7 +943,7 @@ Sonatype OSSRH Staging API 文档还列出 `portal_api`，它只上传 deploymen
 
 - 无 flavor 的普通 `release` 组件仍使用旧 publication 名：`EnterPublish`。
 - 配置了 `groupIdForVariant`、`artifactIdForVariant` 或 `versionForVariant` 时，多 flavor release 组件使用 `<VariantName>EnterPublish`，例如 `BreathAuthReleaseEnterPublish`。
-- 没有配置 variant 级坐标时，只注册并发布第一个可发布的 release variant，避免多个 publication 使用同一 Maven 坐标互相覆盖。
+- 没有配置 variant 级坐标时，只注册并发布第一个可发布的 release variant，publication 名仍为 `EnterPublish`，避免多个 publication 使用同一 Maven 坐标互相覆盖。
 - `PublishLibraryRemoteTask` 检测到多个 `*EnterPublish` publication 时，会执行 `publishAllPublicationsTo<RepositoryName>Repository`。
 
 如果需要按 variant 动态设置 Maven 坐标，使用 `groupIdForVariant`、`artifactIdForVariant`、`versionForVariant`：
