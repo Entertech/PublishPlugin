@@ -19,6 +19,14 @@ on:
         options:
           - automatic
           - user_managed
+      publish_mode:
+        description: "release publishes final artifacts; ci publishes Central snapshots without README/tag/merge."
+        required: true
+        default: "release"
+        type: choice
+        options:
+          - release
+          - ci
 
 permissions:
   contents: write
@@ -29,6 +37,7 @@ concurrency:
 
 jobs:
   publish:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish_mode != 'ci' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -307,14 +316,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          python3 .github/scripts/sync_readme_publish_version.py --version "$RELEASE_VERSION"
-          if git diff --quiet -- plugin_base/build.gradle.kts README.md; then
-            echo "README.md already documents PublishPlugin ${RELEASE_VERSION}"
+          python3 .github/scripts/sync_readme_publish_version.py \
+            --version "$RELEASE_VERSION" \
+            --root-build-file build.gradle.kts
+          if git diff --quiet -- plugin_base/build.gradle.kts README.md build.gradle.kts; then
+            echo "README.md and build.gradle.kts already document PublishPlugin ${RELEASE_VERSION}"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add plugin_base/build.gradle.kts README.md
-            git commit -m "[codex] Update README publish plugin version to ${RELEASE_VERSION} [skip ci]"
+            git add plugin_base/build.gradle.kts README.md build.gradle.kts
+            git commit -m "[codex] Update publish plugin usage version to ${RELEASE_VERSION} [skip ci]"
           fi
 
           git push origin "HEAD:pre_publish"
@@ -350,3 +361,99 @@ jobs:
           git checkout -B main origin/main
           git merge --no-ff --no-edit origin/pre_publish
           git push origin main
+
+  ci_snapshot:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_mode == 'ci' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve snapshot version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_version="$(python3 - <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          content = Path("plugin_base/build.gradle.kts").read_text(encoding="utf-8")
+          match = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]", content)
+          if not match:
+              print("::error::Cannot find plugin_base version", file=sys.stderr)
+              sys.exit(1)
+          version = match.group(1)
+          if not re.fullmatch(r"\d+\.\d+\.\d+(?:-SNAPSHOT)?", version):
+              print(f"::error::Publish plugin version '{version}' must be semver or semver-SNAPSHOT", file=sys.stderr)
+              sys.exit(1)
+          print(version.removesuffix("-SNAPSHOT"))
+          PY
+          )"
+          snapshot_version="${base_version}-SNAPSHOT"
+          VERSION="$snapshot_version" python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("plugin_base/build.gradle.kts")
+          version = os.environ["VERSION"]
+          content = path.read_text(encoding="utf-8")
+          content, count = re.subn(
+              r'(?m)^(\s*version\s*=\s*["\'])([^"\']+)(["\'])',
+              rf"\g<1>{version}\g<3>",
+              content,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Cannot update plugin_base snapshot version")
+          path.write_text(content, encoding="utf-8")
+          PY
+          echo "SNAPSHOT_VERSION=${snapshot_version}" >> "$GITHUB_ENV"
+          echo "Preparing PublishPlugin snapshot ${snapshot_version}."
+
+      - name: Ensure PGP public key is available
+        env:
+          GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+        run: |
+          python3 .github/scripts/ensure_pgp_public_key_available.py \
+            --keyserver keyserver.ubuntu.com \
+            --stable-lookups 3
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate local publication metadata
+        run: |
+          ./gradlew :plugin_base:build --stacktrace
+          ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+
+      - name: Publish snapshot to Central snapshots
+        env:
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          original_signing_key_id="${SIGNING_KEY_ID:-}"
+          eval "$(python3 .github/scripts/normalize_signing_key_id.py "$original_signing_key_id")"
+          if [[ -n "$original_signing_key_id" && -z "${SIGNING_KEY_ID:-}" ]]; then
+            echo "::warning::SIGNING_KEY_ID is not a valid PGP key id; falling back to infer it from GPG_KEY_CONTENTS."
+          elif [[ -n "$original_signing_key_id" && "$original_signing_key_id" != "${SIGNING_KEY_ID:-}" ]]; then
+            echo "::notice::SIGNING_KEY_ID was normalized to a Gradle-compatible long key id."
+          fi
+
+          ./gradlew :plugin_base:publishAllPublicationsToCentralSnapshotsRepository \
+            -PcentralPublish=true \
+            -PcentralReleaseType=snapshot \
+            --no-daemon \
+            --stacktrace

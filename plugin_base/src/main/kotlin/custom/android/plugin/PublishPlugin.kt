@@ -33,7 +33,9 @@ open class PublishPlugin : Plugin<Project> {
     private data class PublishTarget(
         val component: SoftwareComponent,
         val publicationName: String,
-        val artifactId: String
+        val groupId: String,
+        val artifactId: String,
+        val version: String
     )
 
     private data class AndroidFlavorSpec(
@@ -46,7 +48,9 @@ open class PublishPlugin : Plugin<Project> {
     }
 
     private fun supportPluginModule(container: PluginContainer): Boolean {
-        return container.hasPlugin("org.gradle.kotlin.kotlin-dsl") || container.hasPlugin("groovy")
+        return container.hasPlugin("java-gradle-plugin") ||
+            container.hasPlugin("org.gradle.kotlin.kotlin-dsl") ||
+            container.hasPlugin("groovy")
     }
 
     private fun supportLibraryModule(container: PluginContainer) =
@@ -95,7 +99,9 @@ open class PublishPlugin : Plugin<Project> {
                                 publishInfo,
                                 it,
                                 MAVEN_PUBLICATION_NAME,
-                                publishInfo.artifactId
+                                publishInfo.groupId,
+                                publishInfo.artifactId,
+                                publishInfo.version
                             )
                             hasPublication = true
                         }
@@ -113,7 +119,9 @@ open class PublishPlugin : Plugin<Project> {
                             publishInfo,
                             it.component,
                             it.publicationName,
-                            it.artifactId
+                            it.groupId,
+                            it.artifactId,
+                            it.version
                         )
                     }
                     hasPublication = hasPublication || publishTargets.isNotEmpty()
@@ -141,6 +149,42 @@ open class PublishPlugin : Plugin<Project> {
                 project.tasks.register(
                     PublishLibraryRemoteTask.TAG, PublishLibraryRemoteTask::class.java
                 )
+                project.tasks.register(
+                    "generatePublishConfig", GeneratePublishConfigTask::class.java
+                )
+                project.tasks.register(
+                    "GeneratePublishConfigTask", GeneratePublishConfigTask::class.java
+                )
+                project.tasks.register(
+                    "generateCentralPublishConfig", GeneratePublishConfigTask::class.java
+                )
+                project.tasks.register(
+                    "GenerateCentralPublishConfigTask", GeneratePublishConfigTask::class.java
+                )
+                project.tasks.register(
+                    "configurePublish", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "ConfigurePublishTask", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "configureCentralPublish", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "ConfigureCentralPublishTask", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "rollbackPublishSecrets", RollbackPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "RollbackPublishSecretsTask", RollbackPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "rollbackCentralPublishSecrets", RollbackPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "RollbackCentralPublishSecretsTask", RollbackPublishSecretsTask::class.java
+                )
             }
         }
     }
@@ -157,18 +201,22 @@ open class PublishPlugin : Plugin<Project> {
         publishInfo: PublishInfo,
         softwareComponent: SoftwareComponent,
         publicationName: String,
-        artifactId: String
+        groupId: String,
+        artifactId: String,
+        version: String
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
-        val publishSources = centralPublish || publishInfo.version.endsWith("-debug")
+        val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo, version)
+        val publishSources = centralPublish || resolvedVersion.endsWith("-debug")
+        val publicationVersion = resolvePublicationVersion(project, resolvedVersion)
         skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(
                 publicationName, MavenPublication::class.java
             ) { publication ->
-                publication.groupId = publishInfo.groupId
+                publication.groupId = groupId
                 publication.artifactId = artifactId
-                publication.version = publishInfo.version
+                publication.version = publicationVersion
                 publication.from(softwareComponent)
                 configurePom(project, publication, publishInfo, artifactId)
                 if (publishSources) {
@@ -187,6 +235,22 @@ open class PublishPlugin : Plugin<Project> {
         }
     }
 
+    private fun resolvePublicationVersion(project: Project, version: String): String {
+        if (!isLocalPublishRequested(project) || version.endsWith("-local")) {
+            return version
+        }
+        return "$version-local"
+    }
+
+    private fun isLocalPublishRequested(project: Project): Boolean {
+        return project.gradle.startParameter.taskNames.any { taskName ->
+            val shortTaskName = taskName.substringAfterLast(":")
+            shortTaskName == PublishLibraryLocalTask.TAG ||
+                shortTaskName == "publishToMavenLocal" ||
+                (shortTaskName.startsWith("publish") && shortTaskName.endsWith("PublicationToMavenLocal"))
+        }
+    }
+
     private fun configurePublishingRepositories(
         project: Project,
         publishing: PublishingExtension,
@@ -198,6 +262,8 @@ open class PublishPlugin : Plugin<Project> {
             configureCentralRepository(project, publishing, publishInfo, properties)
         } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             configureCustomRepository(project, publishing, publishInfo, properties)
+        } else if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
+            configureGitHubPackagesRepository(project, publishing, publishInfo, properties)
         }
     }
 
@@ -216,12 +282,7 @@ open class PublishPlugin : Plugin<Project> {
         finalizeDslMethod.invoke(androidComponents, Action<Any> { androidDsl ->
             val publishInfo = project.extensions.getByType(PublishInfo::class.java)
             val candidates = createAndroidReleaseVariantInfos(project)
-            val publishableVariants = candidates.filter { publishInfo.shouldPublishVariant(it) }
-            if (candidates.isNotEmpty() && publishableVariants.isEmpty()) {
-                throw GradleException(
-                    "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
-                )
-            }
+            val publishableVariants = selectAndroidPublishVariants(candidates, publishInfo)
             publishableVariants.forEach { variant ->
                 registerSingleVariant(androidDsl, variant.name)
             }
@@ -295,21 +356,53 @@ open class PublishPlugin : Plugin<Project> {
         val buildTypeComponents = components.filter { isBuildTypeComponent(it.name, buildTypeName) }
         val singleReleaseComponent =
             buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals(buildTypeName, ignoreCase = true)
+        val useBasePublicationName = singleReleaseComponent || !publishInfo.hasVariantCoordinateResolvers()
 
-        return buildTypeComponents.map { component ->
-            val publicationName = if (singleReleaseComponent) {
+        val publishableVariantNames = if (singleReleaseComponent) {
+            null
+        } else {
+            selectAndroidPublishVariants(createAndroidReleaseVariantInfos(project), publishInfo)
+                .map { it.name }
+                .toSet()
+        }
+        val publishableComponents = if (publishableVariantNames == null) {
+            buildTypeComponents
+        } else {
+            buildTypeComponents.filter { it.name in publishableVariantNames }
+        }
+
+        return publishableComponents.map { component ->
+            val publicationName = if (useBasePublicationName) {
                 MAVEN_PUBLICATION_NAME
             } else {
                 "${component.name.capitalizeAscii()}$MAVEN_PUBLICATION_NAME"
             }
-            val variantInfo = if (singleReleaseComponent) {
+            val variantInfo = if (useBasePublicationName) {
                 null
             } else {
                 createAndroidVariantInfo(project, component.name, buildTypeName)
             }
             val artifactId = publishInfo.resolveArtifactId(variantInfo)
-            PublishTarget(component, publicationName, artifactId)
+            val groupId = publishInfo.resolveGroupId(variantInfo)
+            val version = publishInfo.resolveVersion(variantInfo)
+            PublishTarget(component, publicationName, groupId, artifactId, version)
         }
+    }
+
+    private fun selectAndroidPublishVariants(
+        candidates: List<PublishVariantInfo>,
+        publishInfo: PublishInfo
+    ): List<PublishVariantInfo> {
+        val filtered = candidates.filter { publishInfo.shouldPublishVariant(it) }
+        if (candidates.isNotEmpty() && filtered.isEmpty()) {
+            throw GradleException(
+                "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
+            )
+        }
+        if (publishInfo.hasVariantCoordinateResolvers()) {
+            return filtered
+        }
+        return filtered.take(1)
     }
 
     private fun isBuildTypeComponent(componentName: String, buildTypeName: String): Boolean {
@@ -415,25 +508,24 @@ open class PublishPlugin : Plugin<Project> {
         artifactId: String
     ) {
         publication.pom { pom ->
-            val pomName = PublishConfigResolver.resolveText(
-                project, "pomName", publishInfo.pomName, artifactId
-            )
+            val pomName = PublishConfigResolver.resolvePomName(project, publishInfo, artifactId)
             if (pomName.isNotBlank()) {
                 pom.name.set(pomName)
             }
 
-            val pomDescription = PublishConfigResolver.resolveText(project, "pomDescription", publishInfo.pomDescription)
+            val pomDescription = PublishConfigResolver.resolvePomDescription(project, publishInfo)
             if (pomDescription.isNotBlank()) {
                 pom.description.set(pomDescription)
             }
 
-            val pomUrl = PublishConfigResolver.resolveText(project, "pomUrl", publishInfo.pomUrl)
+            val pomUrl = PublishConfigResolver.resolvePomUrl(project, publishInfo)
             if (pomUrl.isNotBlank()) {
                 pom.url.set(pomUrl)
             }
 
-            val inceptionYear =
-                PublishConfigResolver.resolveText(project, "pomInceptionYear", publishInfo.pomInceptionYear)
+            val inceptionYear = PublishConfigResolver.resolvePublishInfoText(
+                project, "pomInceptionYear", publishInfo, publishInfo.pomInceptionYear
+            )
             if (inceptionYear.isNotBlank()) {
                 pom.inceptionYear.set(inceptionYear)
             }
@@ -441,14 +533,18 @@ open class PublishPlugin : Plugin<Project> {
             pom.licenses { licenses ->
                 licenses.license { license ->
                     license.name.set(
-                        PublishConfigResolver.resolveText(project, "licenseName", publishInfo.licenseName)
+                        PublishConfigResolver.resolvePublishInfoText(
+                            project, "licenseName", publishInfo, publishInfo.licenseName
+                        )
                     )
                     license.url.set(
-                        PublishConfigResolver.resolveText(project, "licenseUrl", publishInfo.licenseUrl)
+                        PublishConfigResolver.resolvePublishInfoText(
+                            project, "licenseUrl", publishInfo, publishInfo.licenseUrl
+                        )
                     )
                     license.distribution.set(
-                        PublishConfigResolver.resolveText(
-                            project, "licenseDistribution", publishInfo.licenseDistribution
+                        PublishConfigResolver.resolvePublishInfoText(
+                            project, "licenseDistribution", publishInfo, publishInfo.licenseDistribution
                         )
                     )
                 }
@@ -465,34 +561,42 @@ open class PublishPlugin : Plugin<Project> {
             if (developerValues.any { it.isNotBlank() }) {
                 pom.developers { developers ->
                     developers.developer { developer ->
-                        val developerId = PublishConfigResolver.resolveText(project, "developerId", publishInfo.developerId)
+                        val developerId = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerId", publishInfo, publishInfo.developerId
+                        )
                         if (developerId.isNotBlank()) {
                             developer.id.set(developerId)
                         }
-                        val developerName =
-                            PublishConfigResolver.resolveText(project, "developerName", publishInfo.developerName)
+                        val developerName = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerName", publishInfo, publishInfo.developerName
+                        )
                         if (developerName.isNotBlank()) {
                             developer.name.set(developerName)
                         }
-                        val developerEmail =
-                            PublishConfigResolver.resolveText(project, "developerEmail", publishInfo.developerEmail)
+                        val developerEmail = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerEmail", publishInfo, publishInfo.developerEmail
+                        )
                         if (developerEmail.isNotBlank()) {
                             developer.email.set(developerEmail)
                         }
-                        val developerOrganization = PublishConfigResolver.resolveText(
-                            project, "developerOrganization", publishInfo.developerOrganization
+                        val developerOrganization = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerOrganization", publishInfo, publishInfo.developerOrganization
                         )
                         if (developerOrganization.isNotBlank()) {
                             developer.organization.set(developerOrganization)
                         }
-                        val developerOrganizationUrl = PublishConfigResolver.resolveText(
-                            project, "developerOrganizationUrl", publishInfo.developerOrganizationUrl
+                        val developerOrganizationUrl = PublishConfigResolver.resolvePublishInfoText(
+                            project,
+                            "developerOrganizationUrl",
+                            publishInfo,
+                            publishInfo.developerOrganizationUrl
                         )
                         if (developerOrganizationUrl.isNotBlank()) {
                             developer.organizationUrl.set(developerOrganizationUrl)
                         }
-                        val developerUrl =
-                            PublishConfigResolver.resolveText(project, "developerUrl", publishInfo.developerUrl)
+                        val developerUrl = PublishConfigResolver.resolvePublishInfoText(
+                            project, "developerUrl", publishInfo, publishInfo.developerUrl
+                        )
                         if (developerUrl.isNotBlank()) {
                             developer.url.set(developerUrl)
                         }
@@ -500,23 +604,21 @@ open class PublishPlugin : Plugin<Project> {
                 }
             }
 
-            val scmValues = listOf(publishInfo.scmUrl, publishInfo.scmConnection, publishInfo.scmDeveloperConnection)
+            val resolvedScmUrl = PublishConfigResolver.resolveScmUrl(project, publishInfo)
+            val resolvedScmConnection = PublishConfigResolver.resolveScmConnection(project, publishInfo)
+            val resolvedScmDeveloperConnection =
+                PublishConfigResolver.resolveScmDeveloperConnection(project, publishInfo)
+            val scmValues = listOf(resolvedScmUrl, resolvedScmConnection, resolvedScmDeveloperConnection)
             if (scmValues.any { it.isNotBlank() }) {
                 pom.scm { scm ->
-                    val scmUrl = PublishConfigResolver.resolveText(project, "scmUrl", publishInfo.scmUrl)
-                    if (scmUrl.isNotBlank()) {
-                        scm.url.set(scmUrl)
+                    if (resolvedScmUrl.isNotBlank()) {
+                        scm.url.set(resolvedScmUrl)
                     }
-                    val scmConnection =
-                        PublishConfigResolver.resolveText(project, "scmConnection", publishInfo.scmConnection)
-                    if (scmConnection.isNotBlank()) {
-                        scm.connection.set(scmConnection)
+                    if (resolvedScmConnection.isNotBlank()) {
+                        scm.connection.set(resolvedScmConnection)
                     }
-                    val scmDeveloperConnection = PublishConfigResolver.resolveText(
-                        project, "scmDeveloperConnection", publishInfo.scmDeveloperConnection
-                    )
-                    if (scmDeveloperConnection.isNotBlank()) {
-                        scm.developerConnection.set(scmDeveloperConnection)
+                    if (resolvedScmDeveloperConnection.isNotBlank()) {
+                        scm.developerConnection.set(resolvedScmDeveloperConnection)
                     }
                 }
             }
@@ -531,10 +633,11 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, properties)
         val repositoryName = PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
+        val repositoryUrl = PublishConfigResolver.resolveCentralRepositoryUrl(project)
         publishing.repositories { artifactRepositories ->
             artifactRepositories.maven { repository ->
                 repository.name = repositoryName
-                repository.url = URI(PublishConfigResolver.CENTRAL_STAGING_URL)
+                repository.url = URI(repositoryUrl)
                 allowInsecureProtocolIfSupported(repository)
                 repository.credentials { passwordCredentials ->
                     passwordCredentials.username = credentials.username
@@ -569,6 +672,32 @@ open class PublishPlugin : Plugin<Project> {
             }
         }
         PluginLogUtil.printlnDebugInScreen("$TAG custom repository is $publishUrl")
+    }
+
+    private fun configureGitHubPackagesRepository(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo,
+        properties: java.util.Properties
+    ) {
+        val publishUrl = PublishConfigResolver.resolveGitHubPackagesUrl(project, publishInfo, properties)
+        if (publishUrl.isBlank()) {
+            return
+        }
+        val credentials = PublishConfigResolver.resolveGitHubPackagesCredentials(project, publishInfo, properties)
+        val repositoryName = PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)
+        publishing.repositories { artifactRepositories ->
+            artifactRepositories.maven { repository ->
+                repository.name = repositoryName
+                repository.url = URI(publishUrl)
+                allowInsecureProtocolIfSupported(repository)
+                repository.credentials { passwordCredentials ->
+                    passwordCredentials.username = credentials.username
+                    passwordCredentials.password = credentials.password
+                }
+            }
+        }
+        PluginLogUtil.printlnDebugInScreen("$TAG GitHub Packages repository is $publishUrl")
     }
 
     private fun configureSigning(project: Project, publication: MavenPublication) {

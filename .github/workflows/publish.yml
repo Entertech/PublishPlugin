@@ -1,0 +1,351 @@
+name: Publish Library
+
+on:
+  workflow_call:
+    inputs:
+      module:
+        description: "Gradle module path, for example :library"
+        required: true
+        type: string
+      publish_target:
+        description: "Publish target: central, github_packages, or all"
+        required: false
+        default: "github_packages"
+        type: string
+      namespace:
+        description: "Sonatype Central namespace, for example cn.entertech"
+        required: false
+        default: "cn.entertech"
+        type: string
+      publishing_type:
+        description: "Central publishing type"
+        required: false
+        default: "user_managed"
+        type: string
+      publish_mode:
+        description: "Package mode: release publishes final artifacts; ci publishes Central snapshots only."
+        required: false
+        default: "release"
+        type: string
+      version:
+        description: "Release version. CI mode appends -SNAPSHOT before publishing."
+        required: false
+        default: ""
+        type: string
+      github_packages_repository:
+        description: "GitHub Packages repository in owner/repo format. Blank uses the caller repository."
+        required: false
+        default: ""
+        type: string
+      github_packages_url:
+        description: "Optional full GitHub Packages Maven repository URL"
+        required: false
+        default: ""
+        type: string
+      sync_readme:
+        description: "Synchronize README code configuration after GitHub Packages publish. Requires version."
+        required: false
+        default: false
+        type: boolean
+      java_version:
+        description: "JDK version used by Gradle"
+        required: false
+        default: "17"
+        type: string
+    secrets:
+      MAVEN_CENTRAL_USERNAME:
+        required: false
+      MAVEN_CENTRAL_PASSWORD:
+        required: false
+      GPG_KEY_CONTENTS:
+        required: false
+      SIGNING_KEY_ID:
+        required: false
+      SIGNING_PASSWORD:
+        required: false
+      GITHUB_PACKAGES_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      MODULE_PATH: ${{ inputs.module }}
+      PUBLISH_TARGET: ${{ inputs.publish_target }}
+      CENTRAL_NAMESPACE: ${{ inputs.namespace }}
+      CENTRAL_PUBLISHING_TYPE: ${{ inputs.publishing_type }}
+      PUBLISH_MODE: ${{ inputs.publish_mode }}
+      PUBLISH_VERSION: ${{ inputs.version }}
+      GITHUB_PACKAGES_REPOSITORY: ${{ inputs.github_packages_repository }}
+      GITHUB_PACKAGES_URL: ${{ inputs.github_packages_url }}
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN || github.token }}
+      GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN || github.token }}
+      CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+      SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+      ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}
+      ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+      ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate publish inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$MODULE_PATH" =~ ^(:[A-Za-z0-9_.-]+)+$ ]]; then
+            echo "::error::module must be a Gradle project path like :library or :parent:library"
+            exit 1
+          fi
+
+          case "$PUBLISH_TARGET" in
+            central|github_packages|all) ;;
+            *)
+              echo "::error::publish_target must be central, github_packages, or all"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$CENTRAL_PUBLISHING_TYPE" != "user_managed" && "$CENTRAL_PUBLISHING_TYPE" != "automatic" ]]; then
+            echo "::error::publishing_type must be user_managed or automatic"
+            exit 1
+          fi
+
+          case "$PUBLISH_MODE" in
+            release|ci) ;;
+            *)
+              echo "::error::publish_mode must be release or ci"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$PUBLISH_MODE" == "ci" && "$PUBLISH_TARGET" != "central" ]]; then
+            echo "::error::publish_mode=ci only supports publish_target=central"
+            exit 1
+          fi
+
+          if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
+            required_central_env=(
+              CENTRAL_USERNAME
+              CENTRAL_PASSWORD
+              GPG_KEY_CONTENTS
+              SIGNING_PASSWORD
+            )
+            for name in "${required_central_env[@]}"; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "::error::$name is required when publish_target is $PUBLISH_TARGET"
+                exit 1
+              fi
+            done
+          fi
+
+          if [[ "$PUBLISH_TARGET" == "github_packages" || "$PUBLISH_TARGET" == "all" ]]; then
+            if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+              echo "::error::GITHUB_TOKEN or GITHUB_PACKAGES_TOKEN is required when publish_target is $PUBLISH_TARGET"
+              exit 1
+            fi
+          fi
+
+      - name: Resolve publish version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          effective_version="$PUBLISH_VERSION"
+          if [[ -z "$effective_version" ]]; then
+            echo "::error::version is required"
+            exit 1
+          fi
+
+          case "$PUBLISH_MODE" in
+            ci)
+              if [[ "$effective_version" != *-SNAPSHOT ]]; then
+                effective_version="${effective_version}-SNAPSHOT"
+              fi
+              central_release_type="snapshot"
+              sync_readme_effective=false
+              ;;
+            release)
+              if [[ "$effective_version" == *-SNAPSHOT ]]; then
+                echo "::error::publish_mode=release must not use a -SNAPSHOT version"
+                exit 1
+              fi
+              central_release_type="release"
+              sync_readme_effective="${{ inputs.sync_readme }}"
+              ;;
+          esac
+
+          {
+            echo "EFFECTIVE_PUBLISH_VERSION=${effective_version}"
+            echo "CENTRAL_RELEASE_TYPE=${central_release_type}"
+            echo "SYNC_README_EFFECTIVE=${sync_readme_effective}"
+          } >> "$GITHUB_ENV"
+
+      - name: Publish to GitHub Packages
+        if: ${{ inputs.publish_target == 'github_packages' || inputs.publish_target == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          args=(
+            "${MODULE_PATH}:PublishLibraryRemoteTask"
+            "-PpublishTarget=github_packages"
+            "--no-daemon"
+            "--stacktrace"
+          )
+
+          if [[ -n "$GITHUB_PACKAGES_REPOSITORY" ]]; then
+            args+=("-PgithubPackagesRepository=${GITHUB_PACKAGES_REPOSITORY}")
+          fi
+
+          if [[ -n "$GITHUB_PACKAGES_URL" ]]; then
+            args+=("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}")
+          fi
+
+          if [[ -n "$PUBLISH_VERSION" ]]; then
+            args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}")
+          fi
+
+          ./gradlew "${args[@]}"
+
+      - name: Publish to Central Portal
+        if: ${{ inputs.publish_target == 'central' || inputs.publish_target == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          args=(
+            "${MODULE_PATH}:PublishLibraryRemoteTask"
+            "-PpublishTarget=central"
+            "-PcentralReleaseType=${CENTRAL_RELEASE_TYPE}"
+            "-PcentralNamespace=${CENTRAL_NAMESPACE}"
+            "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}"
+            "--no-daemon"
+            "--stacktrace"
+          )
+
+          if [[ -n "$PUBLISH_VERSION" ]]; then
+            args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}")
+          fi
+
+          ./gradlew "${args[@]}"
+
+      - name: Sync README for release
+        if: ${{ inputs.sync_readme && inputs.publish_mode == 'release' && inputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          readme_github_packages_url="$GITHUB_PACKAGES_URL"
+          if [[ "$PUBLISH_TARGET" == "github_packages" || "$PUBLISH_TARGET" == "all" ]] && [[ -z "$readme_github_packages_url" ]]; then
+            readme_github_packages_repository="$GITHUB_PACKAGES_REPOSITORY"
+            if [[ -z "$readme_github_packages_repository" ]]; then
+              readme_github_packages_repository="$GITHUB_REPOSITORY"
+            fi
+            readme_github_packages_url="https://maven.pkg.github.com/${readme_github_packages_repository}"
+          fi
+          export README_GITHUB_PACKAGES_URL="$readme_github_packages_url"
+
+          python3 - <<'PY'
+          import re
+          import os
+          from pathlib import Path
+
+          version = os.environ["EFFECTIVE_PUBLISH_VERSION"]
+          publish_target = os.environ["PUBLISH_TARGET"]
+          github_packages_url = os.environ["README_GITHUB_PACKAGES_URL"]
+          readme_path = Path("README.md")
+          if not readme_path.exists():
+              print("README.md does not exist; skipping README sync")
+              raise SystemExit(0)
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit(f"version must use digits.digits.digits format for README sync, got {version}")
+
+          content = readme_path.read_text(encoding="utf-8")
+          content = re.sub(
+              r'classpath\("cn\.entertech\.android:publish:[^"]+"\)',
+              f'classpath("cn.entertech.android:publish:{version}")',
+              content,
+          )
+          content = re.sub(
+              r"cn\.entertech\.android:publish:(?:<version>|\d+\.\d+\.\d+)",
+              f"cn.entertech.android:publish:{version}",
+              content,
+          )
+          content = re.sub(
+              r"cn\.entertech\.publish:cn\.entertech\.publish\.gradle\.plugin:(?:<version>|\d+\.\d+\.\d+)",
+              f"cn.entertech.publish:cn.entertech.publish.gradle.plugin:{version}",
+              content,
+          )
+          content = re.sub(
+              r'id\("cn\.entertech\.publish"\) version "(?:<version>|\d+\.\d+\.\d+)"',
+              f'id("cn.entertech.publish") version "{version}"',
+              content,
+          )
+          block_re = re.compile(
+              r"(?ms)(buildscript\s*\{\s*repositories\s*\{\n)(?P<body>.*?)(\n\s*\}\s*\n\s*\n\s*dependencies\s*\{\s*classpath\(\"cn\.entertech\.android:publish:)"
+          )
+          if publish_target in ("github_packages", "all"):
+              repository_block = "\n".join([
+                  "        google()",
+                  "        mavenLocal()",
+                  "        maven {",
+                  f"            url = uri(\"{github_packages_url}\")",
+                  "            credentials {",
+                  "                username = providers.gradleProperty(\"gpr.user\").orNull",
+                  "                    ?: System.getenv(\"GITHUB_ACTOR\")",
+                  "                password = providers.gradleProperty(\"gpr.key\").orNull",
+                  "                    ?: System.getenv(\"GITHUB_TOKEN\")",
+                  "            }",
+                  "        }",
+              ])
+          else:
+              repository_block = "\n".join([
+                  "        google()",
+                  "        mavenCentral()",
+                  "        mavenLocal()",
+              ])
+          content, count = block_re.subn(lambda match: match.group(1) + repository_block + match.group(3), content, count=1)
+          if count == 0:
+              print("README code configuration block was not found; version sync still applied")
+          readme_path.write_text(content, encoding="utf-8")
+          PY
+
+      - name: Commit README sync
+        if: ${{ inputs.sync_readme && inputs.publish_mode == 'release' && inputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- README.md; then
+            echo "README.md already documents ${EFFECTIVE_PUBLISH_VERSION}"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "[codex] Sync README publish config to ${EFFECTIVE_PUBLISH_VERSION} [skip ci]"
+          git push

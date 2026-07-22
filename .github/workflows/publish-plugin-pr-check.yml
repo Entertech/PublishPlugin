@@ -124,6 +124,7 @@ jobs:
         run: |
           python3 .github/scripts/ensure_publish_version_test.py
           python3 .github/scripts/normalize_signing_key_id_test.py
+          python3 .github/scripts/reusable_publish_workflow_test.py
           python3 .github/scripts/sync_readme_publish_version_test.py
 
       - name: Run required Gradle tasks
