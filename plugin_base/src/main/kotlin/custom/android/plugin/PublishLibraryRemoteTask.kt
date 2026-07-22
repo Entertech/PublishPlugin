@@ -173,7 +173,33 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             .orEmpty()
     }
 
-    override fun printRemoteArtifactVerificationPath(): Boolean = true
+    override fun printRemoteArtifactVerificationPath(): Boolean {
+        val publishInfo = project.extensions.getByType(PublishInfo::class.java)
+        return PublishConfigResolver.resolveRemotePublishMode(project, publishInfo) ==
+            PublishConfigResolver.MODE_GITHUB_PACKAGES
+    }
+
+    override fun repositoryWebPageUrl(repositoryPath: String): String {
+        val publishInfo = project.extensions.getByType(PublishInfo::class.java)
+        val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
+        if (mode != PublishConfigResolver.MODE_GITHUB_PACKAGES) {
+            return ""
+        }
+        return githubPackagesWebPageUrl(repositoryPath)
+    }
+
+    private fun githubPackagesWebPageUrl(repositoryPath: String): String {
+        val prefix = "https://maven.pkg.github.com/"
+        val path = repositoryPath.trimEnd('/').removePrefix(prefix)
+        if (path == repositoryPath.trimEnd('/')) {
+            return ""
+        }
+        val parts = path.split('/').filter { it.isNotBlank() }
+        if (parts.size < 2) {
+            return ""
+        }
+        return "https://github.com/${parts[0]}/${parts[1]}/packages"
+    }
 
     override fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)

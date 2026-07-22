@@ -116,6 +116,8 @@ abstract class BasePublishTask : DefaultTask() {
 
     protected open fun printRemoteArtifactVerificationPath(): Boolean = false
 
+    protected open fun repositoryWebPageUrl(repositoryPath: String): String = ""
+
     protected open fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
     }
 
@@ -158,7 +160,10 @@ abstract class BasePublishTask : DefaultTask() {
                     "POM 验证地址（需要 GitHub Packages 认证）：  " +
                         remotePomPath(repositoryPath, publication)
                 )
-                PluginLogUtil.printlnInfoInScreen("网页查看入口：  GitHub 仓库或组织的 Packages 页面")
+                val webPageUrl = repositoryWebPageUrl(repositoryPath)
+                if (webPageUrl.isNotBlank()) {
+                    PluginLogUtil.printlnInfoInScreen("网页查看地址：  $webPageUrl")
+                }
             }
             PluginLogUtil.printlnInfoInScreen("===================================================================")
             PluginLogUtil.printlnInfoInScreen("")

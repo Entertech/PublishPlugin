@@ -243,7 +243,7 @@ public class PublishPluginFunctionalTest {
                 "POM 验证地址（需要 GitHub Packages 认证）：  "
                         + "https://maven.pkg.github.com/Entertech/fixture/com/example/fixture/1.0.0/fixture-1.0.0.pom"
         ));
-        assertTrue(output.contains("网页查看入口：  GitHub 仓库或组织的 Packages 页面"));
+        assertTrue(output.contains("网页查看地址：  https://github.com/Entertech/fixture/packages"));
         assertFalse(output.contains(
                 "Maven 仓库地址（Gradle/Maven 配置用）：  https://maven.pkg.github.com/Entertech/fixture/com/example/"
         ));
