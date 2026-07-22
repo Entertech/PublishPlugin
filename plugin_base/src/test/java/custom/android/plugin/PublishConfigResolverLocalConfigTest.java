@@ -38,6 +38,35 @@ public class PublishConfigResolverLocalConfigTest {
     }
 
     @Test
+    public void localCentralPublishTargetSelectsCentralRemoteMode() throws Exception {
+        File rootDir = temporaryFolder.newFolder("project");
+        Files.write(new File(rootDir, "local.properties").toPath(),
+                "publish.publishTarget=central\n".getBytes(StandardCharsets.UTF_8));
+        Project project = ProjectBuilder.builder().withProjectDir(rootDir).build();
+        PublishInfo publishInfo = new PublishInfo();
+
+        assertEquals(
+                PublishConfigResolver.MODE_CENTRAL,
+                PublishConfigResolver.INSTANCE.resolveRemotePublishMode(project, publishInfo)
+        );
+    }
+
+    @Test
+    public void legacyRemoteModePropertyCanOverrideLocalPublishTarget() throws Exception {
+        File rootDir = temporaryFolder.newFolder("project");
+        Files.write(new File(rootDir, "local.properties").toPath(),
+                "publish.publishTarget=central\n".getBytes(StandardCharsets.UTF_8));
+        Project project = ProjectBuilder.builder().withProjectDir(rootDir).build();
+        PublishInfo publishInfo = new PublishInfo();
+        project.getExtensions().getExtraProperties().set("remotePublishMode", PublishConfigResolver.MODE_GITHUB_PACKAGES);
+
+        assertEquals(
+                PublishConfigResolver.MODE_GITHUB_PACKAGES,
+                PublishConfigResolver.INSTANCE.resolveRemotePublishMode(project, publishInfo)
+        );
+    }
+
+    @Test
     public void githubPackagesUrlUsesPublishPrefixedLocalRepository() throws Exception {
         File rootDir = temporaryFolder.newFolder("project");
         Files.write(new File(rootDir, "local.properties").toPath(),

@@ -152,7 +152,7 @@ jobs:
 
           args=(
             "${MODULE_PATH}:PublishLibraryRemoteTask"
-            "-PremotePublishMode=githubPackages"
+            "-PpublishTarget=github_packages"
             "--no-daemon"
             "--stacktrace"
           )
@@ -179,7 +179,7 @@ jobs:
 
           args=(
             "${MODULE_PATH}:PublishLibraryRemoteTask"
-            "-PremotePublishMode=central"
+            "-PpublishTarget=central"
             "-PcentralNamespace=${CENTRAL_NAMESPACE}"
             "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}"
             "--no-daemon"

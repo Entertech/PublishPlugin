@@ -59,7 +59,7 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             return checkGitHubPackagesPublishInfo(publishInfo)
         }
         if (mode != PublishConfigResolver.MODE_CENTRAL) {
-            PluginLogUtil.printlnErrorInScreen("Unsupported remotePublishMode: $mode")
+            PluginLogUtil.printlnErrorInScreen("Unsupported publishTarget: $mode")
             return false
         }
         return checkCentralPublishInfo(publishInfo)
@@ -242,6 +242,7 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
 
     private val forwardedProjectProperties = listOf(
         "remotePublishMode",
+        "publishTarget",
         "publishUrl",
         "publishUserName",
         "publishPassword",

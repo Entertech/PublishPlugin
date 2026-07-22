@@ -165,7 +165,7 @@ public class PublishPluginFunctionalTest {
                         ":fixture:tasks",
                         "--all",
                         "-PcentralPublish=true",
-                        "-PremotePublishMode=central",
+                        "-PpublishTarget=central",
                         "-PcentralNamespace=com.example.cli",
                         "-PcentralUsername=token-user",
                         "-PcentralPassword=token-password",
@@ -180,7 +180,7 @@ public class PublishPluginFunctionalTest {
                 .withArguments(
                         ":fixture:generatePomFileForEnterPublishPublication",
                         "-PcentralPublish=true",
-                        "-PremotePublishMode=central",
+                        "-PpublishTarget=central",
                         "-PcentralNamespace=com.example.cli",
                         "-PpomName=CLI Fixture",
                         "-PpomDescription=Configured from CLI",
@@ -250,6 +250,32 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void remoteTaskUsesCentralRepositoryWhenLocalPublishTargetIsCentral() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                centralPublishInfo(),
+                "publish.publishTarget=central\n"
+        );
+        writeFailingRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PcentralUsername=token-user",
+                        "-PcentralPassword=token-password",
+                        "-PsigningInMemoryKey=key",
+                        "-PsigningInMemoryKeyPassword=password",
+                        "--stacktrace"
+                )
+                .buildAndFail();
+
+        String invoked = read(projectDir.toPath().resolve("gradlew.args"));
+        assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToCentralStagingRepository"));
+        assertFalse(invoked.contains("GitHubPackagesRepository"));
+    }
+
+    @Test
     public void remoteTaskForwardsCliVersionPropertiesToNestedGradle() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeRecordingGradlew(projectDir);
@@ -310,7 +336,7 @@ public class PublishPluginFunctionalTest {
                 .withArguments(
                         ":fixture:publishToMavenLocal",
                         "-PcentralPublish=true",
-                        "-PremotePublishMode=central",
+                        "-PpublishTarget=central",
                         "-PcentralUsername=token-user",
                         "-PcentralPassword=token-password",
                         "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
@@ -331,7 +357,7 @@ public class PublishPluginFunctionalTest {
         String output = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:PublishLibraryRemoteTask",
-                        "-PremotePublishMode=central",
+                        "-PpublishTarget=central",
                         "-PcentralNamespace=com.example",
                         "--stacktrace"
                 )
@@ -705,10 +731,18 @@ public class PublishPluginFunctionalTest {
     }
 
     private static void writeRecordingGradlew(File root) throws IOException {
+        writeRecordingGradlew(root, 0);
+    }
+
+    private static void writeFailingRecordingGradlew(File root) throws IOException {
+        writeRecordingGradlew(root, 1);
+    }
+
+    private static void writeRecordingGradlew(File root, int exitCode) throws IOException {
         Path gradlew = root.toPath().resolve("gradlew");
         String argsPath = root.toPath().resolve("gradlew.args").toAbsolutePath().toString();
         String envPath = root.toPath().resolve("gradlew.env").toAbsolutePath().toString();
-        write(gradlew, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsPath + "'\nenv | sort > '" + envPath + "'\nexit 0\n");
+        write(gradlew, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsPath + "'\nenv | sort > '" + envPath + "'\nexit " + exitCode + "\n");
         assertTrue(gradlew.toFile().setExecutable(true));
     }
 

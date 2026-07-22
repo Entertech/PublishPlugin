@@ -60,11 +60,22 @@ object PublishConfigResolver {
         return PublishConfigLoader.load(publishConfigFile(project))
     }
 
-    fun resolveRemotePublishMode(project: Project, publishInfo: PublishInfo): String {
+    fun resolveRemotePublishMode(project: Project, @Suppress("UNUSED_PARAMETER") publishInfo: PublishInfo): String {
         return firstNotBlank(
-            projectProperty(project, "remotePublishMode"),
-            environment("REMOTE_PUBLISH_MODE"),
-            publishInfo.remotePublishMode
+            remotePublishModeFromPublishTarget(
+                firstNotBlank(
+                    projectProperty(project, "publishTarget"),
+                    environment("PUBLISH_TARGET")
+                )
+            ),
+            normalizeLegacyRemotePublishMode(
+                firstNotBlank(
+                    projectProperty(project, "remotePublishMode"),
+                    environment("REMOTE_PUBLISH_MODE")
+                )
+            ),
+            remotePublishModeFromPublishTarget(loadPublishProperties(project).publishTarget),
+            MODE_GITHUB_PACKAGES
         ).ifBlank { MODE_GITHUB_PACKAGES }
     }
 
@@ -115,6 +126,21 @@ object PublishConfigResolver {
             WORKFLOW_TARGET_CENTRAL,
             WORKFLOW_TARGET_ALL -> value.trim()
             else -> value.trim()
+        }
+    }
+
+    private fun remotePublishModeFromPublishTarget(publishTarget: String): String {
+        return when (normalizeWorkflowPublishTarget(publishTarget)) {
+            WORKFLOW_TARGET_CENTRAL -> MODE_CENTRAL
+            WORKFLOW_TARGET_GITHUB_PACKAGES -> MODE_GITHUB_PACKAGES
+            else -> ""
+        }
+    }
+
+    private fun normalizeLegacyRemotePublishMode(mode: String): String {
+        return when (mode.trim()) {
+            WORKFLOW_TARGET_GITHUB_PACKAGES -> MODE_GITHUB_PACKAGES
+            else -> mode.trim()
         }
     }
 

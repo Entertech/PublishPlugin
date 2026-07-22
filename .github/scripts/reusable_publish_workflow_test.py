@@ -36,7 +36,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
 
         self.assertIn("inputs.publish_target == 'github_packages'", publish)
         self.assertIn("inputs.publish_target == 'all'", publish)
-        self.assertIn("-PremotePublishMode=githubPackages", publish)
+        self.assertIn("-PpublishTarget=github_packages", publish)
         self.assertIn("-PgithubPackagesRepository=${GITHUB_PACKAGES_REPOSITORY}", publish)
         self.assertIn("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}", publish)
         self.assertIn("-PpublishVersion=${PUBLISH_VERSION}", publish)
@@ -46,7 +46,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
 
         self.assertIn("inputs.publish_target == 'central'", publish)
         self.assertIn("inputs.publish_target == 'all'", publish)
-        self.assertIn("-PremotePublishMode=central", publish)
+        self.assertIn("-PpublishTarget=central", publish)
         self.assertIn("-PcentralNamespace=${CENTRAL_NAMESPACE}", publish)
         self.assertIn("-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}", publish)
         self.assertIn("-PpublishVersion=${PUBLISH_VERSION}", publish)

@@ -77,8 +77,6 @@ open class PublishInfo {
     var publishUserName: String = ""
     var publishPassword: String = ""
 
-    var remotePublishMode: String = "githubPackages"
-
     var githubPackagesRepository: String = ""
     var githubPackagesUrl: String = ""
     var githubPackagesRepositoryName: String = "GitHubPackages"
