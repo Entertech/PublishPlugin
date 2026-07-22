@@ -7,19 +7,21 @@ import org.gradle.api.GradleException
 import org.gradle.api.tasks.TaskAction
 import java.io.File
 
-open class ConfigureCentralPublishTask : DefaultTask() {
+open class ConfigurePublishTask : DefaultTask() {
     init {
         group = "customPlugin"
-        description = "Validate PublishInfo and configure GitHub secrets/workflow for Central Portal publishing."
+        description = "Validate PublishInfo and configure GitHub secrets/workflow for publishing."
     }
 
     @TaskAction
     fun configure() {
-        val configFile = PublishConfigResolver.centralPublishConfigFile(project)
+        val configFile = PublishConfigResolver.publishConfigFile(project)
         if (!configFile.exists()) {
-            throw GradleException("Missing ${configFile.name}. Run :${project.name}:generateCentralPublishConfig first.")
+            throw GradleException("Missing ${configFile.name}. Run :${project.name}:generatePublishConfig first.")
         }
-        val config = PublishConfigResolver.loadCentralPublishProperties(project)
+        val config = PublishConfigResolver.loadPublishProperties(project)
+        val publishTarget = PublishConfigResolver.resolveWorkflowPublishTarget(project, config)
+        val centralTarget = PublishConfigResolver.requiresCentralForWorkflowTarget(publishTarget)
         if (GitSafetyChecker.isTracked(project.rootDir, configFile)) {
             throw GradleException("${configFile.name} is tracked by git. Run: git rm --cached ${configFile.name}")
         }
@@ -34,30 +36,38 @@ open class ConfigureCentralPublishTask : DefaultTask() {
         validatePublishInfo(publishInfo)
 
         val namespace = PublishConfigResolver.resolveCentralNamespace(project, publishInfo)
-        if (publishInfo.groupId != namespace && !publishInfo.groupId.startsWith("$namespace.")) {
-            throw GradleException("PublishInfo.groupId(${publishInfo.groupId}) must be under centralNamespace($namespace)")
-        }
         val publishingType = PublishConfigResolver.resolveCentralPublishingType(project, publishInfo)
-        if (publishingType != "user_managed" && publishingType != "automatic") {
-            throw GradleException("centralPublishingType only supports user_managed or automatic")
-        }
-        val pomUrl = PublishConfigResolver.resolvePomUrl(project, publishInfo)
-        if (pomUrl.isBlank()) {
-            throw GradleException("pomUrl cannot be inferred. Configure it in PublishInfo.")
+        if (centralTarget) {
+            if (publishInfo.groupId != namespace && !publishInfo.groupId.startsWith("$namespace.")) {
+                throw GradleException("PublishInfo.groupId(${publishInfo.groupId}) must be under centralNamespace($namespace)")
+            }
+            if (publishingType != "user_managed" && publishingType != "automatic") {
+                throw GradleException("centralPublishingType only supports user_managed or automatic")
+            }
+            val pomUrl = PublishConfigResolver.resolvePomUrl(project, publishInfo)
+            if (pomUrl.isBlank()) {
+                throw GradleException("pomUrl cannot be inferred. Configure it in PublishInfo.")
+            }
         }
 
-        if (config.githubSecretsEnabled) {
+        if (config.githubSecretsEnabled && centralTarget) {
             if (config.dryRunEnabled) {
                 printDryRunGithubSecrets(config)
             } else {
                 configureGithubSecrets(config)
             }
+        } else if (config.githubSecretsEnabled) {
+            PluginLogUtil.printlnInfoInScreen("Skipping Central repository secrets because publishTarget is $publishTarget.")
         }
         val githubActions = project.findProperty("githubActions")?.toString()?.toBooleanLenientLocal()
             ?: config.githubActionsEnabled
         if (githubActions) {
             val workflowPath = project.findProperty("workflowPath")?.toString().orEmpty().ifBlank { config.workflowPath }
             val workflowUses = project.findProperty("workflowUses")?.toString().orEmpty().ifBlank { config.workflowUses }
+            val githubPackagesRepository = project.findProperty("githubPackagesRepository")?.toString().orEmpty()
+                .ifBlank { config.githubPackagesRepository }
+            val githubPackagesUrl = project.findProperty("githubPackagesUrl")?.toString().orEmpty()
+                .ifBlank { config.githubPackagesUrl }
             if (config.dryRunEnabled) {
                 PluginLogUtil.printlnInfoInScreen("Dry run: would generate workflow for ${project.path}")
             } else {
@@ -65,8 +75,11 @@ open class ConfigureCentralPublishTask : DefaultTask() {
                     project.rootDir,
                     project.path,
                     project.name,
+                    publishTarget,
                     namespace,
                     publishingType,
+                    githubPackagesRepository,
+                    githubPackagesUrl,
                     workflowPath,
                     workflowUses,
                     project.findProperty("overwriteWorkflow")?.toString()?.toBooleanLenientLocal() == true
@@ -74,12 +87,12 @@ open class ConfigureCentralPublishTask : DefaultTask() {
                 PluginLogUtil.printlnInfoInScreen("Generated workflow: ${workflowFile.absolutePath}")
             }
         }
-        if (publishingType == "user_managed") {
+        if (centralTarget && publishingType == "user_managed") {
             PluginLogUtil.printlnInfoInScreen("Central publishing type is user_managed; publish manually in Central Portal after upload validation.")
         }
     }
 
-    private fun printDryRunGithubSecrets(config: custom.android.plugin.config.CentralPublishConfig) {
+    private fun printDryRunGithubSecrets(config: custom.android.plugin.config.PublishConfig) {
         val repo = config.githubRepo.ifBlank { "<inferred repository>" }
         val secretNames = listOf(
             config.effectiveMavenCentralUsernameSecret,
@@ -100,11 +113,12 @@ open class ConfigureCentralPublishTask : DefaultTask() {
         if (publishInfo.artifactId.isBlank()) {
             throw GradleException("PublishInfo.artifactId is required")
         }
-        if (publishInfo.version.isBlank()) {
+        val version = PublishConfigResolver.resolveVersion(project, publishInfo)
+        if (version.isBlank()) {
             throw GradleException("PublishInfo.version is required")
         }
-        if (publishInfo.version.contains("debug", ignoreCase = true)) {
-            throw GradleException("${publishInfo.version} contains debug")
+        if (version.contains("debug", ignoreCase = true)) {
+            throw GradleException("$version contains debug")
         }
         if (isGradlePluginModule()) {
             if (publishInfo.pluginId.isBlank()) {
@@ -122,12 +136,12 @@ open class ConfigureCentralPublishTask : DefaultTask() {
             project.plugins.hasPlugin("groovy")
     }
 
-    private fun configureGithubSecrets(config: custom.android.plugin.config.CentralPublishConfig) {
+    private fun configureGithubSecrets(config: custom.android.plugin.config.PublishConfig) {
         val gh = GitHubSecretClient(project.findProperty("ghExecutable")?.toString().orEmpty().ifBlank { "gh" })
         gh.assertAuthenticated()
         val repo = config.githubRepo.ifBlank { gh.currentRepository() }
         if (repo.isBlank()) {
-            throw GradleException("centralPublish.githubRepo is required when it cannot be inferred")
+            throw GradleException("publish.githubRepo is required when it cannot be inferred")
         }
         val existingSecrets = gh.listSecretNames(repo)
         val overwrite = config.overwriteGithubSecretsEnabled
@@ -144,7 +158,7 @@ open class ConfigureCentralPublishTask : DefaultTask() {
             (overwrite || config.gpgGenerateEnabled || config.effectiveSigningKeyIdSecret !in existingSecrets)
         if (shouldWriteGpgKey || shouldWriteSigningPassword) {
             if (config.gpgKeyFile.isBlank() || config.signingPassword.isBlank()) {
-                throw GradleException("GPG secrets require centralPublish.gpgKeyFile and centralPublish.signingPassword")
+                throw GradleException("GPG secrets require publish.gpgKeyFile and publish.signingPassword")
             }
         }
         if (shouldWriteGpgKey) {

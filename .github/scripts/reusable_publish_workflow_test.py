@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "central-publish.yml"
+WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "publish.yml"
 
 
 def workflow_text():
@@ -21,12 +21,13 @@ def step_block(name):
     return match.group("body")
 
 
-class ReusableCentralPublishWorkflowTest(unittest.TestCase):
+class ReusablePublishWorkflowTest(unittest.TestCase):
     def test_publish_target_input_supports_three_modes(self):
         text = workflow_text()
         validation = step_block("Validate publish inputs")
 
         self.assertIn("publish_target:", text)
+        self.assertIn('default: "github_packages"', text)
         self.assertIn("central|github_packages|all", validation)
         self.assertIn("publish_target must be central, github_packages, or all", validation)
 

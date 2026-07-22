@@ -150,22 +150,40 @@ open class PublishPlugin : Plugin<Project> {
                     PublishLibraryRemoteTask.TAG, PublishLibraryRemoteTask::class.java
                 )
                 project.tasks.register(
-                    "generateCentralPublishConfig", GenerateCentralPublishConfigTask::class.java
+                    "generatePublishConfig", GeneratePublishConfigTask::class.java
                 )
                 project.tasks.register(
-                    "GenerateCentralPublishConfigTask", GenerateCentralPublishConfigTask::class.java
+                    "GeneratePublishConfigTask", GeneratePublishConfigTask::class.java
                 )
                 project.tasks.register(
-                    "configureCentralPublish", ConfigureCentralPublishTask::class.java
+                    "generateCentralPublishConfig", GeneratePublishConfigTask::class.java
                 )
                 project.tasks.register(
-                    "ConfigureCentralPublishTask", ConfigureCentralPublishTask::class.java
+                    "GenerateCentralPublishConfigTask", GeneratePublishConfigTask::class.java
                 )
                 project.tasks.register(
-                    "rollbackCentralPublishSecrets", RollbackCentralPublishSecretsTask::class.java
+                    "configurePublish", ConfigurePublishTask::class.java
                 )
                 project.tasks.register(
-                    "RollbackCentralPublishSecretsTask", RollbackCentralPublishSecretsTask::class.java
+                    "ConfigurePublishTask", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "configureCentralPublish", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "ConfigureCentralPublishTask", ConfigurePublishTask::class.java
+                )
+                project.tasks.register(
+                    "rollbackPublishSecrets", RollbackPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "RollbackPublishSecretsTask", RollbackPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "rollbackCentralPublishSecrets", RollbackPublishSecretsTask::class.java
+                )
+                project.tasks.register(
+                    "RollbackCentralPublishSecretsTask", RollbackPublishSecretsTask::class.java
                 )
             }
         }

@@ -3,8 +3,9 @@ package custom.android.plugin.config
 import java.io.File
 import java.util.Properties
 
-object CentralPublishConfigLoader {
-    private const val PREFIX = "centralPublish."
+object PublishConfigLoader {
+    private const val PREFIX = "publish."
+    private const val LEGACY_PREFIX = "centralPublish."
 
     private val componentFields = setOf(
         "groupId",
@@ -19,32 +20,47 @@ object CentralPublishConfigLoader {
 
     private val moduleFields = setOf("modules")
 
-    fun load(file: File): CentralPublishConfig {
+    fun load(file: File): PublishConfig {
         if (!file.exists()) {
-            return CentralPublishConfig()
+            return PublishConfig()
         }
         val properties = Properties()
         file.inputStream().use { properties.load(it) }
         return load(properties)
     }
 
-    fun load(properties: Properties): CentralPublishConfig {
-        val values = mutableMapOf<String, String>()
+    fun load(properties: Properties): PublishConfig {
+        val legacyValues = mutableMapOf<String, String>()
+        val primaryValues = mutableMapOf<String, String>()
         properties.stringPropertyNames().forEach { rawKey ->
             val rawValue = properties.getProperty(rawKey)?.trim().orEmpty()
-            val key = rawKey.removePrefix(PREFIX)
+            val key = configKey(rawKey)
             validateUnsupportedField(rawKey, key)
 
-            if (!rawKey.startsWith(PREFIX) || rawValue.isBlank()) {
+            if (rawValue.isBlank()) {
                 return@forEach
             }
-            values[normalizeKey(key)] = rawValue
+            when {
+                rawKey.startsWith(PREFIX) -> {
+                    val normalizedKey = normalizeKey(key)
+                    primaryValues[normalizedKey] = normalizeValue(normalizedKey, rawValue)
+                }
+                rawKey.startsWith(LEGACY_PREFIX) -> {
+                    val normalizedKey = normalizeKey(key)
+                    legacyValues[normalizedKey] = normalizeValue(normalizedKey, rawValue)
+                }
+            }
         }
 
+        val values = legacyValues + primaryValues
+        validatePublishTarget(values["publishTarget"].orEmpty())
         validatePublishingType(values["centralPublishingType"].orEmpty())
-        return CentralPublishConfig(
+        return PublishConfig(
             githubRepo = values["githubRepo"].orEmpty(),
             dryRun = values["dryRun"].orEmpty(),
+            publishTarget = normalizePublishTarget(values["publishTarget"].orEmpty()),
+            githubPackagesRepository = values["githubPackagesRepository"].orEmpty(),
+            githubPackagesUrl = values["githubPackagesUrl"].orEmpty(),
             centralNamespace = values["centralNamespace"].orEmpty(),
             centralPublishingType = values["centralPublishingType"].orEmpty(),
             centralRepositoryName = values["centralRepositoryName"].orEmpty(),
@@ -99,13 +115,49 @@ object CentralPublishConfigLoader {
         }
     }
 
+    private fun configKey(rawKey: String): String {
+        return when {
+            rawKey.startsWith(PREFIX) -> rawKey.removePrefix(PREFIX)
+            rawKey.startsWith(LEGACY_PREFIX) -> rawKey.removePrefix(LEGACY_PREFIX)
+            else -> rawKey
+        }
+    }
+
     private fun normalizeKey(key: String): String {
         return when (key) {
             "centralUsername" -> "mavenCentralUsername"
             "centralPassword" -> "mavenCentralPassword"
             "signingInMemoryKeyPassword" -> "signingPassword"
             "signingInMemoryKeyId" -> "signingKeyId"
+            "publishTarget" -> "publishTarget"
             else -> key
+        }
+    }
+
+    private fun normalizeValue(key: String, value: String): String {
+        return when (key) {
+            "workflowUses" -> GitHubActionsWorkflowWriter.normalizeWorkflowUses(value)
+            else -> value
+        }
+    }
+
+    private fun validatePublishTarget(value: String) {
+        if (value.isBlank()) {
+            return
+        }
+        val normalized = normalizePublishTarget(value)
+        if (normalized == "central" || normalized == "github_packages" || normalized == "all") {
+            return
+        }
+        throw IllegalArgumentException(
+            "publishTarget only supports central, github_packages, or all, but was $value"
+        )
+    }
+
+    private fun normalizePublishTarget(value: String): String {
+        return when (value.trim()) {
+            "githubPackages" -> "github_packages"
+            else -> value.trim()
         }
     }
 

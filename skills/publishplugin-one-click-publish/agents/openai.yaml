@@ -1,0 +1,4 @@
+interface:
+  display_name: "Enter/Flowtime Publish One Click"
+  short_description: "Enter/Flowtime publish one-click guide"
+  default_prompt: "Use $publishplugin-one-click-publish when configuring enter publish or flowtime publish one-click publishing information."

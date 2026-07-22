@@ -18,11 +18,11 @@ public class PublishConfigResolverLocalConfigTest {
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
-    public void localCentralPublishValuesAreFallbackBehindExplicitPublishInfo() throws Exception {
+    public void localPublishValuesAreFallbackBehindExplicitPublishInfo() throws Exception {
         File rootDir = temporaryFolder.newFolder("project");
         Files.write(new File(rootDir, "local.properties").toPath(), (
-                "centralPublish.centralNamespace=cn.local\n"
-                        + "centralPublish.centralPublishingType=automatic\n"
+                "publish.centralNamespace=cn.local\n"
+                        + "publish.centralPublishingType=automatic\n"
         ).getBytes(StandardCharsets.UTF_8));
         Project project = ProjectBuilder.builder().withProjectDir(rootDir).build();
         PublishInfo publishInfo = new PublishInfo();
@@ -61,12 +61,12 @@ public class PublishConfigResolverLocalConfigTest {
     public void componentFieldsInLocalConfigFailDuringResolution() throws Exception {
         File rootDir = temporaryFolder.newFolder("project");
         Files.write(new File(rootDir, "local.properties").toPath(),
-                "centralPublish.pomUrl=https://example.com\n".getBytes(StandardCharsets.UTF_8));
+                "publish.pomUrl=https://example.com\n".getBytes(StandardCharsets.UTF_8));
         Project project = ProjectBuilder.builder().withProjectDir(rootDir).build();
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> PublishConfigResolver.INSTANCE.loadCentralPublishProperties(project)
+                () -> PublishConfigResolver.INSTANCE.loadPublishProperties(project)
         );
     }
 }

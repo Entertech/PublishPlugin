@@ -10,7 +10,7 @@ on:
       publish_target:
         description: "Publish target: central, github_packages, or all"
         required: false
-        default: "central"
+        default: "github_packages"
         type: string
       namespace:
         description: "Sonatype Central namespace, for example cn.entertech"

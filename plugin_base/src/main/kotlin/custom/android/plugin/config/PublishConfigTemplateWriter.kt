@@ -2,8 +2,10 @@ package custom.android.plugin.config
 
 import java.io.File
 
-object CentralPublishConfigTemplateWriter {
-    private val centralPublishLineRegex = Regex("""^\s*centralPublish\.([A-Za-z0-9_.-]+)\s*=(.*)$""")
+object PublishConfigTemplateWriter {
+    private val publishLineRegex = Regex("""^\s*(?:publish|centralPublish)\.([A-Za-z0-9_.-]+)\s*=(.*)$""")
+    private val primaryPublishLineRegex = Regex("""^\s*publish\.([A-Za-z0-9_.-]+)\s*=(.*)$""")
+    private val legacyPublishLineRegex = Regex("""^\s*centralPublish\.([A-Za-z0-9_.-]+)\s*=(.*)$""")
 
     private val entries = listOf(
         Entry("githubRepo", "# GitHub repository in owner/repo format. Blank tries gh repo view, then git remote origin."),
@@ -11,6 +13,12 @@ object CentralPublishConfigTemplateWriter {
             "dryRun",
             "# Dry-run switch.\n# true: Print planned files and secret names only. Do not write files or call gh secret set.\n# false/blank: Run normally."
         ),
+        Entry(
+            "publishTarget",
+            "# Generated workflow publish target.\n# Blank/default: github_packages.\n# Supported values: github_packages, central, all."
+        ),
+        Entry("githubPackagesRepository", "# GitHub Packages repository in owner/repo format. Blank uses the workflow caller repository."),
+        Entry("githubPackagesUrl", "# Optional full GitHub Packages Maven repository URL. Blank derives it from githubPackagesRepository."),
         Entry("centralNamespace", "# Sonatype Central namespace. Blank uses plugin default cn.entertech."),
         Entry(
             "centralPublishingType",
@@ -62,31 +70,25 @@ object CentralPublishConfigTemplateWriter {
             "githubActions",
             "# Whether to generate a GitHub Actions workflow.\n# true: Generate or update the workflow specified by workflowPath.\n# false/blank: Do not process workflow files."
         ),
-        Entry("workflowPath", "# GitHub Actions workflow file path. Blank uses the current module name, for example .github/workflows/publish-central-demo-lib.yml."),
-        Entry("workflowUses", "# Reusable workflow reference, for example Entertech/PublishPlugin/.github/workflows/central-publish.yml@main.")
+        Entry("workflowPath", "# GitHub Actions workflow file path. Blank uses the current module name, for example .github/workflows/publish-demo-lib.yml."),
+        Entry("workflowUses", "# Reusable workflow reference, for example Entertech/PublishPlugin/.github/workflows/publish.yml@main.")
     )
 
     fun writeTemplate(rootDir: File, configFile: File, overwrite: Boolean) {
         configFile.parentFile?.mkdirs()
         val existing = if (configFile.exists()) configFile.readText() else ""
-        val existingValues = existing.lineSequence()
-            .mapNotNull { line ->
-                centralPublishLineRegex.find(line)?.let { match ->
-                    match.groupValues[1] to match.groupValues[2]
-                }
-            }
-            .toMap()
+        val existingValues = existingPublishValues(existing)
         val existingKeys = existingValues.keys
 
         val baseContent = if (overwrite) {
-            stripCentralPublishTemplate(existing)
+            stripPublishTemplate(existing)
         } else {
             existing.trimEnd()
         }
         val keysToWrite = if (overwrite) entries else entries.filter { it.key !in existingKeys }
         val template = keysToWrite.joinToString(System.lineSeparator() + System.lineSeparator()) { entry ->
             val value = if (overwrite) existingValues[entry.key].orEmpty() else ""
-            "${entry.comment}${System.lineSeparator()}centralPublish.${entry.key}=$value"
+            "${entry.comment}${System.lineSeparator()}publish.${entry.key}=$value"
         }
         val newContent = listOf(baseContent, template)
             .filter { it.isNotBlank() }
@@ -95,14 +97,36 @@ object CentralPublishConfigTemplateWriter {
         GitSafetyChecker.ensureIgnored(rootDir, configFile)
     }
 
-    private fun stripCentralPublishTemplate(existing: String): String {
+    private fun existingPublishValues(existing: String): Map<String, String> {
+        val values = linkedMapOf<String, String>()
+        existing.lineSequence().forEach { line ->
+            legacyPublishLineRegex.find(line)?.let { match ->
+                values.putIfAbsent(match.groupValues[1], normalizeValue(match.groupValues[1], match.groupValues[2]))
+            }
+        }
+        existing.lineSequence().forEach { line ->
+            primaryPublishLineRegex.find(line)?.let { match ->
+                values[match.groupValues[1]] = normalizeValue(match.groupValues[1], match.groupValues[2])
+            }
+        }
+        return values
+    }
+
+    private fun normalizeValue(key: String, value: String): String {
+        return when (key) {
+            "workflowUses" -> GitHubActionsWorkflowWriter.normalizeWorkflowUses(value)
+            else -> value
+        }
+    }
+
+    private fun stripPublishTemplate(existing: String): String {
         val kept = mutableListOf<String>()
         val pendingCommentsOrBlankLines = mutableListOf<String>()
         existing.lineSequence().forEach { line ->
             val trimmed = line.trimStart()
             when {
                 trimmed.startsWith("#") || line.isBlank() -> pendingCommentsOrBlankLines.add(line)
-                centralPublishLineRegex.matches(line) -> pendingCommentsOrBlankLines.clear()
+                publishLineRegex.matches(line) -> pendingCommentsOrBlankLines.clear()
                 else -> {
                     kept.addAll(pendingCommentsOrBlankLines)
                     pendingCommentsOrBlankLines.clear()

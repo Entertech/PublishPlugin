@@ -32,7 +32,7 @@
 
 ## 当前可扩展缺口
 
-1. `central-publish.yml` 已支持 `version` 输入并传入 `-Pversion=...`，但插件代码当前直接使用 `PublishInfo.version`，没有通过 resolver 读取 CLI 覆盖值。
+1. `publish.yml` 已支持 `version` 输入并传入 `-Pversion=...`，但插件代码当前直接使用 `PublishInfo.version`，没有通过 resolver 读取 CLI 覆盖值。
 2. 发布前没有独立的 dry-run / doctor 任务；用户只能通过真实发布或 `generatePomFileFor...` 间接发现配置问题。
 3. 发布成功日志只打印坐标和仓库地址，没有机器可读的 publication manifest，CI 难以沉淀发布证据。
 4. 远程发布只覆盖 release Central 和自定义 Maven 仓库，尚未提供 Snapshot 场景。
@@ -325,7 +325,7 @@ JSON 字段：
 
 - [ ] **Step 4: CI 上传 manifest**
 
-在 `.github/workflows/central-publish.yml` 的发布步骤后增加 artifact 上传：
+在 `.github/workflows/publish.yml` 的发布步骤后增加 artifact 上传：
 
 ```yaml
 - name: Upload publish manifest
@@ -525,7 +525,7 @@ PublishDefaults {
 
 **Files:**
 
-- Modify: `.github/workflows/central-publish.yml`
+- Modify: `.github/workflows/publish.yml`
 - Modify: `.github/workflows/publish-plugin-pr-check.yml`
 - Modify: `.github/scripts/publish_plugin_central_workflow_test.py`
 - Docs: `README.md`

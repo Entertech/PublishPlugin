@@ -1,8 +1,11 @@
 package custom.android.plugin.config
 
-data class CentralPublishConfig(
+data class PublishConfig(
     val githubRepo: String = "",
     val dryRun: String = "",
+    val publishTarget: String = "",
+    val githubPackagesRepository: String = "",
+    val githubPackagesUrl: String = "",
     val centralNamespace: String = "",
     val centralPublishingType: String = "",
     val centralRepositoryName: String = "",
@@ -64,6 +67,8 @@ data class CentralPublishConfig(
             "centralNamespace" -> centralNamespace
             "centralPublishingType" -> centralPublishingType
             "centralRepositoryName" -> centralRepositoryName
+            "githubPackagesRepository" -> githubPackagesRepository
+            "githubPackagesUrl" -> githubPackagesUrl
             "pomInceptionYear" -> pomInceptionYear
             "licenseName" -> licenseName
             "licenseUrl" -> licenseUrl

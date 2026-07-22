@@ -1,6 +1,6 @@
 package custom.android.plugin
 
-import custom.android.plugin.config.CentralPublishConfig
+import custom.android.plugin.config.PublishConfig
 import org.gradle.api.GradleException
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -8,7 +8,7 @@ import java.io.File
 class GpgKeyManager(
     private val gpgExecutable: String = "gpg"
 ) {
-    fun generateKey(config: CentralPublishConfig) {
+    fun generateKey(config: PublishConfig) {
         if (config.gpgName.isBlank() || config.gpgEmail.isBlank() || config.signingPassword.isBlank()) {
             throw GradleException("gpgGenerate=true requires gpgName, gpgEmail and signingPassword")
         }
@@ -17,7 +17,7 @@ class GpgKeyManager(
         }
         val keyFile = File(config.gpgKeyFile)
         keyFile.parentFile?.mkdirs()
-        val batchFile = File.createTempFile("central-publish-gpg-", ".batch")
+        val batchFile = File.createTempFile("publish-gpg-", ".batch")
         try {
             batchFile.writeText(
                 listOf(

@@ -11,13 +11,13 @@
 Skills 配置适合在 Codex 中交互式完成发布接入、发布目标选择、配置校验和问题修复。入口示例：
 
 ```text
-使用 $publishplugin-central-one-click，帮我为 :library 配置发布。
+使用 $publishplugin-one-click-publish，帮我为 :library 配置发布。
 ```
 
-也可以指定目标：
+也可以指定目标，例如发布到 Central：
 
 ```text
-使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
+使用 $publishplugin-one-click-publish，帮我为 :library 配置 Central Portal 发布。
 ```
 
 Skill 会根据发布目标引导配置：
@@ -31,42 +31,42 @@ Skill 会根据发布目标引导配置：
 
 ### 2. 本地脚本配置
 
-本地脚本配置用于不依赖 Codex 的终端执行。目前离线脚本封装的是 Sonatype Central Portal 所需的仓库级配置流程。
+本地脚本配置用于不依赖 Codex 的终端执行。离线脚本封装的是一键发布配置流程，默认生成 GitHub Packages 发布 workflow；需要发布到 Central 时显式选择 `central` 或 `all`。
 
 | 系统环境 | 支持状态 | 入口 |
 | --- | --- | --- |
-| macOS | 支持 | `scripts/configure-central-publish-offline.sh` |
+| macOS | 支持 | `scripts/configure-publish-offline.sh` |
 | Linux | 暂不支持 | 使用 Gradle task 或手动配置。 |
 | Windows | 暂不支持 | 使用 Gradle task 或手动配置。 |
 
 先生成配置模板：
 
 ```bash
-scripts/configure-central-publish-offline.sh :library --generate-only
+scripts/configure-publish-offline.sh :library --generate-only
 ```
 
-然后在根目录 `local.properties` 中填写 `centralPublish.*` 仓库级字段。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
+然后在根目录 `local.properties` 中填写发布配置。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
 
 完成配置后执行：
 
 ```bash
-scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+scripts/configure-publish-offline.sh :library --configure-only -- --stacktrace
 ```
 
 如果配置文件已填好，也可以直接一键执行生成与配置：
 
 ```bash
-scripts/configure-central-publish-offline.sh :library -- --stacktrace
+scripts/configure-publish-offline.sh :library -- --stacktrace
 ```
 
 等价 Gradle task：
 
 ```bash
-./gradlew :library:generateCentralPublishConfig
-./gradlew :library:configureCentralPublish
+./gradlew :library:generatePublishConfig
+./gradlew :library:configurePublish
 ```
 
-本地 Maven 发布不需要执行一键配置脚本，可直接运行：
+本地 Maven 发布不需要执行一键发布配置脚本，可直接运行：
 
 ```bash
 ./gradlew :library:publishToMavenLocal
@@ -270,12 +270,12 @@ ORG_GRADLE_PROJECT_signingInMemoryKeyPassword=<gpg-password> \
 字段值解析优先级按用途分组：
 
 - `groupId`、`artifactId`、`version` 直接来自 `PublishInfo`。
-- Central、License、Developer、SCM 等仓库级字段支持命令行和本地通用配置覆盖：`Gradle property > 环境变量 > PublishInfo 显式配置 > local.properties 中 centralPublish.* 非空值 > 默认/推导值`。
+- Central、License、Developer、SCM 等仓库级字段支持命令行和本地通用配置覆盖：`Gradle property > 环境变量 > PublishInfo 显式配置 > local.properties 中 publish.* 非空值 > 默认/推导值`。
 - `pomName`、`pomDescription`、`pomUrl` 属于组件 POM 信息，不从 `local.properties` 读取；未显式配置时分别使用 artifactId、组件类型默认描述、当前工程 git remote / CI 推导 URL。
 - `publishUrl`、`publishUserName`、`publishPassword` 兼容 `local.properties`：`Gradle property > PublishInfo 字段 > local.properties`。
 - GitHub Packages URL 可由 `githubPackagesRepository=owner/repo` 推导；凭据优先使用 Gradle property / 环境变量，再回退到 `PublishInfo` 和 `local.properties` 中的 GitHub Packages 专用字段或旧私服字段。
 - Central token 不建议写进 `PublishInfo`。优先使用 `-PcentralUsername/-PcentralPassword` 或 `CENTRAL_USERNAME/CENTRAL_PASSWORD`。
-- GPG signing 信息不是 `PublishInfo` 字段；发布运行时只能通过 Gradle property 或环境变量传入。一键配置时可先放在 ignored/untracked 的 `local.properties` 中，用于写入 GitHub repository secrets。
+- GPG signing 信息不是 `PublishInfo` 字段；发布运行时只能通过 Gradle property 或环境变量传入。一键发布配置时可先放在 ignored/untracked 的 `local.properties` 中，用于写入 GitHub repository secrets。
 
 `local.properties` 中的旧私服字段值不要加引号：
 
@@ -287,13 +287,13 @@ publishPassword=password
 
 ## 一键发布配置
 
-一键发布配置用于降低新仓库接入发布能力的初始配置成本。不同发布目标需要的配置不同：
+一键发布配置用于降低新仓库接入发布能力的初始配置成本，着重点是为目标模块生成可执行的发布 workflow。不同发布目标需要的配置不同：
 
-- 本地 Maven 发布不需要执行一键配置脚本，配置 `PublishInfo` 后可直接运行本地发布任务。
+- 本地 Maven 发布不需要执行一键发布配置脚本，配置 `PublishInfo` 后可直接运行本地发布任务。
 - GitHub Packages 是默认远程发布模式，通常只需要配置 `PublishInfo` 和 GitHub Packages 凭据。
-- Sonatype Central Portal 需要额外完成仓库级元数据、GitHub repository secrets、签名密钥和 GitHub Actions workflow 配置；当前一键配置脚本主要覆盖这部分准备工作。
+- Sonatype Central Portal 需要额外完成仓库级元数据、GitHub repository secrets 和签名密钥配置；这是显式选择 `central` 或 `all` 时才需要的配置。
 
-因此，本章节中的 `centralPublish.*` 字段只用于 **Central Portal 发布前的仓库级准备工作**，包括生成本地配置模板、校验当前模块 `PublishInfo`、配置 GitHub repository secrets、生成 GitHub Actions workflow。它不会替代本地 Maven 发布，也不会改变默认 GitHub Packages 远程发布模式；真正发 Central 时仍需要显式使用 `remotePublishMode=central`。
+因此，一键发布配置默认生成 GitHub Packages workflow。`publish.*` 是新的本地配置前缀；旧 `centralPublish.*` 只作为兼容读取保留。Central token/GPG 字段只在 `publishTarget=central` 或 `publishTarget=all` 时生效；真正执行 Central 发布时仍会显式传入 `remotePublishMode=central`。
 
 组件级信息继续放在目标模块 `PublishInfo` 中：
 
@@ -309,35 +309,39 @@ PublishInfo {
 }
 ```
 
-仓库级配置和一次性 secret 输入放在根目录 `local.properties` 的 `centralPublish.*` 字段中。不要在 `local.properties` 中声明 `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl` 等组件字段。
+仓库级配置和一次性 secret 输入放在根目录 `local.properties` 的 `publish.*` 字段中。不要在 `local.properties` 中声明 `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl` 等组件字段。
 
 ### 配置入口
 
 Codex Skill 方式：
 
 ```text
-使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
+使用 $publishplugin-one-click-publish，帮我为 :library 配置发布。
 ```
 
 macOS 离线脚本方式：
 
 ```bash
-scripts/configure-central-publish-offline.sh :library --generate-only
-scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+scripts/configure-publish-offline.sh :library --generate-only
+scripts/configure-publish-offline.sh :library --configure-only -- --stacktrace
 ```
 
 Gradle task 方式：
 
 ```bash
-./gradlew :library:generateCentralPublishConfig
-./gradlew :library:configureCentralPublish
+./gradlew :library:generatePublishConfig
+./gradlew :library:configurePublish
 ```
 
-兼容旧的大写任务名：
+兼容旧任务名：
 
 ```bash
+./gradlew :library:generateCentralPublishConfig
+./gradlew :library:configureCentralPublish
+./gradlew :library:rollbackCentralPublishSecrets
 ./gradlew :library:GenerateCentralPublishConfigTask
 ./gradlew :library:ConfigureCentralPublishTask
+./gradlew :library:RollbackCentralPublishSecretsTask
 ```
 
 ### 执行流程
@@ -345,105 +349,119 @@ Gradle task 方式：
 1. 在目标模块配置 `PublishInfo` 的坐标和 POM 元数据。
 2. 生成或更新根目录 `local.properties`：
    ```bash
-   ./gradlew :library:generateCentralPublishConfig
+   ./gradlew :library:generatePublishConfig
    ```
-3. 填写 `centralPublish.*` 仓库级字段。Android 项目已有的 `sdk.dir` / `ndk.dir` 会被保留。
-4. 建议先设置 `centralPublish.dryRun=true` 执行预演。dry run 只做解析、校验和摘要输出，不写 `.gitignore`、workflow、secrets 或 GPG key。
+3. 填写发布目标和必要的仓库级字段。Android 项目已有的 `sdk.dir` / `ndk.dir` 会被保留。
+4. 建议先设置 `publish.dryRun=true` 执行预演。dry run 只做解析、校验和摘要输出，不写 `.gitignore`、workflow、secrets 或 GPG key。
 5. 确认配置后执行：
    ```bash
-   ./gradlew :library:configureCentralPublish
+   ./gradlew :library:configurePublish
    ```
 
-如果配置文件已存在且需要刷新注释，传入 `-PoverwritePublishConfig=true`。任务会刷新模板注释，并保留已有 `centralPublish.*` value 和非 `centralPublish.*` 行。
+如果配置文件已存在且需要刷新注释，传入 `-PoverwritePublishConfig=true`。任务会刷新模板注释，并保留已有 `publish.*` value 和非 `publish.*` 行。
 
 ### local.properties 模板
 
 ```properties
 # GitHub repository in owner/repo format. Blank tries gh repo view, then git remote origin.
-centralPublish.githubRepo=Entertech/demo-lib
+publish.githubRepo=Entertech/demo-lib
 
 # Dry-run switch.
 # true: Print planned files and secret names only. Do not write files or call gh secret set.
 # false/blank: Run normally.
-centralPublish.dryRun=false
+publish.dryRun=false
 
-# Sonatype Central namespace. Blank uses plugin default cn.entertech.
-centralPublish.centralNamespace=cn.entertech
+# Generated workflow publish target.
+# Blank/default: github_packages.
+# Supported values: github_packages, central, all.
+publish.publishTarget=github_packages
+
+# GitHub Packages repository in owner/repo format. Blank uses the workflow caller repository.
+publish.githubPackagesRepository=
+
+# Optional full GitHub Packages Maven repository URL. Blank derives it from githubPackagesRepository.
+publish.githubPackagesUrl=
+
+# Sonatype Central namespace. Used when publishTarget is central or all. Blank uses plugin default cn.entertech.
+publish.centralNamespace=cn.entertech
 
 # Central deployment publishing type.
 # user_managed: Upload and validate, then leave the deployment in Central Portal for manual Publish.
 # automatic: Upload and validate, then Central tries to publish to Maven Central automatically.
-centralPublish.centralPublishingType=user_managed
+publish.centralPublishingType=user_managed
 
 # Central staging repository name. Blank uses plugin default CentralStaging.
-centralPublish.centralRepositoryName=
+publish.centralRepositoryName=
 
 # Shared POM metadata defaults. Blank values use PublishInfo, local inference, or plugin defaults.
-centralPublish.pomInceptionYear=
-centralPublish.licenseName=
-centralPublish.licenseUrl=
-centralPublish.licenseDistribution=
-centralPublish.developerId=
-centralPublish.developerName=
-centralPublish.developerEmail=
-centralPublish.developerOrganization=
-centralPublish.developerOrganizationUrl=
-centralPublish.developerUrl=
-centralPublish.scmUrl=
-centralPublish.scmConnection=
-centralPublish.scmDeveloperConnection=
+publish.pomInceptionYear=
+publish.licenseName=
+publish.licenseUrl=
+publish.licenseDistribution=
+publish.developerId=
+publish.developerName=
+publish.developerEmail=
+publish.developerOrganization=
+publish.developerOrganizationUrl=
+publish.developerUrl=
+publish.scmUrl=
+publish.scmConnection=
+publish.scmDeveloperConnection=
 
 # Whether to configure GitHub repository secrets.
-# true: Call gh secret set for Central token and GPG signing secrets.
+# true: Call gh secret set for Central token and GPG signing secrets when publishTarget is central or all.
 # false/blank: Do not process GitHub secrets.
-centralPublish.githubSecrets=true
+publish.githubSecrets=false
 
 # Whether to overwrite existing repository secrets.
 # true: Overwrite existing secrets.
 # false/blank: Reuse existing secrets to avoid replacing CI credentials by mistake.
-centralPublish.overwriteGithubSecrets=false
+publish.overwriteGithubSecrets=false
 
-# Central Portal User Token. Used only by configureCentralPublish to write repository secrets.
-centralPublish.mavenCentralUsername=central-token-username
-centralPublish.mavenCentralPassword=central-token-password
+# Central Portal User Token. Used only by configurePublish for central/all targets.
+publish.mavenCentralUsername=central-token-username
+publish.mavenCentralPassword=central-token-password
 
-# GPG signing secret inputs. Used only by configureCentralPublish to write repository secrets.
-centralPublish.gpgKeyFile=/Users/example/secrets/gpg-private-key.asc
-centralPublish.signingPassword=gpg-private-key-password
-centralPublish.signingKeyId=
+# GPG signing secret inputs. Used only by configurePublish for central/all targets.
+publish.gpgKeyFile=/Users/example/secrets/gpg-private-key.asc
+publish.signingPassword=gpg-private-key-password
+publish.signingKeyId=
 
 # Repository secret names. Blank values use the defaults shown in the comments below.
-centralPublish.mavenCentralUsernameSecret=
-centralPublish.mavenCentralPasswordSecret=
-centralPublish.gpgKeySecret=
-centralPublish.signingPasswordSecret=
-centralPublish.signingKeyIdSecret=
+publish.mavenCentralUsernameSecret=
+publish.mavenCentralPasswordSecret=
+publish.gpgKeySecret=
+publish.signingPasswordSecret=
+publish.signingKeyIdSecret=
 
 # Optional local GPG key generation.
-centralPublish.gpgGenerate=false
-centralPublish.gpgKeyType=
-centralPublish.gpgKeyLength=
-centralPublish.gpgKeyExpire=
-centralPublish.gpgName=
-centralPublish.gpgEmail=
-centralPublish.gpgComment=
+publish.gpgGenerate=false
+publish.gpgKeyType=
+publish.gpgKeyLength=
+publish.gpgKeyExpire=
+publish.gpgName=
+publish.gpgEmail=
+publish.gpgComment=
 
 # Whether to generate a GitHub Actions workflow.
-centralPublish.githubActions=true
+publish.githubActions=true
 
 # Generated workflow path and reusable workflow reference.
-centralPublish.workflowPath=
-centralPublish.workflowUses=Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+publish.workflowPath=
+publish.workflowUses=Entertech/PublishPlugin/.github/workflows/publish.yml@main
 ```
 
 模板注释保持 ASCII English，避免 Java `.properties` 和 IDE 默认编码造成中文注释乱码。
 
-### centralPublish 字段说明
+### 发布配置字段说明
 
 | 字段 | 类别 | 默认/空值行为 | 说明 |
 | --- | --- | --- | --- |
 | `githubRepo` | GitHub 目标仓库 | 空值时尝试 `gh repo view`，再回退到 `git remote origin` | GitHub repository，格式为 `owner/repo`，用于写 secrets 和定位 workflow。 |
 | `dryRun` | 执行控制 | `false` | `true` 时只打印计划执行内容，不写文件、不写 secrets、不生成 GPG key。 |
+| `publishTarget` | GitHub Actions | `github_packages` | 生成 workflow 的发布目标，可选 `github_packages`、`central`、`all`。 |
+| `githubPackagesRepository` | GitHub Packages | 调用 workflow 的仓库 | GitHub Packages 发布仓库，格式为 `owner/repo`。 |
+| `githubPackagesUrl` | GitHub Packages | 由 `githubPackagesRepository` 推导 | GitHub Packages Maven repository 完整 URL。 |
 | `centralNamespace` | Central 发布行为 | `cn.entertech` | Sonatype Central 已验证 namespace。`PublishInfo.groupId` 必须等于该值或位于该 namespace 下。 |
 | `centralPublishingType` | Central 发布行为 | `user_managed` | `user_managed` 上传并校验后需要在 Portal 手动 Publish；`automatic` 上传校验后自动尝试发布。 |
 | `centralRepositoryName` | Central 发布行为 | `CentralStaging` | Gradle Maven repository 名称，影响任务名，例如 `publishEnterPublishPublicationToCentralStagingRepository`。 |
@@ -460,7 +478,7 @@ centralPublish.workflowUses=Entertech/PublishPlugin/.github/workflows/central-pu
 | `scmUrl` | 共享 POM 默认值 | 空值时从当前工程 `git remote origin`、GitHub Actions、GitLab CI 等推导 | POM SCM browser URL。 |
 | `scmConnection` | 共享 POM 默认值 | 空值时由 `scmUrl` 推导 | POM read-only SCM connection。 |
 | `scmDeveloperConnection` | 共享 POM 默认值 | 空值时由 `scmUrl` 推导 | POM developer SCM connection。 |
-| `githubSecrets` | GitHub secrets | `false` | `true` 时使用本机 `gh` 写入 Central token 和 GPG signing repository secrets。 |
+| `githubSecrets` | GitHub secrets | `false` | `true` 且 `publishTarget=central/all` 时使用本机 `gh` 写入 Central token 和 GPG signing repository secrets。 |
 | `overwriteGithubSecrets` | GitHub secrets | `false` | `true` 时允许覆盖已有 repository secrets；默认复用已有 secrets，避免误替换 CI 凭据。 |
 | `mavenCentralUsername` | 一次性 secret 输入 | 无默认值 | Central Portal User Token username，只用于写入 repository secret。 |
 | `mavenCentralPassword` | 一次性 secret 输入 | 无默认值 | Central Portal User Token password，只用于写入 repository secret。 |
@@ -480,24 +498,24 @@ centralPublish.workflowUses=Entertech/PublishPlugin/.github/workflows/central-pu
 | `gpgEmail` | GPG 生成 | 无默认值 | GPG uid email。生成新 key 时必填。 |
 | `gpgComment` | GPG 生成 | 空值 | GPG uid comment。 |
 | `githubActions` | GitHub Actions | `false` | `true` 时生成或更新 GitHub Actions workflow。 |
-| `workflowPath` | GitHub Actions | `.github/workflows/publish-central-<module>.yml` | 生成 workflow 的路径。 |
-| `workflowUses` | GitHub Actions | `Entertech/PublishPlugin/.github/workflows/central-publish.yml@main` | 业务仓库调用的 reusable workflow 引用。 |
+| `workflowPath` | GitHub Actions | `.github/workflows/publish-<module>.yml` | 生成 workflow 的路径。 |
+| `workflowUses` | GitHub Actions | `Entertech/PublishPlugin/.github/workflows/publish.yml@main` | 业务仓库调用的 reusable workflow 引用。 |
 
 ### Secret 与运行时凭据
 
-Central token、GPG key、signing password 在一键配置阶段只用于写入 GitHub repository secrets，不会作为发布运行时 fallback。CI 发布时使用 repository secrets：`MAVEN_CENTRAL_USERNAME`、`MAVEN_CENTRAL_PASSWORD`、`GPG_KEY_CONTENTS`、`SIGNING_PASSWORD`，可选 `SIGNING_KEY_ID`。
+Central token、GPG key、signing password 在一键发布配置阶段只用于写入 GitHub repository secrets，不会作为发布运行时 fallback。CI 发布时使用 repository secrets：`MAVEN_CENTRAL_USERNAME`、`MAVEN_CENTRAL_PASSWORD`、`GPG_KEY_CONTENTS`、`SIGNING_PASSWORD`，可选 `SIGNING_KEY_ID`。
 
-已有 repository secrets `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` 且未配置 `centralPublish.gpgGenerate=true` 时，任务默认复用现有 GPG secrets，不重新生成 key。仓库只缺其中一个 GPG secret 时，任务只写入缺失的 secret，不覆盖已经存在的 secret；只有配置 `centralPublish.overwriteGithubSecrets=true` 或 `centralPublish.gpgGenerate=true` 时才会覆盖。
+已有 repository secrets `GPG_KEY_CONTENTS` / `SIGNING_PASSWORD` 且未配置 `publish.gpgGenerate=true` 时，任务默认复用现有 GPG secrets，不重新生成 key。仓库只缺其中一个 GPG secret 时，任务只写入缺失的 secret，不覆盖已经存在的 secret；只有配置 `publish.overwriteGithubSecrets=true` 或 `publish.gpgGenerate=true` 时才会覆盖。
 
-需要生成新 GPG key 时，配置 `centralPublish.gpgGenerate=true`、`centralPublish.gpgName`、`centralPublish.gpgEmail`、`centralPublish.signingPassword`、`centralPublish.gpgKeyFile` 后再运行配置任务。
+需要生成新 GPG key 时，配置 `publish.gpgGenerate=true`、`publish.gpgName`、`publish.gpgEmail`、`publish.signingPassword`、`publish.gpgKeyFile` 后再运行配置任务。
 
 回退 GitHub repository secrets：
 
 ```bash
-./gradlew :library:rollbackCentralPublishSecrets
+./gradlew :library:rollbackPublishSecrets
 ```
 
-回退任务会读取同一份 `local.properties`。如果没有配置 `centralPublish.githubRepo`，会先尝试通过 `gh repo view` 推导仓库，再回退到 `git remote origin`。传入 `-PremoveGeneratedWorkflow=true` 时，会删除带 `# Generated by PublishPlugin configureCentralPublish` 标记的 workflow；未显式配置 `centralPublish.workflowPath` 时，默认删除 `.github/workflows/publish-central-<module>.yml`。
+回退任务会读取同一份 `local.properties`。如果没有配置 `publish.githubRepo`，会先尝试通过 `gh repo view` 推导仓库，再回退到 `git remote origin`。传入 `-PremoveGeneratedWorkflow=true` 时，会删除带 `# Generated by PublishPlugin configurePublish` 标记的 workflow；未显式配置 `publish.workflowPath` 时，默认删除 `.github/workflows/publish-<module>.yml`，并兼容清理旧的 `.github/workflows/publish-central-<module>.yml`。
 
 如果 `local.properties` 曾被提交，需要先轮换 Central token / GPG key，再用 `git filter-repo` 或 BFG 清理历史；`git replace` 不能清理已经 push 到远程、fork、CI logs 或缓存中的泄露内容。
 
@@ -1095,7 +1113,7 @@ Gradle property > 环境变量 > mavenCentral* fallback > PublishInfo 旧字段 
 
 ## GitHub Actions 发布
 
-业务项目可以调用本仓库提供的 reusable workflow 发布远程 Maven 产物。`publish_target` 支持三种模式：
+业务项目可以调用本仓库提供的 reusable workflow 发布远程 Maven 产物。`publish_target` 不传时默认是 `github_packages`，也可以显式选择三种模式：
 
 | publish_target | 行为 | 需要的凭据 |
 | --- | --- | --- |
@@ -1115,7 +1133,7 @@ on:
 
 jobs:
   publish:
-    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
     secrets: inherit
     with:
       module: ":library"
@@ -1138,7 +1156,7 @@ permissions:
 
 jobs:
   publish:
-    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
     with:
       module: ":library"
       publish_target: "github_packages"
@@ -1161,7 +1179,7 @@ permissions:
 
 jobs:
   publish:
-    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
     secrets: inherit
     with:
       module: ":library"

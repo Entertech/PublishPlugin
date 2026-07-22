@@ -9,21 +9,21 @@ import org.gradle.api.tasks.TaskAction
 import java.io.File
 import java.net.URI
 
-open class RollbackCentralPublishSecretsTask : DefaultTask() {
+open class RollbackPublishSecretsTask : DefaultTask() {
     init {
         group = "customPlugin"
-        description = "Delete configured Central Portal repository secrets and optionally remove generated workflow."
+        description = "Delete configured publishing repository secrets and optionally remove generated workflow."
     }
 
     @TaskAction
     fun rollback() {
-        val configFile = PublishConfigResolver.centralPublishConfigFile(project)
+        val configFile = PublishConfigResolver.publishConfigFile(project)
         GitSafetyChecker.ensureIgnored(project.rootDir, configFile)
-        val config = PublishConfigResolver.loadCentralPublishProperties(project)
+        val config = PublishConfigResolver.loadPublishProperties(project)
         val gh = GitHubSecretClient(project.findProperty("ghExecutable")?.toString().orEmpty().ifBlank { "gh" })
         val repo = config.githubRepo.ifBlank { inferGithubRepo(gh) }
         if (repo.isBlank()) {
-            throw GradleException("centralPublish.githubRepo is required when it cannot be inferred")
+            throw GradleException("publish.githubRepo is required when it cannot be inferred")
         }
         listOf(
             config.effectiveMavenCentralUsernameSecret,
@@ -33,7 +33,7 @@ open class RollbackCentralPublishSecretsTask : DefaultTask() {
             config.effectiveSigningKeyIdSecret
         ).forEach { secretName -> gh.deleteSecret(repo, secretName) }
         if (project.findProperty("removeGeneratedWorkflow")?.toString()?.toBooleanLenientLocal() == true) {
-            removeGeneratedWorkflow(config.workflowPath.ifBlank { defaultWorkflowPath() })
+            workflowPathsToRemove(config.workflowPath).forEach { removeGeneratedWorkflow(it) }
         }
         if (project.findProperty("printHistoryRewriteGuide")?.toString()?.toBooleanLenientLocal() == true) {
             PluginLogUtil.printlnInfoInScreen("Run git filter-repo --path local.properties --invert-paths after rotating leaked secrets.")
@@ -45,7 +45,7 @@ open class RollbackCentralPublishSecretsTask : DefaultTask() {
             return
         }
         val file = project.rootProject.file(workflowPath)
-        if (file.exists() && file.readText().contains(GitHubActionsWorkflowWriter.GENERATED_MARKER)) {
+        if (file.exists() && GitHubActionsWorkflowWriter.isGeneratedWorkflow(file.readText())) {
             file.delete()
         }
     }
@@ -91,8 +91,14 @@ open class RollbackCentralPublishSecretsTask : DefaultTask() {
             .orEmpty()
     }
 
-    private fun defaultWorkflowPath(): String {
-        return ".github/workflows/publish-central-${project.name}.yml"
+    private fun workflowPathsToRemove(workflowPath: String): List<String> {
+        if (workflowPath.isNotBlank()) {
+            return listOf(workflowPath)
+        }
+        return listOf(
+            GitHubActionsWorkflowWriter.defaultWorkflowPath(project.name),
+            GitHubActionsWorkflowWriter.legacyDefaultWorkflowPath(project.name)
+        )
     }
 }
 

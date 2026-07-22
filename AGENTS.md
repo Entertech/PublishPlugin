@@ -4,15 +4,15 @@
 
 The repository copy is the source of truth for the local Codex skill:
 
-- `skills/publishplugin-central-one-click/`
+- `skills/publishplugin-one-click-publish/`
 
 The local runtime skill should be a symlink from:
 
-- `${CODEX_HOME:-$HOME/.codex}/skills/publishplugin-central-one-click`
+- `${CODEX_HOME:-$HOME/.codex}/skills/publishplugin-one-click-publish`
 
 to the repository directory above.
 
-When editing `skills/publishplugin-central-one-click/**`, do not edit the local
+When editing `skills/publishplugin-one-click-publish/**`, do not edit the local
 Codex copy directly. Run this after changes to install or verify the symlink:
 
 ```bash

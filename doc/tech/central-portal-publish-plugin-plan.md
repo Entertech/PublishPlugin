@@ -453,7 +453,7 @@ gpg --export-secret-keys --armor <key-id>
 文件：
 
 ```text
-.github/workflows/central-publish.yml
+.github/workflows/publish.yml
 ```
 
 触发方式：
@@ -512,7 +512,7 @@ on:
 
 jobs:
   publish:
-    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
     secrets: inherit
     with:
       module: ":library"

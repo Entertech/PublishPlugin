@@ -1,7 +1,7 @@
 package custom.android.plugin
 
-import custom.android.plugin.config.CentralPublishConfig
-import custom.android.plugin.config.CentralPublishConfigLoader
+import custom.android.plugin.config.PublishConfig
+import custom.android.plugin.config.PublishConfigLoader
 import custom.android.plugin.config.GitUrlNormalizer
 import custom.android.plugin.config.PomMetadataDefaults
 import org.gradle.api.Project
@@ -16,6 +16,9 @@ object PublishConfigResolver {
     const val MODE_CENTRAL = "central"
     const val MODE_CUSTOM_REPOSITORY = "customRepository"
     const val MODE_GITHUB_PACKAGES = "githubPackages"
+    const val WORKFLOW_TARGET_CENTRAL = "central"
+    const val WORKFLOW_TARGET_GITHUB_PACKAGES = "github_packages"
+    const val WORKFLOW_TARGET_ALL = "all"
     const val DEFAULT_GITHUB_PACKAGES_REPOSITORY_NAME = "GitHubPackages"
 
     data class CentralCredentials(
@@ -43,7 +46,7 @@ object PublishConfigResolver {
         return properties
     }
 
-    fun centralPublishConfigFile(project: Project): File {
+    fun publishConfigFile(project: Project): File {
         val configuredPath = projectProperty(project, "publishConfig")
         if (configuredPath.isBlank()) {
             return project.rootProject.file("local.properties")
@@ -52,8 +55,8 @@ object PublishConfigResolver {
         return if (configuredFile.isAbsolute) configuredFile else project.rootProject.file(configuredPath)
     }
 
-    fun loadCentralPublishProperties(project: Project): CentralPublishConfig {
-        return CentralPublishConfigLoader.load(centralPublishConfigFile(project))
+    fun loadPublishProperties(project: Project): PublishConfig {
+        return PublishConfigLoader.load(publishConfigFile(project))
     }
 
     fun resolveRemotePublishMode(project: Project, publishInfo: PublishInfo): String {
@@ -79,6 +82,41 @@ object PublishConfigResolver {
         )
     }
 
+    fun resolveWorkflowPublishTarget(project: Project, config: PublishConfig): String {
+        val normalized = normalizeWorkflowPublishTarget(
+            firstNotBlank(
+                projectProperty(project, "publishTarget"),
+                environment("PUBLISH_TARGET"),
+                config.publishTarget
+            ).ifBlank { WORKFLOW_TARGET_GITHUB_PACKAGES }
+        )
+        if (
+            normalized == WORKFLOW_TARGET_CENTRAL ||
+            normalized == WORKFLOW_TARGET_GITHUB_PACKAGES ||
+            normalized == WORKFLOW_TARGET_ALL
+        ) {
+            return normalized
+        }
+        throw IllegalArgumentException(
+            "publishTarget only supports central, github_packages, or all, but was $normalized"
+        )
+    }
+
+    fun requiresCentralForWorkflowTarget(publishTarget: String): Boolean {
+        val normalized = normalizeWorkflowPublishTarget(publishTarget)
+        return normalized == WORKFLOW_TARGET_CENTRAL || normalized == WORKFLOW_TARGET_ALL
+    }
+
+    fun normalizeWorkflowPublishTarget(value: String): String {
+        return when (value.trim()) {
+            MODE_GITHUB_PACKAGES -> WORKFLOW_TARGET_GITHUB_PACKAGES
+            WORKFLOW_TARGET_GITHUB_PACKAGES,
+            WORKFLOW_TARGET_CENTRAL,
+            WORKFLOW_TARGET_ALL -> value.trim()
+            else -> value.trim()
+        }
+    }
+
     fun isCentralPublish(project: Project, publishInfo: PublishInfo): Boolean {
         val mode = resolveRemotePublishMode(project, publishInfo)
         if (mode != MODE_CENTRAL) {
@@ -102,7 +140,7 @@ object PublishConfigResolver {
             projectProperty(project, "centralRepositoryName"),
             environment("CENTRAL_REPOSITORY_NAME"),
             explicitPublishInfoValue(publishInfo, "centralRepositoryName", publishInfo.centralRepositoryName),
-            loadCentralPublishProperties(project).centralRepositoryName,
+            loadPublishProperties(project).centralRepositoryName,
             "CentralStaging"
         )
     }
@@ -112,7 +150,7 @@ object PublishConfigResolver {
             projectProperty(project, "centralNamespace"),
             environment("CENTRAL_NAMESPACE"),
             explicitPublishInfoValue(publishInfo, "centralNamespace", publishInfo.centralNamespace),
-            loadCentralPublishProperties(project).centralNamespace,
+            loadPublishProperties(project).centralNamespace,
             publishInfo.centralNamespace
         )
     }
@@ -122,7 +160,7 @@ object PublishConfigResolver {
             projectProperty(project, "centralPublishingType"),
             environment("CENTRAL_PUBLISHING_TYPE"),
             explicitPublishInfoValue(publishInfo, "centralPublishingType", publishInfo.centralPublishingType),
-            loadCentralPublishProperties(project).centralPublishingType,
+            loadPublishProperties(project).centralPublishingType,
             "user_managed"
         )
     }
@@ -267,7 +305,7 @@ object PublishConfigResolver {
             projectProperty(project, "scmUrl"),
             environment("SCM_URL"),
             explicitPublishInfoValue(publishInfo, "scmUrl", publishInfo.scmUrl),
-            loadCentralPublishProperties(project).scmUrl,
+            loadPublishProperties(project).scmUrl,
             inferScmUrl(project)
         )
     }
@@ -277,7 +315,7 @@ object PublishConfigResolver {
             projectProperty(project, "scmConnection"),
             environment("SCM_CONNECTION"),
             explicitPublishInfoValue(publishInfo, "scmConnection", publishInfo.scmConnection),
-            loadCentralPublishProperties(project).scmConnection,
+            loadPublishProperties(project).scmConnection,
             scmConnectionFromUrl(resolveScmUrl(project, publishInfo))
         )
     }
@@ -287,7 +325,7 @@ object PublishConfigResolver {
             projectProperty(project, "scmDeveloperConnection"),
             environment("SCM_DEVELOPER_CONNECTION"),
             explicitPublishInfoValue(publishInfo, "scmDeveloperConnection", publishInfo.scmDeveloperConnection),
-            loadCentralPublishProperties(project).scmDeveloperConnection,
+            loadPublishProperties(project).scmDeveloperConnection,
             scmDeveloperConnectionFromUrl(resolveScmUrl(project, publishInfo))
         )
     }
@@ -340,7 +378,7 @@ object PublishConfigResolver {
             projectProperty(project, propertyName),
             environment(propertyName.camelToUpperSnake()),
             explicitPublishInfoValue(publishInfo, propertyName, publishInfoValue),
-            loadCentralPublishProperties(project).valueFor(propertyName),
+            loadPublishProperties(project).valueFor(propertyName),
             defaultValue
         )
     }

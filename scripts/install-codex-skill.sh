@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-skill_name="publishplugin-central-one-click"
+skill_name="publishplugin-one-click-publish"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
 source_dir="$repo_root/skills/$skill_name"
