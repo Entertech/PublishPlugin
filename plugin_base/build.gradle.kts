@@ -17,7 +17,7 @@ java {
 }
 
 group = "cn.entertech.android"
-version = "1.2.1"
+version = "1.2.2"
 
 base {
     archivesName.set("publish")
@@ -117,6 +117,27 @@ publishing {
                     .get()
             }
         }
+        maven {
+            name = "CentralSnapshots"
+            url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+            isAllowInsecureProtocol = true
+            credentials {
+                username = providers.gradleProperty("centralUsername")
+                    .orElse(providers.environmentVariable("CENTRAL_USERNAME"))
+                    .orElse(providers.gradleProperty("mavenCentralUsername"))
+                    .orElse(providers.environmentVariable("MAVEN_CENTRAL_USERNAME"))
+                    .orElse(providers.gradleProperty("publishUserName"))
+                    .orElse("")
+                    .get()
+                password = providers.gradleProperty("centralPassword")
+                    .orElse(providers.environmentVariable("CENTRAL_PASSWORD"))
+                    .orElse(providers.gradleProperty("mavenCentralPassword"))
+                    .orElse(providers.environmentVariable("MAVEN_CENTRAL_PASSWORD"))
+                    .orElse(providers.gradleProperty("publishPassword"))
+                    .orElse("")
+                    .get()
+            }
+        }
     }
 }
 
@@ -128,7 +149,9 @@ afterEvaluate {
 
 val centralPublishRequested = gradle.startParameter.taskNames.any { taskName ->
     taskName.contains("CentralStagingRepository") ||
-        taskName.contains("publishAllPublicationsToCentralStagingRepository")
+        taskName.contains("CentralSnapshotsRepository") ||
+        taskName.contains("publishAllPublicationsToCentralStagingRepository") ||
+        taskName.contains("publishAllPublicationsToCentralSnapshotsRepository")
 } || providers.gradleProperty("centralPublish").orNull.equals("true", ignoreCase = true)
 
 signing {

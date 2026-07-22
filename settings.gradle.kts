@@ -18,3 +18,5 @@ dependencyResolutionManagement {
 rootProject.name = "EnterTechPlugin"
 include(":app")
 include(":plugin_base")
+include(":demo-lib")
+include(":demo-plugin")

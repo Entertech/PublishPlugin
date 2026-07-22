@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Year;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -33,10 +34,63 @@ public class PublishPluginFunctionalTest {
                 )
                 .build();
 
-        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0");
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0.jar")));
-        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-sources.jar")));
-        assertFalse(read(versionDir.resolve("fixture-1.0.0.module")).contains("SourcesElements"));
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertFalse(read(versionDir.resolve("fixture-1.0.0-local.module")).contains("SourcesElements"));
+    }
+
+    @Test
+    public void publishToMavenLocalAppendsLocalVersionSuffix() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        File mavenLocal = temporaryFolder.newFolder("local-suffix-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path localVersionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(localVersionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(mavenLocal.toPath().resolve("com/example/fixture/1.0.0")));
+    }
+
+    @Test
+    public void publishLibraryLocalTaskPrintsCompleteDependencyBlocksWithLocalVersion() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        writeSuccessfulGradlew(projectDir);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryLocalTask",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        assertTrue(output.contains("dependencies {\n    implementation 'com.example:fixture:1.0.0-local'\n}"));
+        assertTrue(output.contains("dependencies {\n    implementation(\"com.example:fixture:1.0.0-local\")\n}"));
+    }
+
+    @Test
+    public void publishToMavenLocalKeepsExistingLocalVersionSuffix() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0-local", false);
+        File mavenLocal = temporaryFolder.newFolder("existing-local-suffix-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path localVersionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(localVersionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local-local")));
     }
 
     @Test
@@ -52,9 +106,54 @@ public class PublishPluginFunctionalTest {
                 )
                 .build();
 
-        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-debug");
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-sources.jar")));
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-debug-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-local.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-local-sources.jar")));
+    }
+
+    @Test
+    public void javaGradlePluginModuleCreatesPublicationWithoutGroovyPlugin() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, "", "", false);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(projectDir.toPath(), "EnterPublish", "fixture");
+    }
+
+    @Test
+    public void publishVersionPropertyOverridesVersionPropertyForPublicationVersion() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "-PpublishVersion=1.2.3",
+                        "-Pversion=1.2.4",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsVersion(projectDir.toPath(), "EnterPublish", "1.2.3");
+    }
+
+    @Test
+    public void versionPropertyOverridesPublishInfoVersionForPublicationVersion() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "-Pversion=1.2.4",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsVersion(projectDir.toPath(), "EnterPublish", "1.2.4");
     }
 
     @Test
@@ -66,6 +165,7 @@ public class PublishPluginFunctionalTest {
                         ":fixture:tasks",
                         "--all",
                         "-PcentralPublish=true",
+                        "-PpublishTarget=central",
                         "-PcentralNamespace=com.example.cli",
                         "-PcentralUsername=token-user",
                         "-PcentralPassword=token-password",
@@ -80,6 +180,7 @@ public class PublishPluginFunctionalTest {
                 .withArguments(
                         ":fixture:generatePomFileForEnterPublishPublication",
                         "-PcentralPublish=true",
+                        "-PpublishTarget=central",
                         "-PcentralNamespace=com.example.cli",
                         "-PpomName=CLI Fixture",
                         "-PpomDescription=Configured from CLI",
@@ -98,6 +199,166 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void defaultRemoteModeAddsGitHubPackagesRepository() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        String tasksOutput = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:tasks",
+                        "--all",
+                        "-PgithubPackagesRepository=Entertech/fixture",
+                        "-PgithubPackagesUsername=github-user",
+                        "-PgithubPackagesPassword=github-token",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        assertTrue(tasksOutput.contains("publishEnterPublishPublicationToGitHubPackagesRepository"));
+    }
+
+    @Test
+    public void remoteTaskPublishesToGitHubPackagesRepository() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        writeRecordingGradlew(projectDir);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PgithubPackagesRepository=Entertech/fixture",
+                        "-Pgpr.user=github-user",
+                        "-Pgpr.key=github-token",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        String invoked = read(projectDir.toPath().resolve("gradlew.args"));
+        String environment = read(projectDir.toPath().resolve("gradlew.env"));
+        assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToGitHubPackagesRepository"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesUsername=github-user"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesPassword=github-token"));
+        assertTrue(output.contains("Maven 仓库地址（Gradle/Maven 配置用）：  https://maven.pkg.github.com/Entertech/fixture"));
+        assertTrue(output.contains(
+                "POM 验证地址（需要 GitHub Packages 认证）：  "
+                        + "https://maven.pkg.github.com/Entertech/fixture/com/example/fixture/1.0.0/fixture-1.0.0.pom"
+        ));
+        assertTrue(output.contains("网页查看地址：  https://github.com/Entertech/fixture/packages"));
+        assertFalse(output.contains(
+                "Maven 仓库地址（Gradle/Maven 配置用）：  https://maven.pkg.github.com/Entertech/fixture/com/example/"
+        ));
+    }
+
+    @Test
+    public void remoteTaskUsesCentralRepositoryWhenLocalPublishTargetIsCentral() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                centralPublishInfo(),
+                "publish.publishTarget=central\n"
+        );
+        writeFailingRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PcentralUsername=token-user",
+                        "-PcentralPassword=token-password",
+                        "-PsigningInMemoryKey=key",
+                        "-PsigningInMemoryKeyPassword=password",
+                        "--stacktrace"
+                )
+                .buildAndFail();
+
+        String invoked = read(projectDir.toPath().resolve("gradlew.args"));
+        assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToCentralStagingRepository"));
+        assertFalse(invoked.contains("GitHubPackagesRepository"));
+    }
+
+    @Test
+    public void remoteTaskUsesCentralSnapshotsRepositoryWhenRequested() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                centralPublishInfo(),
+                "publish.publishTarget=central\n"
+        );
+        writeFailingRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PcentralReleaseType=snapshot",
+                        "-PpublishVersion=1.0.0-SNAPSHOT",
+                        "-PcentralUsername=token-user",
+                        "-PcentralPassword=token-password",
+                        "-PsigningInMemoryKey=key",
+                        "-PsigningInMemoryKeyPassword=password",
+                        "--stacktrace"
+                )
+                .buildAndFail();
+
+        String invoked = read(projectDir.toPath().resolve("gradlew.args"));
+        String environment = read(projectDir.toPath().resolve("gradlew.env"));
+        assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToCentralSnapshotsRepository"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_centralReleaseType=snapshot"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_publishVersion=1.0.0-SNAPSHOT"));
+        assertFalse(invoked.contains("CentralStagingRepository"));
+    }
+
+    @Test
+    public void remoteTaskForwardsCliVersionPropertiesToNestedGradle() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        writeRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PgithubPackagesRepository=Entertech/fixture",
+                        "-Pgpr.user=github-user",
+                        "-Pgpr.key=github-token",
+                        "-PpublishVersion=1.2.3",
+                        "-Pversion=1.2.4",
+                        "--stacktrace"
+                )
+                .build();
+
+        String environment = read(projectDir.toPath().resolve("gradlew.env"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_publishVersion=1.2.3"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_version=1.2.4"));
+    }
+
+    @Test
+    public void pomUsesEntertechDefaultsAndDerivesScmConnectionsFromScmUrl() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                minimalCentralPublishInfo(),
+                ""
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "-PscmUrl=https://github.com/Entertech/PublishPlugin",
+                        "--stacktrace"
+                )
+                .build();
+
+        String pom = read(projectDir.toPath().resolve("fixture/build/publications/EnterPublish/pom-default.xml"));
+        assertTrue(pom.contains("<inceptionYear>" + Year.now() + "</inceptionYear>"));
+        assertTrue(pom.contains("<id>Entertech</id>"));
+        assertTrue(pom.contains("<name>Entertech</name>"));
+        assertTrue(pom.contains("<email>developer@entertech.cn</email>"));
+        assertTrue(pom.contains("<organization>Entertech</organization>"));
+        assertTrue(pom.contains("<organizationUrl>https://github.com/Entertech</organizationUrl>"));
+        assertTrue(pom.contains("<url>https://github.com/Entertech</url>"));
+        assertTrue(pom.contains("<url>https://github.com/Entertech/PublishPlugin</url>"));
+        assertTrue(pom.contains("<connection>scm:git:https://github.com/Entertech/PublishPlugin.git</connection>"));
+        assertTrue(pom.contains("<developerConnection>scm:git:ssh://git@github.com/Entertech/PublishPlugin.git</developerConnection>"));
+    }
+
+    @Test
     public void centralModePublishesSourcesAndJavadocsToMavenLocalForReleaseVersion() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
         File mavenLocal = temporaryFolder.newFolder("central-maven-local");
@@ -106,6 +367,7 @@ public class PublishPluginFunctionalTest {
                 .withArguments(
                         ":fixture:publishToMavenLocal",
                         "-PcentralPublish=true",
+                        "-PpublishTarget=central",
                         "-PcentralUsername=token-user",
                         "-PcentralPassword=token-password",
                         "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
@@ -113,10 +375,10 @@ public class PublishPluginFunctionalTest {
                 )
                 .build();
 
-        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0");
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-sources.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-javadoc.jar")));
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
     }
 
     @Test
@@ -126,6 +388,7 @@ public class PublishPluginFunctionalTest {
         String output = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:PublishLibraryRemoteTask",
+                        "-PpublishTarget=central",
                         "-PcentralNamespace=com.example",
                         "--stacktrace"
                 )
@@ -174,6 +437,69 @@ public class PublishPluginFunctionalTest {
         assertMavenAarPublication(mavenLocal.toPath(), "breath-affective-offline-sdk");
         assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk-authentication");
         assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk");
+    }
+
+    @Test
+    public void androidLibraryPublishesSingleReleaseFlavorWhenVariantCoordinatesAreNotConfigured() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors("", "", false);
+        File mavenLocal = temporaryFolder.newFolder("android-flavor-single-coordinate-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        assertMavenAarPublication(mavenLocal.toPath(), "affective-offline-sdk");
+        assertPomContainsArtifactId(projectDir.toPath(), "EnterPublish", "affective-offline-sdk");
+    }
+
+    @Test
+    public void androidLibrarySupportsDynamicGroupIdAndVersionForReleaseFlavorVariants() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    groupIdForVariant { variant ->\n"
+                        + "        return variant.flavor('project') == 'sdk' ? 'com.example.sdk' : 'com.example.breath'\n"
+                        + "    }\n"
+                        + "    versionForVariant { variant ->\n"
+                        + "        return variant.flavor('authentication') == 'auth' ? '2.0.0' : '3.0.0'\n"
+                        + "    }\n"
+        );
+        File mavenLocal = temporaryFolder.newFolder("android-flavor-dynamic-coordinates-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        assertMavenAarPublication(
+                mavenLocal.toPath(),
+                "com/example/breath",
+                "breath-affective-offline-sdk-authentication",
+                "2.0.0-local"
+        );
+        assertMavenAarPublication(
+                mavenLocal.toPath(),
+                "com/example/breath",
+                "breath-affective-offline-sdk",
+                "3.0.0-local"
+        );
+        assertMavenAarPublication(
+                mavenLocal.toPath(),
+                "com/example/sdk",
+                "sdk-affective-offline-sdk-authentication",
+                "2.0.0-local"
+        );
+        assertMavenAarPublication(
+                mavenLocal.toPath(),
+                "com/example/sdk",
+                "sdk-affective-offline-sdk",
+                "3.0.0-local"
+        );
     }
 
     @Test
@@ -231,6 +557,16 @@ public class PublishPluginFunctionalTest {
             String publishInfoExtra,
             String localProperties
     ) throws IOException {
+        return createGradlePluginProject(version, componentPublishesSources, publishInfoExtra, localProperties, true);
+    }
+
+    private File createGradlePluginProject(
+            String version,
+            boolean componentPublishesSources,
+            String publishInfoExtra,
+            String localProperties,
+            boolean includeGroovyPlugin
+    ) throws IOException {
         File root = temporaryFolder.newFolder("project-" + version);
         write(root.toPath().resolve("settings.gradle"), "pluginManagement {\n"
                 + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
@@ -254,8 +590,9 @@ public class PublishPluginFunctionalTest {
                         + "}\n");
 
         String publishSources = componentPublishesSources ? "java { withSourcesJar() }\n" : "";
+        String groovyPlugin = includeGroovyPlugin ? "    id 'groovy'\n" : "";
         write(fixtureDir.resolve("build.gradle"), "plugins {\n"
-                + "    id 'groovy'\n"
+                + groovyPlugin
                 + "    id 'java-gradle-plugin'\n"
                 + "    id 'cn.entertech.publish'\n"
                 + "}\n"
@@ -283,7 +620,22 @@ public class PublishPluginFunctionalTest {
             String publishInfoExtra,
             String buildScriptExtra
     ) throws IOException {
+        return createAndroidLibraryProjectWithPublishFlavors(publishInfoExtra, buildScriptExtra, true);
+    }
+
+    private File createAndroidLibraryProjectWithPublishFlavors(
+            String publishInfoExtra,
+            String buildScriptExtra,
+            boolean includeDynamicArtifactId
+    ) throws IOException {
         File root = temporaryFolder.newFolder("android-flavor-project");
+        String dynamicArtifactId = includeDynamicArtifactId
+                ? "    artifactIdForVariant { variant ->\n"
+                        + "        def productPrefix = \"${variant.flavor('project')}-\"\n"
+                        + "        def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''\n"
+                        + "        return \"${productPrefix}${baseArtifactId}${authSuffix}\"\n"
+                        + "    }\n"
+                : "";
         write(root.toPath().resolve("settings.gradle"), "pluginManagement {\n"
                 + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
                 + "}\n"
@@ -323,11 +675,7 @@ public class PublishPluginFunctionalTest {
                 + "    groupId = 'com.example'\n"
                 + "    artifactId = baseArtifactId\n"
                 + "    version = '1.0.0'\n"
-                + "    artifactIdForVariant { variant ->\n"
-                + "        def productPrefix = \"${variant.flavor('project')}-\"\n"
-                + "        def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''\n"
-                + "        return \"${productPrefix}${baseArtifactId}${authSuffix}\"\n"
-                + "    }\n"
+                + dynamicArtifactId
                 + publishInfoExtra
                 + "}\n"
                 + buildScriptExtra);
@@ -341,22 +689,45 @@ public class PublishPluginFunctionalTest {
         assertTrue(read(pomPath).contains("<artifactId>" + artifactId + "</artifactId>"));
     }
 
+    private static void assertPomContainsVersion(Path projectDir, String publicationName, String version)
+            throws IOException {
+        Path pomPath = projectDir.resolve("fixture/build/publications/" + publicationName + "/pom-default.xml");
+        assertTrue("Missing POM for " + publicationName, Files.exists(pomPath));
+        assertTrue(read(pomPath).contains("<version>" + version + "</version>"));
+    }
+
     private static void assertMavenAarPublication(Path mavenLocal, String artifactId) throws IOException {
-        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0");
-        assertTrue("Missing AAR for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.aar")));
-        assertTrue("Missing POM for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.pom")));
-        assertTrue("Missing module metadata for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-1.0.0.module")));
+        assertMavenAarPublication(mavenLocal, "com/example", artifactId, "1.0.0-local");
+    }
+
+    private static void assertMavenAarPublication(
+            Path mavenLocal,
+            String groupPath,
+            String artifactId,
+            String version
+    ) throws IOException {
+        Path versionDir = mavenLocal.resolve(groupPath + "/" + artifactId + "/" + version);
+        assertTrue("Missing AAR for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-" + version + ".aar")));
+        assertTrue("Missing POM for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-" + version + ".pom")));
+        assertTrue("Missing module metadata for " + artifactId,
+                Files.exists(versionDir.resolve(artifactId + "-" + version + ".module")));
         assertFalse("Non-debug publish should not include sources for " + artifactId,
-                Files.exists(versionDir.resolve(artifactId + "-1.0.0-sources.jar")));
+                Files.exists(versionDir.resolve(artifactId + "-" + version + "-sources.jar")));
     }
 
     private static void assertMavenArtifactMissing(Path mavenLocal, String artifactId) {
-        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0");
+        Path versionDir = mavenLocal.resolve("com/example/" + artifactId + "/1.0.0-local");
         assertFalse("Unexpected Maven publication for " + artifactId, Files.exists(versionDir));
     }
 
     private static String centralPublishInfo() {
         return centralPublishInfo("com.example");
+    }
+
+    private static String minimalCentralPublishInfo() {
+        return ""
+                + "    pomDescription = 'Fixture publish plugin test'\n"
+                + "    pomUrl = 'https://example.com/fixture'\n";
     }
 
     private static String centralPublishInfo(String namespace) {
@@ -382,6 +753,28 @@ public class PublishPluginFunctionalTest {
 
     private static void write(Path path, String value) throws IOException {
         Files.write(path, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void writeSuccessfulGradlew(File root) throws IOException {
+        Path gradlew = root.toPath().resolve("gradlew");
+        write(gradlew, "#!/bin/sh\nexit 0\n");
+        assertTrue(gradlew.toFile().setExecutable(true));
+    }
+
+    private static void writeRecordingGradlew(File root) throws IOException {
+        writeRecordingGradlew(root, 0);
+    }
+
+    private static void writeFailingRecordingGradlew(File root) throws IOException {
+        writeRecordingGradlew(root, 1);
+    }
+
+    private static void writeRecordingGradlew(File root, int exitCode) throws IOException {
+        Path gradlew = root.toPath().resolve("gradlew");
+        String argsPath = root.toPath().resolve("gradlew.args").toAbsolutePath().toString();
+        String envPath = root.toPath().resolve("gradlew.env").toAbsolutePath().toString();
+        write(gradlew, "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsPath + "'\nenv | sort > '" + envPath + "'\nexit " + exitCode + "\n");
+        assertTrue(gradlew.toFile().setExecutable(true));
     }
 
     private static String read(Path path) throws IOException {

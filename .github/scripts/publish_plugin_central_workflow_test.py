@@ -97,6 +97,30 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         self.assertIn("== \"true\"", merge)
         self.assertIn("does not require Central publish; merging directly", merge)
 
+    def test_release_sync_updates_readme_and_root_build_after_publish(self):
+        sync = step_block("Sync README release version")
+
+        self.assertIn("--root-build-file build.gradle.kts", sync)
+        self.assertIn("README.md build.gradle.kts", sync)
+        self.assertIn("git add plugin_base/build.gradle.kts README.md build.gradle.kts", sync)
+        self.assertIn("Update publish plugin usage version", sync)
+
+    def test_ci_mode_publishes_plugin_snapshot_without_release_steps(self):
+        text = workflow_text()
+        snapshot = step_block("Publish snapshot to Central snapshots")
+        resolve = step_block("Resolve snapshot version")
+
+        self.assertIn("publish_mode:", text)
+        self.assertIn("github.event.inputs.publish_mode != 'ci'", text)
+        self.assertIn("ci_snapshot:", text)
+        self.assertIn("github.event.inputs.publish_mode == 'ci'", text)
+        self.assertIn('snapshot_version="${base_version}-SNAPSHOT"', resolve)
+        self.assertIn("plugin_base/build.gradle.kts", resolve)
+        self.assertIn("publishAllPublicationsToCentralSnapshotsRepository", snapshot)
+        self.assertIn("-PcentralReleaseType=snapshot", snapshot)
+        self.assertNotIn("sync_readme_publish_version.py", snapshot)
+        self.assertNotIn("git tag", snapshot)
+
 
 class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
     def test_version_bump_only_runs_when_plugin_base_changed(self):
