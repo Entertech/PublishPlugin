@@ -582,13 +582,19 @@ CentralStaging
 publishEnterPublishPublicationToCentralStagingRepository
 ```
 
-Snapshots 后续可单独支持：
+Central snapshot repository：
 
 ```text
 https://central.sonatype.com/repository/maven-snapshots/
 ```
 
-第一阶段先只做 release。
+repository name：
+
+```text
+CentralSnapshots
+```
+
+`publish_mode=ci` 使用 snapshot repository，版本自动追加 `-SNAPSHOT`，不调用 Central manual upload，不同步 README。`publish_mode=release` 使用 release/staging repository，保持原版本，发布成功后可同步 README。
 
 ### 3. POM 元数据
 

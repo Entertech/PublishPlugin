@@ -160,7 +160,7 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         val publishInfo = project.extensions.getByType(PublishInfo::class.java)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
         if (mode == PublishConfigResolver.MODE_CENTRAL) {
-            return PublishConfigResolver.CENTRAL_STAGING_URL
+            return PublishConfigResolver.resolveCentralRepositoryUrl(project)
         }
         val repositoryName = if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
             PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)
@@ -203,7 +203,9 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
 
     override fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        if (mode == PublishConfigResolver.MODE_CENTRAL) {
+        if (mode == PublishConfigResolver.MODE_CENTRAL &&
+            !PublishConfigResolver.isCentralSnapshotPublish(project)
+        ) {
             try {
                 CentralPortalClient.manualUpload(project, publishInfo)
             } catch (e: GradleException) {
@@ -258,6 +260,7 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         "centralNamespace",
         "centralPublishingType",
         "centralRepositoryName",
+        "centralReleaseType",
         "centralUsername",
         "centralPassword",
         "mavenCentralUsername",

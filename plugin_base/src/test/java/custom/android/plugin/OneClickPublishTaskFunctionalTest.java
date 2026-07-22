@@ -58,6 +58,7 @@ public class OneClickPublishTaskFunctionalTest {
         assertFalse(workflowContent.contains("central-publish.yml"));
         assertTrue(workflowContent.contains("module: \":fixture\""));
         assertTrue(workflowContent.contains("publish_target: \"github_packages\""));
+        assertTrue(workflowContent.contains("publish_mode: \"release\""));
         assertTrue(workflowContent.contains("version: \"1.0.0\""));
         assertTrue(workflowContent.contains("sync_readme: true"));
         assertFalse(workflowContent.contains("namespace:"));
@@ -82,10 +83,11 @@ public class OneClickPublishTaskFunctionalTest {
         Path workflow = projectDir.toPath().resolve(".github/workflows/publish-fixture.yml");
         String workflowContent = read(workflow);
         assertTrue(workflowContent.contains("publish_target: \"central\""));
+        assertTrue(workflowContent.contains("publish_mode: \"release\""));
         assertTrue(workflowContent.contains("version: \"1.0.0\""));
+        assertTrue(workflowContent.contains("sync_readme: true"));
         assertTrue(workflowContent.contains("namespace: \"com.example\""));
         assertTrue(workflowContent.contains("publishing_type: \"user_managed\""));
-        assertFalse(workflowContent.contains("sync_readme: true"));
     }
 
     @Test

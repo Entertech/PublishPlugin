@@ -65,14 +65,15 @@ object GitHubActionsWorkflowWriter {
             "    with:",
             "      module: \"$modulePath\"",
             "      publish_target: \"$normalizedTarget\"",
-            "      version: \"$version\""
+            "      publish_mode: \"release\"",
+            "      version: \"$version\"",
+            "      sync_readme: true"
         )
         if (normalizedTarget == "central" || normalizedTarget == "all") {
             lines += "      namespace: \"$namespace\""
             lines += "      publishing_type: \"$publishingType\""
         }
         if (normalizedTarget == "github_packages" || normalizedTarget == "all") {
-            lines += "      sync_readme: true"
             if (githubPackagesRepository.isNotBlank()) {
                 lines += "      github_packages_repository: \"$githubPackagesRepository\""
             }

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -15,3 +15,6 @@ jobs:
     with:
       module: ":demo-plugin"
       publish_target: "github_packages"
+      publish_mode: "release"
+      version: "1.0.0"
+      sync_readme: true

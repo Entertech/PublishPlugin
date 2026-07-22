@@ -22,8 +22,13 @@ on:
         required: false
         default: "user_managed"
         type: string
+      publish_mode:
+        description: "Package mode: release publishes final artifacts; ci publishes Central snapshots only."
+        required: false
+        default: "release"
+        type: string
       version:
-        description: "Optional release version override"
+        description: "Release version. CI mode appends -SNAPSHOT before publishing."
         required: false
         default: ""
         type: string
@@ -74,6 +79,7 @@ jobs:
       PUBLISH_TARGET: ${{ inputs.publish_target }}
       CENTRAL_NAMESPACE: ${{ inputs.namespace }}
       CENTRAL_PUBLISHING_TYPE: ${{ inputs.publishing_type }}
+      PUBLISH_MODE: ${{ inputs.publish_mode }}
       PUBLISH_VERSION: ${{ inputs.version }}
       GITHUB_PACKAGES_REPOSITORY: ${{ inputs.github_packages_repository }}
       GITHUB_PACKAGES_URL: ${{ inputs.github_packages_url }}
@@ -127,6 +133,19 @@ jobs:
             exit 1
           fi
 
+          case "$PUBLISH_MODE" in
+            release|ci) ;;
+            *)
+              echo "::error::publish_mode must be release or ci"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$PUBLISH_MODE" == "ci" && "$PUBLISH_TARGET" != "central" ]]; then
+            echo "::error::publish_mode=ci only supports publish_target=central"
+            exit 1
+          fi
+
           if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
             required_central_env=(
               CENTRAL_USERNAME
@@ -148,6 +167,41 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Resolve publish version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          effective_version="$PUBLISH_VERSION"
+          if [[ -z "$effective_version" ]]; then
+            echo "::error::version is required"
+            exit 1
+          fi
+
+          case "$PUBLISH_MODE" in
+            ci)
+              if [[ "$effective_version" != *-SNAPSHOT ]]; then
+                effective_version="${effective_version}-SNAPSHOT"
+              fi
+              central_release_type="snapshot"
+              sync_readme_effective=false
+              ;;
+            release)
+              if [[ "$effective_version" == *-SNAPSHOT ]]; then
+                echo "::error::publish_mode=release must not use a -SNAPSHOT version"
+                exit 1
+              fi
+              central_release_type="release"
+              sync_readme_effective="${{ inputs.sync_readme }}"
+              ;;
+          esac
+
+          {
+            echo "EFFECTIVE_PUBLISH_VERSION=${effective_version}"
+            echo "CENTRAL_RELEASE_TYPE=${central_release_type}"
+            echo "SYNC_README_EFFECTIVE=${sync_readme_effective}"
+          } >> "$GITHUB_ENV"
 
       - name: Publish to GitHub Packages
         if: ${{ inputs.publish_target == 'github_packages' || inputs.publish_target == 'all' }}
@@ -171,19 +225,41 @@ jobs:
           fi
 
           if [[ -n "$PUBLISH_VERSION" ]]; then
-            args+=("-PpublishVersion=${PUBLISH_VERSION}")
+            args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}")
           fi
 
           ./gradlew "${args[@]}"
 
-      - name: Sync README for GitHub Packages
-        if: ${{ inputs.sync_readme && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && inputs.version != '' }}
+      - name: Publish to Central Portal
+        if: ${{ inputs.publish_target == 'central' || inputs.publish_target == 'all' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          args=(
+            "${MODULE_PATH}:PublishLibraryRemoteTask"
+            "-PpublishTarget=central"
+            "-PcentralReleaseType=${CENTRAL_RELEASE_TYPE}"
+            "-PcentralNamespace=${CENTRAL_NAMESPACE}"
+            "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}"
+            "--no-daemon"
+            "--stacktrace"
+          )
+
+          if [[ -n "$PUBLISH_VERSION" ]]; then
+            args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}")
+          fi
+
+          ./gradlew "${args[@]}"
+
+      - name: Sync README for release
+        if: ${{ inputs.sync_readme && inputs.publish_mode == 'release' && inputs.version != '' }}
         shell: bash
         run: |
           set -euo pipefail
 
           readme_github_packages_url="$GITHUB_PACKAGES_URL"
-          if [[ -z "$readme_github_packages_url" ]]; then
+          if [[ "$PUBLISH_TARGET" == "github_packages" || "$PUBLISH_TARGET" == "all" ]] && [[ -z "$readme_github_packages_url" ]]; then
             readme_github_packages_repository="$GITHUB_PACKAGES_REPOSITORY"
             if [[ -z "$readme_github_packages_repository" ]]; then
               readme_github_packages_repository="$GITHUB_REPOSITORY"
@@ -197,7 +273,8 @@ jobs:
           import os
           from pathlib import Path
 
-          version = os.environ["PUBLISH_VERSION"]
+          version = os.environ["EFFECTIVE_PUBLISH_VERSION"]
+          publish_target = os.environ["PUBLISH_TARGET"]
           github_packages_url = os.environ["README_GITHUB_PACKAGES_URL"]
           readme_path = Path("README.md")
           if not readme_path.exists():
@@ -230,19 +307,26 @@ jobs:
           block_re = re.compile(
               r"(?ms)(buildscript\s*\{\s*repositories\s*\{\n)(?P<body>.*?)(\n\s*\}\s*\n\s*\n\s*dependencies\s*\{\s*classpath\(\"cn\.entertech\.android:publish:)"
           )
-          repository_block = "\n".join([
-              "        google()",
-              "        mavenLocal()",
-              "        maven {",
-              f"            url = uri(\"{github_packages_url}\")",
-              "            credentials {",
-              "                username = providers.gradleProperty(\"gpr.user\").orNull",
-              "                    ?: System.getenv(\"GITHUB_ACTOR\")",
-              "                password = providers.gradleProperty(\"gpr.key\").orNull",
-              "                    ?: System.getenv(\"GITHUB_TOKEN\")",
-              "            }",
-              "        }",
-          ])
+          if publish_target in ("github_packages", "all"):
+              repository_block = "\n".join([
+                  "        google()",
+                  "        mavenLocal()",
+                  "        maven {",
+                  f"            url = uri(\"{github_packages_url}\")",
+                  "            credentials {",
+                  "                username = providers.gradleProperty(\"gpr.user\").orNull",
+                  "                    ?: System.getenv(\"GITHUB_ACTOR\")",
+                  "                password = providers.gradleProperty(\"gpr.key\").orNull",
+                  "                    ?: System.getenv(\"GITHUB_TOKEN\")",
+                  "            }",
+                  "        }",
+              ])
+          else:
+              repository_block = "\n".join([
+                  "        google()",
+                  "        mavenCentral()",
+                  "        mavenLocal()",
+              ])
           content, count = block_re.subn(lambda match: match.group(1) + repository_block + match.group(3), content, count=1)
           if count == 0:
               print("README code configuration block was not found; version sync still applied")
@@ -250,39 +334,18 @@ jobs:
           PY
 
       - name: Commit README sync
-        if: ${{ inputs.sync_readme && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && inputs.version != '' }}
+        if: ${{ inputs.sync_readme && inputs.publish_mode == 'release' && inputs.version != '' }}
         shell: bash
         run: |
           set -euo pipefail
 
           if git diff --quiet -- README.md; then
-            echo "README.md already documents ${PUBLISH_VERSION}"
+            echo "README.md already documents ${EFFECTIVE_PUBLISH_VERSION}"
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git commit -m "[codex] Sync README publish config to ${PUBLISH_VERSION} [skip ci]"
+          git commit -m "[codex] Sync README publish config to ${EFFECTIVE_PUBLISH_VERSION} [skip ci]"
           git push
-
-      - name: Publish to Central Portal
-        if: ${{ inputs.publish_target == 'central' || inputs.publish_target == 'all' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          args=(
-            "${MODULE_PATH}:PublishLibraryRemoteTask"
-            "-PpublishTarget=central"
-            "-PcentralNamespace=${CENTRAL_NAMESPACE}"
-            "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}"
-            "--no-daemon"
-            "--stacktrace"
-          )
-
-          if [[ -n "$PUBLISH_VERSION" ]]; then
-            args+=("-PpublishVersion=${PUBLISH_VERSION}")
-          fi
-
-          ./gradlew "${args[@]}"

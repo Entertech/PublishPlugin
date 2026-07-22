@@ -1084,6 +1084,7 @@ CI 或本地临时发布时，建议用 Gradle property 或环境变量覆盖敏
 | 发布版本 | `-PpublishVersion=...` / `-Pversion=...` | `PUBLISH_VERSION` | 临时覆盖 `PublishInfo.version`。`publishVersion` 优先级更高；`version` 用于兼容 reusable workflow 的 `version` 输入。 |
 | Central namespace | `-PcentralNamespace=...` | `CENTRAL_NAMESPACE` | 覆盖 `PublishInfo.centralNamespace`。 |
 | Central 发布方式 | `-PcentralPublishingType=user_managed` | `CENTRAL_PUBLISHING_TYPE` | 可选 `user_managed` / `automatic`。 |
+| Central release 类型 | `-PcentralReleaseType=snapshot` | `CENTRAL_RELEASE_TYPE` | 可选 `release` / `snapshot`。`snapshot` 使用 `CentralSnapshots` 和 `https://central.sonatype.com/repository/maven-snapshots/`。 |
 | Central repository 名称 | `-PcentralRepositoryName=CentralStaging` | `CENTRAL_REPOSITORY_NAME` | 一般不需要改。 |
 | Central token username | `-PcentralUsername=...` | `CENTRAL_USERNAME` | 优先级高于旧字段 `publishUserName`。 |
 | Central token password | `-PcentralPassword=...` | `CENTRAL_PASSWORD` | 优先级高于旧字段 `publishPassword`。 |
@@ -1123,6 +1124,13 @@ Gradle property > 环境变量 > mavenCentral* fallback > PublishInfo 旧字段 
 | `github_packages` | 只发布到 GitHub Packages | `GITHUB_TOKEN` 或 `GITHUB_PACKAGES_TOKEN`，并授予 packages write 权限。 |
 | `all` | 先发布 GitHub Packages，再发布 Sonatype Central Portal | 同时满足上面两类凭据。 |
 
+`publish_mode` 控制同一个 workflow 的发布语义：
+
+| publish_mode | 行为 |
+| --- | --- |
+| `release` | 正式发布。版本号保持 `1.2.3`，Central 走 release/staging 仓库；如果 `sync_readme=true`，发布成功后同步 README 并提交。 |
+| `ci` | CI 快照打包。只允许 `publish_target=central`；版本自动追加 `-SNAPSHOT`，发布到 `https://central.sonatype.com/repository/maven-snapshots/`；不更新 README。 |
+
 ### 只发布 Central
 
 业务项目不需要在各自仓库里单独维护 GPG 私钥和 Central token。把这些敏感字段配置为 `Entertech` organization secrets 后，业务项目只调用本仓库提供的 reusable workflow，并使用 `secrets: inherit` 继承组织级 secrets。
@@ -1140,6 +1148,32 @@ jobs:
     with:
       module: ":library"
       publish_target: "central"
+      publish_mode: "release"
+      version: "1.2.3"
+      sync_readme: true
+      namespace: "cn.entertech"
+      publishing_type: "user_managed"
+```
+
+### CI 快照发布到 Central Snapshots
+
+通过本仓库 skill 触发 CI 打包时使用 `publish_mode: "ci"`。该模式只支持 Central，workflow 会把 `version: "1.2.3"` 实际发布为 `1.2.3-SNAPSHOT`，并发布到 Sonatype Central snapshots 仓库；不会同步 README。
+
+```yaml
+name: Publish CI Snapshot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
+    secrets: inherit
+    with:
+      module: ":library"
+      publish_target: "central"
+      publish_mode: "ci"
+      version: "1.2.3"
       namespace: "cn.entertech"
       publishing_type: "user_managed"
 ```
@@ -1153,7 +1187,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -1162,6 +1196,7 @@ jobs:
     with:
       module: ":library"
       publish_target: "github_packages"
+      publish_mode: "release"
       version: "1.2.3"
       sync_readme: true
       github_packages_repository: "owner/repo"
@@ -1188,6 +1223,7 @@ jobs:
     with:
       module: ":library"
       publish_target: "all"
+      publish_mode: "release"
       namespace: "cn.entertech"
       publishing_type: "user_managed"
       version: "1.2.3"
@@ -1201,13 +1237,14 @@ jobs:
 with:
   module: ":library"
   publish_target: "all"
+  publish_mode: "release"
   namespace: "cn.entertech"
   publishing_type: "user_managed"
   github_packages_repository: "owner/repo"
   version: "1.2.3"
 ```
 
-当发布目标包含 `github_packages` 时，`configurePublish` 生成的 workflow 会传入 `version` 并开启 `sync_readme`。reusable workflow 发布成功后会把 README「代码配置」章节中的插件版本同步为本次发布版本，并把根工程插件仓库配置从 `mavenCentral()` 切换为对应的 `https://maven.pkg.github.com/owner/repo`。
+`configurePublish` 生成的 workflow 默认使用 `publish_mode: "release"`，会传入 `version` 并开启 `sync_readme`。reusable workflow 发布成功后会把 README「代码配置」章节中的插件版本同步为本次发布版本；如果发布目标包含 `github_packages`，根工程插件仓库配置会切换为对应的 `https://maven.pkg.github.com/owner/repo`，否则保持 `mavenCentral()`。
 
 `Entertech` organization secrets 需要维护：
 

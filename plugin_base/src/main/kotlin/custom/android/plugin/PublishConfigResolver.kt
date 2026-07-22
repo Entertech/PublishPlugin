@@ -12,6 +12,8 @@ import java.util.Properties
 object PublishConfigResolver {
     const val CENTRAL_STAGING_URL =
         "https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+    const val CENTRAL_SNAPSHOT_URL =
+        "https://central.sonatype.com/repository/maven-snapshots/"
     const val CENTRAL_MANUAL_UPLOAD_BASE_URL =
         "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository"
     const val MODE_CENTRAL = "central"
@@ -21,6 +23,8 @@ object PublishConfigResolver {
     const val WORKFLOW_TARGET_GITHUB_PACKAGES = "github_packages"
     const val WORKFLOW_TARGET_ALL = "all"
     const val DEFAULT_GITHUB_PACKAGES_REPOSITORY_NAME = "GitHubPackages"
+    const val CENTRAL_RELEASE_TYPE_RELEASE = "release"
+    const val CENTRAL_RELEASE_TYPE_SNAPSHOT = "snapshot"
 
     data class CentralCredentials(
         val username: String,
@@ -155,14 +159,18 @@ object PublishConfigResolver {
         val publishTaskPrefix = "publish${BasePublishTask.MAVEN_PUBLICATION_NAME}PublicationTo"
         return project.gradle.startParameter.taskNames.any { taskName ->
             val publishRepositoryTask = taskName.contains(publishTaskPrefix) && taskName.contains("Repository")
-            taskName.contains(PublishLibraryRemoteTask.TAG) ||
+                taskName.contains(PublishLibraryRemoteTask.TAG) ||
                 taskName.contains("CentralStagingRepository") ||
+                taskName.contains("CentralSnapshotsRepository") ||
                 publishRepositoryTask ||
                 taskName.contains("sign${BasePublishTask.MAVEN_PUBLICATION_NAME}Publication")
         }
     }
 
     fun resolveCentralRepositoryName(project: Project, publishInfo: PublishInfo): String {
+        if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
+            return "CentralSnapshots"
+        }
         return firstNotBlank(
             projectProperty(project, "centralRepositoryName"),
             environment("CENTRAL_REPOSITORY_NAME"),
@@ -170,6 +178,32 @@ object PublishConfigResolver {
             loadPublishProperties(project).centralRepositoryName,
             "CentralStaging"
         )
+    }
+
+    fun resolveCentralRepositoryUrl(project: Project): String {
+        return if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
+            CENTRAL_SNAPSHOT_URL
+        } else {
+            CENTRAL_STAGING_URL
+        }
+    }
+
+    fun resolveCentralReleaseType(project: Project): String {
+        val value = firstNotBlank(
+            projectProperty(project, "centralReleaseType"),
+            environment("CENTRAL_RELEASE_TYPE")
+        ).ifBlank { CENTRAL_RELEASE_TYPE_RELEASE }
+        return when (value.trim().lowercase()) {
+            CENTRAL_RELEASE_TYPE_RELEASE -> CENTRAL_RELEASE_TYPE_RELEASE
+            CENTRAL_RELEASE_TYPE_SNAPSHOT -> CENTRAL_RELEASE_TYPE_SNAPSHOT
+            else -> throw IllegalArgumentException(
+                "centralReleaseType only supports release or snapshot, but was $value"
+            )
+        }
+    }
+
+    fun isCentralSnapshotPublish(project: Project): Boolean {
+        return resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT
     }
 
     fun resolveCentralNamespace(project: Project, publishInfo: PublishInfo): String {

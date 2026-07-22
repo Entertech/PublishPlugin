@@ -60,6 +60,18 @@ scripts/configure-publish-offline.sh :library --publish-target central -- --stac
 
 The script only orchestrates the existing Gradle tasks. It may accept workflow control flags such as `--publish-target github_packages|central|all`, but it must not accept Central token, GPG private key, GitHub token, or signing password values as command arguments.
 
+### CI Snapshot Package Build
+
+When using this repository's skill to trigger a CI package build instead of a normal release workflow, call the reusable workflow with:
+
+```yaml
+publish_target: "central"
+publish_mode: "ci"
+version: "<base semver without -SNAPSHOT>"
+```
+
+This mode supports both modules in this repository and modules in other repositories that apply `cn.entertech.publish`. It must publish only to Central snapshots, must append `-SNAPSHOT`, and must not sync README.
+
 ### Review or Fix Implementation
 
 Check these invariants first:
@@ -73,6 +85,7 @@ Check these invariants first:
 - Central token and GPG secret values are one-time inputs for `configurePublish` when `publishTarget=central` or `all`; runtime publish must use Gradle properties or environment variables, not local secret fallback.
 - `publishTarget` defaults to `github_packages`; `githubSecrets=true` must not write Central/GPG secrets for the default GitHub Packages-only workflow.
 - Generated workflow must call the configured reusable workflow, defaulting to `Entertech/PublishPlugin/.github/workflows/publish.yml@main`, and pass `publish_target` as `github_packages`, `central`, or `all`.
+- Generated release workflows must pass `publish_mode=release`, `version`, and `sync_readme=true`. Skill-triggered CI package builds use `publish_mode=ci`, must force `publish_target=central`, append `-SNAPSHOT`, publish to Central snapshots, and must not update README.
 - `dryRun=true` has no side effects.
 - `overwriteGithubSecrets=false` never overwrites an existing repository secret; missing secrets are filled individually.
 - `rollbackPublishSecrets` can infer the GitHub repo and can delete the default generated workflow path. Legacy rollback task names remain supported.

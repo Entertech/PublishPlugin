@@ -633,10 +633,11 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, properties)
         val repositoryName = PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
+        val repositoryUrl = PublishConfigResolver.resolveCentralRepositoryUrl(project)
         publishing.repositories { artifactRepositories ->
             artifactRepositories.maven { repository ->
                 repository.name = repositoryName
-                repository.url = URI(PublishConfigResolver.CENTRAL_STAGING_URL)
+                repository.url = URI(repositoryUrl)
                 allowInsecureProtocolIfSupported(repository)
                 repository.credentials { passwordCredentials ->
                     passwordCredentials.username = credentials.username

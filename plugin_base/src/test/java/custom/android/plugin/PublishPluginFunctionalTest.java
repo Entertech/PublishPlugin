@@ -276,6 +276,37 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void remoteTaskUsesCentralSnapshotsRepositoryWhenRequested() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                centralPublishInfo(),
+                "publish.publishTarget=central\n"
+        );
+        writeFailingRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PcentralReleaseType=snapshot",
+                        "-PpublishVersion=1.0.0-SNAPSHOT",
+                        "-PcentralUsername=token-user",
+                        "-PcentralPassword=token-password",
+                        "-PsigningInMemoryKey=key",
+                        "-PsigningInMemoryKeyPassword=password",
+                        "--stacktrace"
+                )
+                .buildAndFail();
+
+        String invoked = read(projectDir.toPath().resolve("gradlew.args"));
+        String environment = read(projectDir.toPath().resolve("gradlew.env"));
+        assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToCentralSnapshotsRepository"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_centralReleaseType=snapshot"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_publishVersion=1.0.0-SNAPSHOT"));
+        assertFalse(invoked.contains("CentralStagingRepository"));
+    }
+
+    @Test
     public void remoteTaskForwardsCliVersionPropertiesToNestedGradle() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeRecordingGradlew(projectDir);

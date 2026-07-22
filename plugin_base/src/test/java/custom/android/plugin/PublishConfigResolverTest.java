@@ -24,6 +24,22 @@ public class PublishConfigResolverTest {
     }
 
     @Test
+    public void centralSnapshotReleaseTypeUsesSnapshotRepository() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        project.getExtensions().getExtraProperties().set("centralReleaseType", "snapshot");
+
+        assertEquals(
+                "CentralSnapshots",
+                PublishConfigResolver.INSTANCE.resolveCentralRepositoryName(project, publishInfo)
+        );
+        assertEquals(
+                PublishConfigResolver.CENTRAL_SNAPSHOT_URL,
+                PublishConfigResolver.INSTANCE.resolveCentralRepositoryUrl(project)
+        );
+    }
+
+    @Test
     public void scmConnectionsCanBeDerivedFromSshRemoteStyleUrl() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();

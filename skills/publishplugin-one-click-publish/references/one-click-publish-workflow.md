@@ -120,7 +120,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -130,6 +130,9 @@ jobs:
     with:
       module: ":library"
       publish_target: "github_packages"
+      publish_mode: "release"
+      version: "1.0.0"
+      sync_readme: true
 ```
 
 Central target workflow shape:
@@ -142,9 +145,30 @@ jobs:
     with:
       module: ":library"
       publish_target: "central"
+      publish_mode: "release"
+      version: "1.0.0"
+      sync_readme: true
       namespace: "cn.entertech"
       publishing_type: "user_managed"
 ```
+
+CI snapshot workflow shape for skill-triggered package builds:
+
+```yaml
+jobs:
+  publish:
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
+    secrets: inherit
+    with:
+      module: ":library"
+      publish_target: "central"
+      publish_mode: "ci"
+      version: "1.0.0"
+      namespace: "cn.entertech"
+      publishing_type: "user_managed"
+```
+
+`publish_mode=ci` only supports `publish_target=central`, appends `-SNAPSHOT`, publishes to Central snapshots, and must not update README. `publish_mode=release` keeps the exact version, publishes to release repositories, and may sync README after successful publish.
 
 If a workflow file already exists:
 
