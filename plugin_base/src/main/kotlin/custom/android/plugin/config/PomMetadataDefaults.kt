@@ -3,8 +3,8 @@ package custom.android.plugin.config
 import org.gradle.api.Project
 
 object PomMetadataDefaults {
-    const val ANDROID_LIBRARY_DESCRIPTION = "Android library published to Central Portal"
-    const val GRADLE_PLUGIN_DESCRIPTION = "Gradle plugin published to Central Portal"
+    const val ANDROID_LIBRARY_DESCRIPTION = "Android library published as a Maven artifact"
+    const val GRADLE_PLUGIN_DESCRIPTION = "Gradle plugin published as a Maven artifact"
 
     fun defaultPomName(project: Project, artifactId: String): String {
         return artifactId.ifBlank { project.name }

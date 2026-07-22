@@ -134,6 +134,7 @@ public class PublishPluginFunctionalTest {
                         ":fixture:tasks",
                         "--all",
                         "-PcentralPublish=true",
+                        "-PremotePublishMode=central",
                         "-PcentralNamespace=com.example.cli",
                         "-PcentralUsername=token-user",
                         "-PcentralPassword=token-password",
@@ -148,6 +149,7 @@ public class PublishPluginFunctionalTest {
                 .withArguments(
                         ":fixture:generatePomFileForEnterPublishPublication",
                         "-PcentralPublish=true",
+                        "-PremotePublishMode=central",
                         "-PcentralNamespace=com.example.cli",
                         "-PpomName=CLI Fixture",
                         "-PpomDescription=Configured from CLI",
@@ -166,14 +168,13 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
-    public void githubPackagesModeAddsGitHubPackagesRepository() throws IOException {
+    public void defaultRemoteModeAddsGitHubPackagesRepository() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
 
         String tasksOutput = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:tasks",
                         "--all",
-                        "-PremotePublishMode=githubPackages",
                         "-PgithubPackagesRepository=Entertech/fixture",
                         "-PgithubPackagesUsername=github-user",
                         "-PgithubPackagesPassword=github-token",
@@ -193,7 +194,6 @@ public class PublishPluginFunctionalTest {
         gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:PublishLibraryRemoteTask",
-                        "-PremotePublishMode=githubPackages",
                         "-PgithubPackagesRepository=Entertech/fixture",
                         "-Pgpr.user=github-user",
                         "-Pgpr.key=github-token",
@@ -247,6 +247,7 @@ public class PublishPluginFunctionalTest {
                 .withArguments(
                         ":fixture:publishToMavenLocal",
                         "-PcentralPublish=true",
+                        "-PremotePublishMode=central",
                         "-PcentralUsername=token-user",
                         "-PcentralPassword=token-password",
                         "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
@@ -267,6 +268,7 @@ public class PublishPluginFunctionalTest {
         String output = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:PublishLibraryRemoteTask",
+                        "-PremotePublishMode=central",
                         "-PcentralNamespace=com.example",
                         "--stacktrace"
                 )

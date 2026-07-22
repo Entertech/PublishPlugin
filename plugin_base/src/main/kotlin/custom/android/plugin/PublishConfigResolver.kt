@@ -61,7 +61,7 @@ object PublishConfigResolver {
             projectProperty(project, "remotePublishMode"),
             environment("REMOTE_PUBLISH_MODE"),
             publishInfo.remotePublishMode
-        ).ifBlank { MODE_CENTRAL }
+        ).ifBlank { MODE_GITHUB_PACKAGES }
     }
 
     fun isCentralPublish(project: Project, publishInfo: PublishInfo): Boolean {

@@ -11,6 +11,7 @@ public class PublishInfoDefaultsTest {
     public void defaultsUseEntertechCentralMetadata() {
         PublishInfo publishInfo = new PublishInfo();
 
+        assertEquals("githubPackages", publishInfo.getRemotePublishMode());
         assertEquals("cn.entertech", publishInfo.getCentralNamespace());
         assertEquals(String.valueOf(Year.now()), publishInfo.getPomInceptionYear());
         assertEquals("Entertech", publishInfo.getDeveloperId());

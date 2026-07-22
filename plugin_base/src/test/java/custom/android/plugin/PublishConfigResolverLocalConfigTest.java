@@ -51,7 +51,7 @@ public class PublishConfigResolverLocalConfigTest {
 
         assertEquals("demo-plugin", PublishConfigResolver.INSTANCE.resolvePomName(project, publishInfo, "demo-plugin"));
         assertEquals(
-                "Gradle plugin published to Central Portal",
+                "Gradle plugin published as a Maven artifact",
                 PublishConfigResolver.INSTANCE.resolvePomDescription(project, publishInfo)
         );
         assertEquals("https://github.com/Entertech/demo", PublishConfigResolver.INSTANCE.resolvePomUrl(project, publishInfo));
