@@ -16,7 +16,7 @@ class NormalizeSigningKeyIdTest(unittest.TestCase):
         )
 
     def test_rejects_non_hex_values(self):
-        self.assertEqual(normalize_signing_key_id("wk1995 <1226426603@qq.com>"), "")
+        self.assertEqual(normalize_signing_key_id("Developer <dev@example.com>"), "")
         self.assertEqual(normalize_signing_key_id("not-a-key-id"), "")
 
     def test_shell_exports_clear_all_gradle_key_id_aliases_for_invalid_value(self):
