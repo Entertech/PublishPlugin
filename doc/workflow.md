@@ -55,7 +55,38 @@ git switch -c feature/demo-publish enter/main
 
 开发过程中不要直接提交到 `main` 或 `pre_publish`。
 
-## 2. 本地验证
+## 2. 同步目标分支
+
+提交 `需求分支 -> pre_publish` 的 PR 前，需求分支应该先同步最新 `pre_publish`。不要 rebase、reset 或改写共享的远端 `pre_publish` 分支。
+
+推荐做法：
+
+```bash
+git fetch enter main pre_publish
+git switch feature/demo-publish
+git rebase enter/pre_publish
+```
+
+如果 `main` 比 `pre_publish` 更新，或者发布 workflow 曾提示 `pre_publish cannot be preflight-merged into main`，说明后续 `pre_publish -> main` 可能冲突。此时应在需求分支上把 `main` 合进来并解决冲突：
+
+```bash
+git fetch enter main pre_publish
+git switch feature/demo-publish
+git rebase enter/pre_publish
+git merge enter/main
+# 解决冲突并完成验证后，更新需求分支
+git push --force-with-lease
+```
+
+边界规则：
+
+- 可以 rebase 需求分支到 `enter/pre_publish`。
+- 可以在需求分支上 merge `enter/main`，提前解决最终合主冲突。
+- 不要 rebase 远端 `pre_publish` 到 `main`。
+- 不要 reset 远端 `pre_publish` 到 `main`。
+- `pre_publish -> main` 的最终合入由发布 workflow 自动完成。
+
+## 3. 本地验证
 
 按改动范围选择验证命令：
 
@@ -75,7 +106,7 @@ python3 .github/scripts/sync_readme_publish_version.py --check
 
 如果改了 `skills/publishplugin-one-click-publish/**`，仓库内 skill 目录是源文件，运行时 skill 必须继续通过 `scripts/install-codex-skill.sh` 指向仓库目录。
 
-## 3. 提 PR 到 pre_publish
+## 4. 提 PR 到 pre_publish
 
 需求分支推送后，创建 PR：
 
@@ -87,7 +118,7 @@ python3 .github/scripts/sync_readme_publish_version.py --check
 
 PR 打开、更新或重新打开时，会运行 `.github/workflows/publish-plugin-pr-check.yml` 的 `validate` job。
 
-## 4. PR 校验逻辑
+## 5. PR 校验逻辑
 
 PR 校验只负责发布前验证，不发布 Central。
 
@@ -107,7 +138,7 @@ PR 校验只负责发布前验证，不发布 Central。
 
 只有 PR 校验通过后，需求分支才能合入 `pre_publish`。
 
-## 5. 合入 pre_publish 后的发布判断
+## 6. 合入 pre_publish 后的发布判断
 
 PR 合入 `pre_publish` 后，`.github/workflows/publish-plugin-central.yml` 会自动运行。
 
@@ -128,7 +159,7 @@ main 的 plugin_base 版本
 
 正式发布前会先预演当前发布 HEAD 合入 `origin/main`。如果存在冲突，workflow 失败，不发布 Central，也不合入 `main`。
 
-## 6. 正式发布流程
+## 7. 正式发布流程
 
 当 `pre_publish` 版本大于 `main` 时，发布 workflow 执行：
 
@@ -147,7 +178,7 @@ main 的 plugin_base 版本
 
 如果 Central 发布失败，则不会同步 README/root build，不会创建 tag，也不会合入 `main`。
 
-## 7. 无需发布的合入流程
+## 8. 无需发布的合入流程
 
 如果 `pre_publish` 与 `main` 的 `plugin_base` 版本相同，workflow 认为本次变更不需要发布新的插件版本。
 
@@ -160,7 +191,7 @@ main 的 plugin_base 版本
 
 流程会跳过 Central 发布和 tag，直接把 `pre_publish` 合入 `main`。
 
-## 8. 分支清理
+## 9. 分支清理
 
 需求完成后应清理一次性需求分支，避免远端长期堆积已完成分支。
 
@@ -182,7 +213,7 @@ git branch -d feature/demo-publish
 
 如果需求分支后续还要继续承接修复，可以暂时保留；最终合入 `main` 后再清理也可以。
 
-## 9. 手动合入远端 pre_publish 到 main
+## 10. 手动合入远端 pre_publish 到 main
 
 正常情况下应让 `publish-plugin-central.yml` 自动完成 `pre_publish -> main`。只有 workflow 被配置问题阻断、且已经确认无需重新发布或需要修复流程本身时，才手动操作。
 
@@ -212,7 +243,7 @@ git status --short --branch
 git log --oneline --decorate --max-count=5 enter/main
 ```
 
-## 10. 常见失败处理
+## 11. 常见失败处理
 
 | 失败点 | 含义 | 处理方式 |
 | --- | --- | --- |
