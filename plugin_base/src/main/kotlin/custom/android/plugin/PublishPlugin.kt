@@ -282,12 +282,7 @@ open class PublishPlugin : Plugin<Project> {
         finalizeDslMethod.invoke(androidComponents, Action<Any> { androidDsl ->
             val publishInfo = project.extensions.getByType(PublishInfo::class.java)
             val candidates = createAndroidReleaseVariantInfos(project)
-            val publishableVariants = candidates.filter { publishInfo.shouldPublishVariant(it) }
-            if (candidates.isNotEmpty() && publishableVariants.isEmpty()) {
-                throw GradleException(
-                    "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
-                )
-            }
+            val publishableVariants = selectAndroidPublishVariants(candidates, publishInfo)
             publishableVariants.forEach { variant ->
                 registerSingleVariant(androidDsl, variant.name)
             }
@@ -362,7 +357,20 @@ open class PublishPlugin : Plugin<Project> {
         val singleReleaseComponent =
             buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals(buildTypeName, ignoreCase = true)
 
-        return buildTypeComponents.map { component ->
+        val publishableVariantNames = if (singleReleaseComponent) {
+            null
+        } else {
+            selectAndroidPublishVariants(createAndroidReleaseVariantInfos(project), publishInfo)
+                .map { it.name }
+                .toSet()
+        }
+        val publishableComponents = if (publishableVariantNames == null) {
+            buildTypeComponents
+        } else {
+            buildTypeComponents.filter { it.name in publishableVariantNames }
+        }
+
+        return publishableComponents.map { component ->
             val publicationName = if (singleReleaseComponent) {
                 MAVEN_PUBLICATION_NAME
             } else {
@@ -378,6 +386,22 @@ open class PublishPlugin : Plugin<Project> {
             val version = publishInfo.resolveVersion(variantInfo)
             PublishTarget(component, publicationName, groupId, artifactId, version)
         }
+    }
+
+    private fun selectAndroidPublishVariants(
+        candidates: List<PublishVariantInfo>,
+        publishInfo: PublishInfo
+    ): List<PublishVariantInfo> {
+        val filtered = candidates.filter { publishInfo.shouldPublishVariant(it) }
+        if (candidates.isNotEmpty() && filtered.isEmpty()) {
+            throw GradleException(
+                "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
+            )
+        }
+        if (publishInfo.hasVariantCoordinateResolvers()) {
+            return filtered
+        }
+        return filtered.take(1)
     }
 
     private fun isBuildTypeComponent(componentName: String, buildTypeName: String): Boolean {

@@ -942,7 +942,8 @@ Sonatype OSSRH Staging API 文档还列出 `portal_api`，它只上传 deploymen
 当 Android Library 存在多个 release variant 时，插件会为每个 release component 创建独立 publication：
 
 - 无 flavor 的普通 `release` 组件仍使用旧 publication 名：`EnterPublish`。
-- 多 flavor release 组件使用 `<VariantName>EnterPublish`，例如 `BreathAuthReleaseEnterPublish`。
+- 配置了 `groupIdForVariant`、`artifactIdForVariant` 或 `versionForVariant` 时，多 flavor release 组件使用 `<VariantName>EnterPublish`，例如 `BreathAuthReleaseEnterPublish`。
+- 没有配置 variant 级坐标时，只注册并发布第一个可发布的 release variant，避免多个 publication 使用同一 Maven 坐标互相覆盖。
 - `PublishLibraryRemoteTask` 检测到多个 `*EnterPublish` publication 时，会执行 `publishAllPublicationsTo<RepositoryName>Repository`。
 
 如果需要按 variant 动态设置 Maven 坐标，使用 `groupIdForVariant`、`artifactIdForVariant`、`versionForVariant`：
@@ -1029,7 +1030,7 @@ variant.flavor("project") // 例如 breath / sdk
 variant.flavor("authentication") // 例如 auth / noAuth
 ```
 
-没有配置 `artifactIdForVariant` 时，所有 publication 使用 `PublishInfo.artifactId`，保持旧项目行为。
+没有配置 `groupIdForVariant`、`artifactIdForVariant` 或 `versionForVariant` 时，多 flavor 模块只发布一次，并使用 `PublishInfo` 中的固定 `groupId`、`artifactId` 和 `version`。
 
 如果某些 variant 不需要发布，使用 `skipVariantIf`：
 

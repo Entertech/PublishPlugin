@@ -195,6 +195,12 @@ open class PublishInfo {
         return fieldName in explicitFields
     }
 
+    internal fun hasVariantCoordinateResolvers(): Boolean {
+        return artifactIdForVariantAction != null ||
+            groupIdForVariantAction != null ||
+            versionForVariantAction != null
+    }
+
     private fun markExplicit(fieldName: String) {
         explicitFields += fieldName
     }

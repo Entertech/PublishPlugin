@@ -373,6 +373,22 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void androidLibraryPublishesSingleReleaseFlavorWhenVariantCoordinatesAreNotConfigured() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors("", "", false);
+        File mavenLocal = temporaryFolder.newFolder("android-flavor-single-coordinate-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        assertMavenAarPublication(mavenLocal.toPath(), "affective-offline-sdk");
+    }
+
+    @Test
     public void androidLibrarySupportsDynamicGroupIdAndVersionForReleaseFlavorVariants() throws IOException {
         File projectDir = createAndroidLibraryProjectWithPublishFlavors(
                 "    groupIdForVariant { variant ->\n"
@@ -536,7 +552,22 @@ public class PublishPluginFunctionalTest {
             String publishInfoExtra,
             String buildScriptExtra
     ) throws IOException {
+        return createAndroidLibraryProjectWithPublishFlavors(publishInfoExtra, buildScriptExtra, true);
+    }
+
+    private File createAndroidLibraryProjectWithPublishFlavors(
+            String publishInfoExtra,
+            String buildScriptExtra,
+            boolean includeDynamicArtifactId
+    ) throws IOException {
         File root = temporaryFolder.newFolder("android-flavor-project");
+        String dynamicArtifactId = includeDynamicArtifactId
+                ? "    artifactIdForVariant { variant ->\n"
+                        + "        def productPrefix = \"${variant.flavor('project')}-\"\n"
+                        + "        def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''\n"
+                        + "        return \"${productPrefix}${baseArtifactId}${authSuffix}\"\n"
+                        + "    }\n"
+                : "";
         write(root.toPath().resolve("settings.gradle"), "pluginManagement {\n"
                 + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
                 + "}\n"
@@ -576,11 +607,7 @@ public class PublishPluginFunctionalTest {
                 + "    groupId = 'com.example'\n"
                 + "    artifactId = baseArtifactId\n"
                 + "    version = '1.0.0'\n"
-                + "    artifactIdForVariant { variant ->\n"
-                + "        def productPrefix = \"${variant.flavor('project')}-\"\n"
-                + "        def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''\n"
-                + "        return \"${productPrefix}${baseArtifactId}${authSuffix}\"\n"
-                + "    }\n"
+                + dynamicArtifactId
                 + publishInfoExtra
                 + "}\n"
                 + buildScriptExtra);
