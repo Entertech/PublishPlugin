@@ -303,13 +303,15 @@ Central 远程发布要求源码仓库信息。插件会按以下顺序推导 `s
 | `scmConnection` | 只读 SCM 地址，可由 `scmUrl` 推导 | `scm:git:https://github.com/Entertech/PublishPlugin.git` |
 | `scmDeveloperConnection` | 开发者 SCM 地址，可由 `scmUrl` 推导 | `scm:git:ssh://git@github.com/Entertech/PublishPlugin.git` |
 
-### 动态 artifactId 与 variant 过滤
+### 动态坐标与 variant 过滤
 
-`artifactIdForVariant { variant -> ... }` 和 `skipVariantIf { variant -> ... }` 只对 Android Library 的 release variant 生效。无 flavor 的普通 `release` 组件不会传入 variant 回调，直接使用 `artifactId`。
+`groupIdForVariant { variant -> ... }`、`artifactIdForVariant { variant -> ... }`、`versionForVariant { variant -> ... }` 和 `skipVariantIf { variant -> ... }` 只对 Android Library 的 release variant 生效。无 flavor 的普通 `release` 组件不会传入 variant 回调，直接使用 `groupId`、`artifactId`、`version`。
 
 | API/字段 | 作用 | 说明 |
 | --- | --- | --- |
+| `groupIdForVariant` | 为每个 release variant 返回独立 groupId | 返回空字符串时回退到 `groupId`。 |
 | `artifactIdForVariant` | 为每个 release variant 返回独立 artifactId | 返回空字符串时回退到 `artifactId`。适合多 flavor 输出不同 Maven 坐标。 |
+| `versionForVariant` | 为每个 release variant 返回独立 version | 返回空字符串时回退到 `version`。本地发布仍会追加 `-local` 后缀。 |
 | `skipVariantIf` | 过滤不需要发布的 release variant | 返回 `true` 时跳过该 variant，不注册 publication，也不会生成对应 publish 任务。 |
 | `variant.name` | 当前 component/variant 名 | 例如 `breathAuthRelease`。 |
 | `variant.buildType` | 当前 build type | 当前插件只发布 `release` component。 |
@@ -542,7 +544,7 @@ Sonatype OSSRH Staging API 文档还列出 `portal_api`，它只上传 deploymen
 - 多 flavor release 组件使用 `<VariantName>EnterPublish`，例如 `BreathAuthReleaseEnterPublish`。
 - `PublishLibraryRemoteTask` 检测到多个 `*EnterPublish` publication 时，会执行 `publishAllPublicationsTo<RepositoryName>Repository`。
 
-如果需要按 variant 动态设置 artifactId，使用 `artifactIdForVariant`：
+如果需要按 variant 动态设置 Maven 坐标，使用 `groupIdForVariant`、`artifactIdForVariant`、`versionForVariant`：
 
 ```kotlin
 val baseArtifactId = "affective-offline-sdk"
@@ -551,6 +553,14 @@ PublishInfo {
     groupId = "cn.entertech.android"
     artifactId = baseArtifactId
     version = "1.0.0"
+
+    groupIdForVariant { variant ->
+        if (variant.flavor("project") == "sdk") {
+            "cn.entertech.android.sdk"
+        } else {
+            "cn.entertech.android.breath"
+        }
+    }
 
     artifactIdForVariant { variant ->
         val productPrefix = "${variant.flavor("project")}-"
@@ -561,6 +571,14 @@ PublishInfo {
         }
 
         "$productPrefix$baseArtifactId$authSuffix"
+    }
+
+    versionForVariant { variant ->
+        if (variant.flavor("authentication") == "auth") {
+            "1.0.0-auth"
+        } else {
+            "1.0.0"
+        }
     }
 }
 ```
@@ -575,10 +593,18 @@ PublishInfo {
     artifactId = baseArtifactId
     version = '1.0.0'
 
+    groupIdForVariant { variant ->
+        return variant.flavor('project') == 'sdk' ? 'cn.entertech.android.sdk' : 'cn.entertech.android.breath'
+    }
+
     artifactIdForVariant { variant ->
         def productPrefix = "${variant.flavor('project')}-"
         def authSuffix = variant.flavor('authentication') == 'auth' ? '-authentication' : ''
         return "${productPrefix}${baseArtifactId}${authSuffix}"
+    }
+
+    versionForVariant { variant ->
+        return variant.flavor('authentication') == 'auth' ? '1.0.0-auth' : '1.0.0'
     }
 }
 ```

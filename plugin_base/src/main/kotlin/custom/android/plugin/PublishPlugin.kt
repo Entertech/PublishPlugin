@@ -33,7 +33,9 @@ open class PublishPlugin : Plugin<Project> {
     private data class PublishTarget(
         val component: SoftwareComponent,
         val publicationName: String,
-        val artifactId: String
+        val groupId: String,
+        val artifactId: String,
+        val version: String
     )
 
     private data class AndroidFlavorSpec(
@@ -97,7 +99,9 @@ open class PublishPlugin : Plugin<Project> {
                                 publishInfo,
                                 it,
                                 MAVEN_PUBLICATION_NAME,
-                                publishInfo.artifactId
+                                publishInfo.groupId,
+                                publishInfo.artifactId,
+                                publishInfo.version
                             )
                             hasPublication = true
                         }
@@ -115,7 +119,9 @@ open class PublishPlugin : Plugin<Project> {
                             publishInfo,
                             it.component,
                             it.publicationName,
-                            it.artifactId
+                            it.groupId,
+                            it.artifactId,
+                            it.version
                         )
                     }
                     hasPublication = hasPublication || publishTargets.isNotEmpty()
@@ -177,17 +183,19 @@ open class PublishPlugin : Plugin<Project> {
         publishInfo: PublishInfo,
         softwareComponent: SoftwareComponent,
         publicationName: String,
-        artifactId: String
+        groupId: String,
+        artifactId: String,
+        version: String
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
-        val publishSources = centralPublish || publishInfo.version.endsWith("-debug")
-        val publicationVersion = resolvePublicationVersion(project, publishInfo)
+        val publishSources = centralPublish || version.endsWith("-debug")
+        val publicationVersion = resolvePublicationVersion(project, version)
         skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(
                 publicationName, MavenPublication::class.java
             ) { publication ->
-                publication.groupId = publishInfo.groupId
+                publication.groupId = groupId
                 publication.artifactId = artifactId
                 publication.version = publicationVersion
                 publication.from(softwareComponent)
@@ -208,8 +216,7 @@ open class PublishPlugin : Plugin<Project> {
         }
     }
 
-    private fun resolvePublicationVersion(project: Project, publishInfo: PublishInfo): String {
-        val version = publishInfo.version
+    private fun resolvePublicationVersion(project: Project, version: String): String {
         if (!isLocalPublishRequested(project) || version.endsWith("-local")) {
             return version
         }
@@ -348,7 +355,9 @@ open class PublishPlugin : Plugin<Project> {
                 createAndroidVariantInfo(project, component.name, buildTypeName)
             }
             val artifactId = publishInfo.resolveArtifactId(variantInfo)
-            PublishTarget(component, publicationName, artifactId)
+            val groupId = publishInfo.resolveGroupId(variantInfo)
+            val version = publishInfo.resolveVersion(variantInfo)
+            PublishTarget(component, publicationName, groupId, artifactId, version)
         }
     }
 

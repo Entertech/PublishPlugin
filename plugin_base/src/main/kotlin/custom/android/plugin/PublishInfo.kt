@@ -186,6 +186,8 @@ open class PublishInfo {
         }
 
     private var artifactIdForVariantAction: ((PublishVariantInfo) -> String)? = null
+    private var groupIdForVariantAction: ((PublishVariantInfo) -> String)? = null
+    private var versionForVariantAction: ((PublishVariantInfo) -> String)? = null
     private val skipVariantActions = mutableListOf<(PublishVariantInfo) -> Boolean>()
     private val explicitFields = mutableSetOf<String>()
 
@@ -207,6 +209,26 @@ open class PublishInfo {
         }
     }
 
+    fun groupIdForVariant(action: (PublishVariantInfo) -> String) {
+        groupIdForVariantAction = action
+    }
+
+    fun groupIdForVariant(action: Closure<*>) {
+        groupIdForVariantAction = { variant ->
+            action.call(variant)?.toString().orEmpty()
+        }
+    }
+
+    fun versionForVariant(action: (PublishVariantInfo) -> String) {
+        versionForVariantAction = action
+    }
+
+    fun versionForVariant(action: Closure<*>) {
+        versionForVariantAction = { variant ->
+            action.call(variant)?.toString().orEmpty()
+        }
+    }
+
     fun skipVariantIf(action: (PublishVariantInfo) -> Boolean) {
         skipVariantActions += action
     }
@@ -223,6 +245,22 @@ open class PublishInfo {
             return artifactId
         }
         return action(variant).ifBlank { artifactId }
+    }
+
+    internal fun resolveGroupId(variant: PublishVariantInfo?): String {
+        val action = groupIdForVariantAction
+        if (variant == null || action == null) {
+            return groupId
+        }
+        return action(variant).ifBlank { groupId }
+    }
+
+    internal fun resolveVersion(variant: PublishVariantInfo?): String {
+        val action = versionForVariantAction
+        if (variant == null || action == null) {
+            return version
+        }
+        return action(variant).ifBlank { version }
     }
 
     internal fun shouldPublishVariant(variant: PublishVariantInfo): Boolean {
