@@ -6,7 +6,85 @@
 
 ## 快速开始
 
-### 1. 根工程引入插件
+### 1. Skills 配置
+
+Skills 配置适合在 Codex 中交互式完成发布接入、发布目标选择、配置校验和问题修复。入口示例：
+
+```text
+使用 $publishplugin-central-one-click，帮我为 :library 配置发布。
+```
+
+也可以指定目标：
+
+```text
+使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
+```
+
+Skill 会根据发布目标引导配置：
+
+| 发布目标 | 配置重点 |
+| --- | --- |
+| 本地 Maven 发布 | 校验模块 `PublishInfo`，执行 `publishToMavenLocal` 或 `PublishLibraryLocalTask`。 |
+| GitHub Packages 发布 | 配置 GitHub Packages 仓库、凭据来源和远程发布命令。 |
+| Sonatype Central Portal 发布 | 配置 Central namespace、Central token、GPG signing、POM/SCM 元数据、GitHub Actions workflow。 |
+| 旧自定义 Maven 仓库 | 配置 `remotePublishMode = "customRepository"` 以及旧私服字段。 |
+
+### 2. 本地脚本配置
+
+本地脚本配置用于不依赖 Codex 的终端执行。目前离线脚本封装的是 Sonatype Central Portal 所需的仓库级配置流程。
+
+| 系统环境 | 支持状态 | 入口 |
+| --- | --- | --- |
+| macOS | 支持 | `scripts/configure-central-publish-offline.sh` |
+| Linux | 暂不支持 | 使用 Gradle task 或手动配置。 |
+| Windows | 暂不支持 | 使用 Gradle task 或手动配置。 |
+
+先生成配置模板：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --generate-only
+```
+
+然后在根目录 `local.properties` 中填写 `centralPublish.*` 仓库级字段。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
+
+完成配置后执行：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+```
+
+如果配置文件已填好，也可以直接一键执行生成与配置：
+
+```bash
+scripts/configure-central-publish-offline.sh :library -- --stacktrace
+```
+
+等价 Gradle task：
+
+```bash
+./gradlew :library:generateCentralPublishConfig
+./gradlew :library:configureCentralPublish
+```
+
+本地 Maven 发布不需要执行一键配置脚本，可直接运行：
+
+```bash
+./gradlew :library:publishToMavenLocal
+```
+
+GitHub Packages 是默认远程发布目标，配置仓库和凭据后执行：
+
+```bash
+GITHUB_ACTOR=<github-user> \
+GITHUB_TOKEN=<token-with-package-write> \
+./gradlew :library:PublishLibraryRemoteTask \
+  -PgithubPackagesRepository=owner/repo \
+  --stacktrace
+```
+
+### 3. 代码配置
+
+#### 3.1 根工程引入插件
 
 在根工程 `build.gradle.kts` 中加入插件依赖：
 
@@ -24,7 +102,7 @@ buildscript {
 }
 ```
 
-### 2. 发布 Android Library
+#### 3.2 发布 Android Library
 
 在需要发布的 Android Library 模块中应用插件：
 
@@ -59,7 +137,7 @@ dependencies {
 }
 ```
 
-### 3. 发布 Gradle Plugin
+#### 3.3 发布 Gradle Plugin
 
 Gradle Plugin 模块需要同时应用 `cn.entertech.publish` 和 `java-gradle-plugin`：
 
@@ -111,7 +189,7 @@ buildscript {
 apply(plugin = "cn.entertech.demo")
 ```
 
-### 4. 选择发布目标
+#### 3.4 选择发布目标
 
 `PublishLibraryRemoteTask` 是统一远程发布入口。默认远程发布目标是 GitHub Packages；Sonatype Central Portal 和旧自定义 Maven 仓库需要显式选择。
 
@@ -144,32 +222,6 @@ ORG_GRADLE_PROJECT_signingInMemoryKeyPassword=<gpg-password> \
   -PcentralNamespace=cn.entertech \
   --stacktrace
 ```
-
-### 5. 可选配置助手
-
-Central Portal 首次接入需要配置 GitHub repository secrets、GPG signing 和 workflow。可以用 Codex Skill 或本地脚本生成配置模板并执行一次性仓库配置；本地 Maven 和 GitHub Packages 发布不需要执行这一步。
-
-Codex 方式：
-
-```text
-使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
-```
-
-macOS 离线脚本方式：
-
-```bash
-scripts/configure-central-publish-offline.sh :library --generate-only
-scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
-```
-
-Gradle task 方式：
-
-```bash
-./gradlew :library:generateCentralPublishConfig
-./gradlew :library:configureCentralPublish
-```
-
-配置助手只处理仓库级 Central 配置。组件坐标、Gradle Plugin ID、实现类和组件 POM 信息仍放在目标模块的 `PublishInfo` 中。
 
 ## 仓库内 demo
 
@@ -1043,12 +1095,20 @@ Gradle property > 环境变量 > mavenCentral* fallback > PublishInfo 旧字段 
 
 ## GitHub Actions 发布
 
+业务项目可以调用本仓库提供的 reusable workflow 发布远程 Maven 产物。`publish_target` 支持三种模式：
+
+| publish_target | 行为 | 需要的凭据 |
+| --- | --- | --- |
+| `central` | 只发布到 Sonatype Central Portal | Central token、GPG signing secrets。 |
+| `github_packages` | 只发布到 GitHub Packages | `GITHUB_TOKEN` 或 `GITHUB_PACKAGES_TOKEN`，并授予 packages write 权限。 |
+| `all` | 先发布 GitHub Packages，再发布 Sonatype Central Portal | 同时满足上面两类凭据。 |
+
+### 只发布 Central
+
 业务项目不需要在各自仓库里单独维护 GPG 私钥和 Central token。把这些敏感字段配置为 `Entertech` organization secrets 后，业务项目只调用本仓库提供的 reusable workflow，并使用 `secrets: inherit` 继承组织级 secrets。
 
-业务项目示例：
-
 ```yaml
-name: Publish Maven Central
+name: Publish Maven
 
 on:
   workflow_dispatch:
@@ -1059,17 +1119,67 @@ jobs:
     secrets: inherit
     with:
       module: ":library"
+      publish_target: "central"
       namespace: "cn.entertech"
       publishing_type: "user_managed"
 ```
 
-如果发布时需要临时覆盖版本，可以传入：
+### 只发布 GitHub Packages
+
+```yaml
+name: Publish GitHub Packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    with:
+      module: ":library"
+      publish_target: "github_packages"
+      github_packages_repository: "owner/repo"
+```
+
+`github_packages_repository` 为空时会使用调用 workflow 的仓库。需要发布到其他仓库或使用 PAT 时，可以配置 repository secret `GITHUB_PACKAGES_TOKEN`，并使用 `secrets: inherit` 继承给 reusable workflow。
+
+### 同时发布 Central 和 GitHub Packages
+
+```yaml
+name: Publish Maven
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    uses: Entertech/PublishPlugin/.github/workflows/central-publish.yml@main
+    secrets: inherit
+    with:
+      module: ":library"
+      publish_target: "all"
+      namespace: "cn.entertech"
+      publishing_type: "user_managed"
+      github_packages_repository: "owner/repo"
+```
+
+如果发布时需要临时覆盖版本，三种发布模式都可以传入：
 
 ```yaml
 with:
   module: ":library"
+  publish_target: "all"
   namespace: "cn.entertech"
   publishing_type: "user_managed"
+  github_packages_repository: "owner/repo"
   version: "1.2.3"
 ```
 

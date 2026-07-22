@@ -40,6 +40,7 @@ object GitHubActionsWorkflowWriter {
                 "    secrets: inherit",
                 "    with:",
                 "      module: \"$modulePath\"",
+                "      publish_target: \"central\"",
                 "      namespace: \"$namespace\"",
                 "      publishing_type: \"$publishingType\"",
                 ""
