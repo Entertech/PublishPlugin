@@ -328,8 +328,6 @@ jobs:
             git commit -m "[codex] Update publish plugin usage version to ${RELEASE_VERSION} [skip ci]"
           fi
 
-          git push origin "HEAD:pre_publish"
-
       - name: Tag successful release
         if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         shell: bash
@@ -358,8 +356,9 @@ jobs:
             echo "pre_publish version ${RELEASE_VERSION} equals main version ${MAIN_VERSION}; does not require Central publish; merging directly."
           fi
 
+          release_commit="$(git rev-parse HEAD)"
           git checkout -B main origin/main
-          git merge --no-ff --no-edit origin/pre_publish
+          git merge --no-ff --no-edit "$release_commit"
           git push origin main
 
   ci_snapshot:

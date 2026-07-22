@@ -104,6 +104,14 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         self.assertIn("README.md build.gradle.kts", sync)
         self.assertIn("git add plugin_base/build.gradle.kts README.md build.gradle.kts", sync)
         self.assertIn("Update publish plugin usage version", sync)
+        self.assertNotIn("HEAD:pre_publish", sync)
+
+    def test_main_merge_uses_release_head_after_readme_sync(self):
+        merge = step_block("Merge pre_publish to main")
+
+        self.assertIn('release_commit="$(git rev-parse HEAD)"', merge)
+        self.assertIn('git merge --no-ff --no-edit "$release_commit"', merge)
+        self.assertNotIn("git merge --no-ff --no-edit origin/pre_publish", merge)
 
     def test_ci_mode_publishes_plugin_snapshot_without_release_steps(self):
         text = workflow_text()
