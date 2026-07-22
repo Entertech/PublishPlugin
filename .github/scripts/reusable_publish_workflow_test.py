@@ -28,6 +28,8 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
 
         self.assertIn("publish_target:", text)
         self.assertIn('default: "github_packages"', text)
+        self.assertIn("sync_readme:", text)
+        self.assertIn("contents: write", text)
         self.assertIn("central|github_packages|all", validation)
         self.assertIn("publish_target must be central, github_packages, or all", validation)
 
@@ -40,6 +42,22 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("-PgithubPackagesRepository=${GITHUB_PACKAGES_REPOSITORY}", publish)
         self.assertIn("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}", publish)
         self.assertIn("-PpublishVersion=${PUBLISH_VERSION}", publish)
+
+    def test_github_packages_publish_can_sync_readme(self):
+        sync = step_block("Sync README for GitHub Packages")
+        commit = step_block("Commit README sync")
+
+        self.assertIn("inputs.sync_readme", sync)
+        self.assertIn("inputs.publish_target == 'github_packages'", sync)
+        self.assertIn("inputs.publish_target == 'all'", sync)
+        self.assertIn("inputs.version != ''", sync)
+        self.assertIn("README_GITHUB_PACKAGES_URL", sync)
+        self.assertIn("maven.pkg.github.com", sync)
+        self.assertIn("cn.entertech.android:publish:{version}", sync)
+        self.assertIn("buildscript", sync)
+        self.assertIn("mavenLocal", sync)
+        self.assertIn("git commit -m \"[codex] Sync README publish config to ${PUBLISH_VERSION} [skip ci]\"", commit)
+        self.assertIn("git push", commit)
 
     def test_central_publish_step_is_target_gated(self):
         publish = step_block("Publish to Central Portal")

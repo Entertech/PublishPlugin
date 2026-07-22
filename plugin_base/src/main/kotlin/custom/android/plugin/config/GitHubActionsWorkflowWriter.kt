@@ -28,6 +28,7 @@ object GitHubActionsWorkflowWriter {
         publishTarget: String,
         namespace: String,
         publishingType: String,
+        version: String,
         githubPackagesRepository: String,
         githubPackagesUrl: String,
         workflowPath: String,
@@ -54,7 +55,7 @@ object GitHubActionsWorkflowWriter {
             "  workflow_dispatch:",
             "",
             "permissions:",
-            "  contents: read",
+            "  contents: write",
             "  packages: write",
             "",
             "jobs:",
@@ -63,13 +64,15 @@ object GitHubActionsWorkflowWriter {
             "    secrets: inherit",
             "    with:",
             "      module: \"$modulePath\"",
-            "      publish_target: \"$normalizedTarget\""
+            "      publish_target: \"$normalizedTarget\"",
+            "      version: \"$version\""
         )
         if (normalizedTarget == "central" || normalizedTarget == "all") {
             lines += "      namespace: \"$namespace\""
             lines += "      publishing_type: \"$publishingType\""
         }
         if (normalizedTarget == "github_packages" || normalizedTarget == "all") {
+            lines += "      sync_readme: true"
             if (githubPackagesRepository.isNotBlank()) {
                 lines += "      github_packages_repository: \"$githubPackagesRepository\""
             }

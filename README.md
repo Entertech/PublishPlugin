@@ -826,7 +826,7 @@ GitHub Actions 中可以使用默认 `GITHUB_TOKEN`，但 repository/package 权
 
 ```yaml
 permissions:
-  contents: read
+  contents: write
   packages: write
 ```
 
@@ -1162,6 +1162,8 @@ jobs:
     with:
       module: ":library"
       publish_target: "github_packages"
+      version: "1.2.3"
+      sync_readme: true
       github_packages_repository: "owner/repo"
 ```
 
@@ -1176,7 +1178,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -1188,10 +1190,12 @@ jobs:
       publish_target: "all"
       namespace: "cn.entertech"
       publishing_type: "user_managed"
+      version: "1.2.3"
+      sync_readme: true
       github_packages_repository: "owner/repo"
 ```
 
-如果发布时需要临时覆盖版本，三种发布模式都可以传入：
+如果发布时需要临时覆盖版本，三种发布模式都可以传入；当开启 `sync_readme` 时，`version` 也是 README 版本同步的来源：
 
 ```yaml
 with:
@@ -1202,6 +1206,8 @@ with:
   github_packages_repository: "owner/repo"
   version: "1.2.3"
 ```
+
+当发布目标包含 `github_packages` 时，`configurePublish` 生成的 workflow 会传入 `version` 并开启 `sync_readme`。reusable workflow 发布成功后会把 README「代码配置」章节中的插件版本同步为本次发布版本，并把根工程插件仓库配置从 `mavenCentral()` 切换为对应的 `https://maven.pkg.github.com/owner/repo`。
 
 `Entertech` organization secrets 需要维护：
 

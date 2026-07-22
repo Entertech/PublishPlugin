@@ -37,6 +37,11 @@ on:
         required: false
         default: ""
         type: string
+      sync_readme:
+        description: "Synchronize README code configuration after GitHub Packages publish. Requires version."
+        required: false
+        default: false
+        type: boolean
       java_version:
         description: "JDK version used by Gradle"
         required: false
@@ -57,7 +62,7 @@ on:
         required: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -170,6 +175,96 @@ jobs:
           fi
 
           ./gradlew "${args[@]}"
+
+      - name: Sync README for GitHub Packages
+        if: ${{ inputs.sync_readme && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && inputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          readme_github_packages_url="$GITHUB_PACKAGES_URL"
+          if [[ -z "$readme_github_packages_url" ]]; then
+            readme_github_packages_repository="$GITHUB_PACKAGES_REPOSITORY"
+            if [[ -z "$readme_github_packages_repository" ]]; then
+              readme_github_packages_repository="$GITHUB_REPOSITORY"
+            fi
+            readme_github_packages_url="https://maven.pkg.github.com/${readme_github_packages_repository}"
+          fi
+          export README_GITHUB_PACKAGES_URL="$readme_github_packages_url"
+
+          python3 - <<'PY'
+          import re
+          import os
+          from pathlib import Path
+
+          version = os.environ["PUBLISH_VERSION"]
+          github_packages_url = os.environ["README_GITHUB_PACKAGES_URL"]
+          readme_path = Path("README.md")
+          if not readme_path.exists():
+              print("README.md does not exist; skipping README sync")
+              raise SystemExit(0)
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit(f"version must use digits.digits.digits format for README sync, got {version}")
+
+          content = readme_path.read_text(encoding="utf-8")
+          content = re.sub(
+              r'classpath\("cn\.entertech\.android:publish:[^"]+"\)',
+              f'classpath("cn.entertech.android:publish:{version}")',
+              content,
+          )
+          content = re.sub(
+              r"cn\.entertech\.android:publish:(?:<version>|\d+\.\d+\.\d+)",
+              f"cn.entertech.android:publish:{version}",
+              content,
+          )
+          content = re.sub(
+              r"cn\.entertech\.publish:cn\.entertech\.publish\.gradle\.plugin:(?:<version>|\d+\.\d+\.\d+)",
+              f"cn.entertech.publish:cn.entertech.publish.gradle.plugin:{version}",
+              content,
+          )
+          content = re.sub(
+              r'id\("cn\.entertech\.publish"\) version "(?:<version>|\d+\.\d+\.\d+)"',
+              f'id("cn.entertech.publish") version "{version}"',
+              content,
+          )
+          block_re = re.compile(
+              r"(?ms)(buildscript\s*\{\s*repositories\s*\{\n)(?P<body>.*?)(\n\s*\}\s*\n\s*\n\s*dependencies\s*\{\s*classpath\(\"cn\.entertech\.android:publish:)"
+          )
+          repository_block = "\n".join([
+              "        google()",
+              "        mavenLocal()",
+              "        maven {",
+              f"            url = uri(\"{github_packages_url}\")",
+              "            credentials {",
+              "                username = providers.gradleProperty(\"gpr.user\").orNull",
+              "                    ?: System.getenv(\"GITHUB_ACTOR\")",
+              "                password = providers.gradleProperty(\"gpr.key\").orNull",
+              "                    ?: System.getenv(\"GITHUB_TOKEN\")",
+              "            }",
+              "        }",
+          ])
+          content, count = block_re.subn(lambda match: match.group(1) + repository_block + match.group(3), content, count=1)
+          if count == 0:
+              print("README code configuration block was not found; version sync still applied")
+          readme_path.write_text(content, encoding="utf-8")
+          PY
+
+      - name: Commit README sync
+        if: ${{ inputs.sync_readme && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && inputs.version != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- README.md; then
+            echo "README.md already documents ${PUBLISH_VERSION}"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "[codex] Sync README publish config to ${PUBLISH_VERSION} [skip ci]"
+          git push
 
       - name: Publish to Central Portal
         if: ${{ inputs.publish_target == 'central' || inputs.publish_target == 'all' }}

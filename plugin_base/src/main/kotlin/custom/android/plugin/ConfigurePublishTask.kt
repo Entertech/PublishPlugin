@@ -33,7 +33,7 @@ open class ConfigurePublishTask : DefaultTask() {
 
         val publishInfo = project.extensions.findByType(PublishInfo::class.java)
             ?: throw GradleException("Current module does not apply cn.entertech.publish")
-        validatePublishInfo(publishInfo)
+        val version = validatePublishInfo(publishInfo)
 
         val namespace = PublishConfigResolver.resolveCentralNamespace(project, publishInfo)
         val publishingType = PublishConfigResolver.resolveCentralPublishingType(project, publishInfo)
@@ -78,6 +78,7 @@ open class ConfigurePublishTask : DefaultTask() {
                     publishTarget,
                     namespace,
                     publishingType,
+                    version,
                     githubPackagesRepository,
                     githubPackagesUrl,
                     workflowPath,
@@ -106,7 +107,7 @@ open class ConfigurePublishTask : DefaultTask() {
         )
     }
 
-    private fun validatePublishInfo(publishInfo: PublishInfo) {
+    private fun validatePublishInfo(publishInfo: PublishInfo): String {
         if (publishInfo.groupId.isBlank()) {
             throw GradleException("PublishInfo.groupId is required")
         }
@@ -128,6 +129,7 @@ open class ConfigurePublishTask : DefaultTask() {
                 throw GradleException("PublishInfo.implementationClass is required for Gradle Plugin modules")
             }
         }
+        return version
     }
 
     private fun isGradlePluginModule(): Boolean {
