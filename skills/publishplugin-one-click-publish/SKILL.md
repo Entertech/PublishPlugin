@@ -32,17 +32,18 @@ For full operational detail, load `references/one-click-publish-workflow.md`.
 2. Ensure the module applies `cn.entertech.publish`.
 3. Keep required coordinates in module `PublishInfo`: `groupId`, `artifactId`, `version`.
 4. For Gradle Plugin modules, also require `pluginId` and `implementationClass`.
-5. Generate or update the root config:
+5. For Android Library modules with flavors, keep variant coordinate callbacks such as `groupIdForVariant`, `artifactIdForVariant`, `versionForVariant`, and `skipVariantIf` in `PublishInfo`; do not move them into local publish config.
+6. Generate or update the root config:
    ```bash
    ./gradlew :library:generatePublishConfig
    ```
-6. Fill only repository-level publish keys in `local.properties`. Leave `publish.publishTarget` blank or set it to `github_packages` for the default GitHub Packages workflow; use `central` or `all` only when Central Portal publishing is required.
-7. Run a dry run first when possible:
+7. Fill only repository-level publish keys in `local.properties`. Leave `publish.publishTarget` blank or set it to `github_packages` for the default GitHub Packages workflow; use `central` or `all` only when Central Portal publishing is required.
+8. Run a dry run first when possible:
    ```properties
    publish.dryRun=true
    ```
    Dry run must not write `.gitignore`, workflow files, secrets, or GPG keys.
-8. Run:
+9. Run:
    ```bash
    ./gradlew :library:configurePublish
    ```
@@ -54,9 +55,10 @@ For users who want the same workflow without an AI assistant, use the repository
 ```bash
 scripts/configure-publish-offline.sh :library --generate-only
 scripts/configure-publish-offline.sh :library --configure-only -- --stacktrace
+scripts/configure-publish-offline.sh :library --publish-target central -- --stacktrace
 ```
 
-The script only orchestrates the existing Gradle tasks. It must not accept Central token, GPG private key, GitHub token, or signing password values as command arguments.
+The script only orchestrates the existing Gradle tasks. It may accept workflow control flags such as `--publish-target github_packages|central|all`, but it must not accept Central token, GPG private key, GitHub token, or signing password values as command arguments.
 
 ### Review or Fix Implementation
 
@@ -69,6 +71,8 @@ Check these invariants first:
 - `generatePublishConfig` / legacy `generateCentralPublishConfig` template comments must stay ASCII-only English so Java `.properties` and IDE readers do not render raw UTF-8 comments as mojibake.
 - `overwritePublishConfig=true` may refresh generated template comments, but it must preserve existing `publish.*` values and non-`publish.*` lines such as `sdk.dir`.
 - Central token and GPG secret values are one-time inputs for `configurePublish` when `publishTarget=central` or `all`; runtime publish must use Gradle properties or environment variables, not local secret fallback.
+- `publishTarget` defaults to `github_packages`; `githubSecrets=true` must not write Central/GPG secrets for the default GitHub Packages-only workflow.
+- Generated workflow must call the configured reusable workflow, defaulting to `Entertech/PublishPlugin/.github/workflows/publish.yml@main`, and pass `publish_target` as `github_packages`, `central`, or `all`.
 - `dryRun=true` has no side effects.
 - `overwriteGithubSecrets=false` never overwrites an existing repository secret; missing secrets are filled individually.
 - `rollbackPublishSecrets` can infer the GitHub repo and can delete the default generated workflow path. Legacy rollback task names remain supported.
@@ -103,3 +107,9 @@ For code changes in this repo, prefer focused red/green tests plus full verifica
 ```
 
 When reviewing PRs, compare behavior against both `README.md` and `doc/tech/publish-one-click-config-plan.md`, not just current tests.
+
+After changing this repository skill, verify the runtime symlink still points here:
+
+```bash
+./scripts/install-codex-skill.sh --check
+```
