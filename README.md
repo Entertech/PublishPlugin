@@ -6,7 +6,44 @@
 
 ## 快速开始
 
-### 1. 根工程引入插件
+### 1. 选择发布入口
+
+不同发布目标使用不同入口。模块内仍然维护自己的 `PublishInfo` 坐标和 POM 元数据；仓库级配置、GitHub repository secrets、GitHub Actions workflow 只在需要远程发布自动化时配置。
+
+| 目标 | 推荐入口 | 说明 |
+| --- | --- | --- |
+| 本地 Maven 发布 | `./gradlew :module:publishToMavenLocal` 或 `./gradlew :module:PublishLibraryLocalTask` | 用于本机联调和消费方验证，不需要 Central token、GitHub Packages token 或 GPG signing 信息。 |
+| GitHub Packages 发布 | `./gradlew :module:PublishLibraryRemoteTask` | 默认远程发布目标。配置 `githubPackagesRepository=owner/repo` 或 `githubPackagesUrl=...`，凭据使用 `GITHUB_ACTOR` / `GITHUB_TOKEN` 或兼容的 `gpr.user` / `gpr.key`。 |
+| Sonatype Central Portal 发布 | AI Skill 或离线脚本一键配置后执行远程发布 | 需要 Central namespace、Central token、GPG signing 信息和完整 POM/SCM 元数据。 |
+| 旧自定义 Maven 仓库 | `remotePublishMode = "customRepository"` 后执行远程发布 | 兼容旧私服字段 `publishUrl`、`publishUserName`、`publishPassword`。 |
+
+AI Skill 方式适合在 Codex 中交互式完成发布配置、校验和问题修复：
+
+```text
+使用 $publishplugin-central-one-click，帮我为 :library 配置发布。
+```
+
+离线脚本方式适合不依赖 AI 助手的本地终端执行。目前脚本封装的是 Central Portal 所需的仓库级配置流程：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --generate-only
+```
+
+然后在根目录 `local.properties` 中填写 `centralPublish.*` 仓库级字段。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
+
+完成配置后执行：
+
+```bash
+scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
+```
+
+如果配置文件已填好，也可以直接一键执行生成与配置：
+
+```bash
+scripts/configure-central-publish-offline.sh :library -- --stacktrace
+```
+
+### 2. 根工程引入插件
 
 在根工程 `build.gradle.kts` 中加入插件依赖：
 
@@ -24,7 +61,7 @@ buildscript {
 }
 ```
 
-### 2. 发布 Android Library
+### 3. 发布 Android Library
 
 在需要发布的 Android Library 模块中应用插件：
 
@@ -53,7 +90,7 @@ dependencies {
 }
 ```
 
-### 3. 发布 Gradle Plugin
+### 4. 发布 Gradle Plugin
 
 Gradle Plugin 模块需要同时应用 `cn.entertech.publish` 和 `java-gradle-plugin`：
 
@@ -97,36 +134,6 @@ buildscript {
 
 ```kotlin
 apply(plugin = "cn.entertech.demo")
-```
-
-### 4. Central Portal 一键配置
-
-如果目标是发布到 Sonatype Central Portal，模块仍然维护自己的 `PublishInfo` 坐标和 POM 元数据；仓库级配置、GitHub repository secrets、GitHub Actions workflow 使用一键配置流程生成。
-
-AI Skill 方式适合在 Codex 中交互式完成配置、校验和问题修复：
-
-```text
-使用 $publishplugin-central-one-click，帮我为 :library 配置 Central Portal 发布。
-```
-
-离线脚本方式适合不依赖 AI 助手的本地终端执行。先生成仓库级配置模板：
-
-```bash
-scripts/configure-central-publish-offline.sh :library --generate-only
-```
-
-然后在根目录 `local.properties` 中填写 `centralPublish.*` 仓库级字段。敏感字段只用于写入 GitHub repository secrets，`local.properties` 必须保持 ignored/untracked。
-
-完成配置后执行：
-
-```bash
-scripts/configure-central-publish-offline.sh :library --configure-only -- --stacktrace
-```
-
-如果配置文件已填好，也可以直接一键执行生成与配置：
-
-```bash
-scripts/configure-central-publish-offline.sh :library -- --stacktrace
 ```
 
 ## 仓库内 demo
