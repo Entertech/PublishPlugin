@@ -45,6 +45,14 @@ PublishInfo {
 }
 ```
 
+消费方模块可通过 Maven 坐标声明依赖：
+
+```kotlin
+dependencies {
+    implementation("cn.entertech.android:base:0.0.1")
+}
+```
+
 ### 3. 发布 Gradle Plugin
 
 Gradle Plugin 模块需要同时应用 `cn.entertech.publish` 和 `java-gradle-plugin`：
@@ -54,6 +62,12 @@ plugins {
     id("cn.entertech.publish")
     `java-gradle-plugin`
 }
+```
+
+如果项目仍使用 Groovy `build.gradle`，也可以使用旧写法：
+
+```groovy
+apply plugin: 'cn.entertech.publish'
 ```
 
 最小 `PublishInfo`：
@@ -69,10 +83,20 @@ PublishInfo {
 }
 ```
 
-如果项目仍使用 Groovy `build.gradle`，也可以使用旧写法：
+消费方可通过 buildscript classpath 引入插件 artifact：
 
-```groovy
-apply plugin: 'cn.entertech.publish'
+```kotlin
+buildscript {
+    dependencies {
+        classpath("cn.entertech.android:demo-publish-plugin:1.0.0")
+    }
+}
+```
+
+然后在消费方模块中应用已发布的 Gradle 插件：
+
+```kotlin
+apply(plugin = "cn.entertech.demo")
 ```
 
 ## 仓库内 demo
