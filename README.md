@@ -81,8 +81,8 @@ apply plugin: 'cn.entertech.publish'
 
 | 模块 | 用途 | 覆盖内容 |
 | --- | --- | --- |
-| `demo-lib` | Android Library 发布示例 | `PublishInfo` 基础坐标、POM/Central 元数据、多 flavor release variant、`artifactIdForVariant`。 |
-| `demo-plugin` | Gradle Plugin 发布示例 | `java-gradle-plugin`、`pluginId`、`implementationClass`、Gradle 插件入口类、本地 Maven 发布。 |
+| [`demo-lib`](demo-lib/build.gradle.kts) | Android Library 发布示例 | [`PublishInfo` 基础坐标、POM/Central 元数据、多 flavor release variant、`artifactIdForVariant`](demo-lib/build.gradle.kts)，以及动态 artifactId 辅助逻辑 [`DemoArtifactNames.kt`](demo-lib/src/main/java/cn/entertech/plugin/demo/lib/DemoArtifactNames.kt)。 |
+| [`demo-plugin`](demo-plugin/build.gradle.kts) | Gradle Plugin 发布示例 | [`java-gradle-plugin`、`pluginId`、`implementationClass`](demo-plugin/build.gradle.kts)、Gradle 插件入口类 [`DemoPublishPlugin.java`](demo-plugin/src/main/java/cn/entertech/plugin/demo/plugin/DemoPublishPlugin.java)、本地 Maven 发布。 |
 
 ## 与 Vanniktech 方案对比
 
