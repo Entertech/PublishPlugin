@@ -2,7 +2,7 @@
 
 `PublishPlugin` 用于给 Android Library 和 Gradle Plugin 模块生成 Maven publication，并提供统一的本地发布、远程发布入口。
 
-当前远程发布入口继续复用旧任务名 `PublishLibraryRemoteTask`，实现上默认发布到 GitHub Packages；Sonatype Central Portal 和旧私服发布仍可通过 `remotePublishMode` 显式选择，避免已有项目的 `PublishInfo { ... }` 配置编译失败。
+当前远程发布统一入口是 `PublishLibraryRemoteTask`，默认发布到 GitHub Packages；Sonatype Central Portal 和旧私服发布仍可通过 `remotePublishMode` 显式选择，避免已有项目的 `PublishInfo { ... }` 配置编译失败。
 
 ## 快速开始
 
@@ -333,16 +333,17 @@ Gradle task 方式：
 ./gradlew :library:configurePublish
 ```
 
-兼容旧任务名：
+### 推荐 Task 说明
 
-```bash
-./gradlew :library:generateCentralPublishConfig
-./gradlew :library:configureCentralPublish
-./gradlew :library:rollbackCentralPublishSecrets
-./gradlew :library:GenerateCentralPublishConfigTask
-./gradlew :library:ConfigureCentralPublishTask
-./gradlew :library:RollbackCentralPublishSecretsTask
-```
+插件会把发布相关入口注册到 Gradle 的 `customPlugin` task group 下。日常只需要使用下面这些推荐 task：
+
+| Task | 作用 | 常见场景 |
+| --- | --- | --- |
+| `generatePublishConfig` | 生成或补全发布配置模板，默认写入根目录 `local.properties`，保留已有 `sdk.dir` / `ndk.dir` 和已有配置值。 | 首次接入发布、补齐缺失的 `publish.*` 配置。 |
+| `configurePublish` | 校验当前模块 `PublishInfo`，确认配置文件未被 Git 跟踪，按配置写入 GitHub repository secrets，并可生成 GitHub Actions workflow。 | 配好 `local.properties` 后，一键完成远程发布前置配置。 |
+| `PublishLibraryLocalTask` | 校验当前模块发布配置后，执行本模块的 `publishToMavenLocal`，发布到 `~/.m2/repository/`。 | 本地联调、验证 Maven 坐标和 POM 依赖。 |
+| `PublishLibraryRemoteTask` | 远程发布统一入口。默认发布到 GitHub Packages，也可通过 `remotePublishMode=central` 发布到 Sonatype Central Portal，或通过 `remotePublishMode=customRepository` 发布到自定义 Maven 仓库。 | 正式发布到远程 Maven 仓库。 |
+| `rollbackPublishSecrets` | 读取同一份发布配置，删除配置过的 GitHub repository secrets，并可按参数删除插件生成的 workflow。 | 回收发布凭据、撤销一键配置产生的远程 secrets。 |
 
 ### 执行流程
 
