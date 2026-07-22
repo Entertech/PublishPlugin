@@ -1,6 +1,10 @@
 import unittest
 
-from sync_readme_publish_version import github_packages_url_from_repository, sync_readme_publish_version
+from sync_readme_publish_version import (
+    github_packages_url_from_repository,
+    sync_readme_publish_version,
+    sync_root_build_publish_version,
+)
 
 
 README_CODE_CONFIG = """
@@ -81,6 +85,25 @@ PublishInfo {
     def test_rejects_non_semver(self):
         with self.assertRaisesRegex(ValueError, "digits.digits.digits"):
             sync_readme_publish_version(README_CODE_CONFIG, "1.2.3-rc1")
+
+    def test_updates_root_build_publish_plugin_classpath(self):
+        build_file = """
+buildscript {
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.1.3")
+        classpath("cn.entertech.android:publish:1.2.1")
+    }
+}
+"""
+
+        result = sync_root_build_publish_version(build_file, "1.2.3")
+
+        self.assertIn('classpath("cn.entertech.android:publish:1.2.3")', result)
+        self.assertIn('classpath("com.android.tools.build:gradle:8.1.3")', result)
+
+    def test_rejects_missing_root_build_publish_plugin_classpath(self):
+        with self.assertRaisesRegex(ValueError, "Cannot find root build publish plugin classpath"):
+            sync_root_build_publish_version("buildscript {}\n", "1.2.3")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ BUILD_VERSION_RE = re.compile(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]")
 PLUGIN_REPOSITORY_BLOCK_RE = re.compile(
     r"(?ms)(buildscript\s*\{\s*repositories\s*\{\n)(?P<body>.*?)(\n\s*\}\s*\n\s*\n\s*dependencies\s*\{\s*classpath\(\"cn\.entertech\.android:publish:)"
 )
+PUBLISH_CLASSPATH_RE = re.compile(r'classpath\("cn\.entertech\.android:publish:[^"]+"\)')
 
 
 def read_plugin_version(build_file: Path) -> str:
@@ -103,10 +104,25 @@ def sync_readme_publish_version(
     return next_content
 
 
+def sync_root_build_publish_version(content: str, version: str) -> str:
+    if not SEMVER_RE.fullmatch(version):
+        raise ValueError(f"Publish plugin version '{version}' must use digits.digits.digits format")
+
+    updated, count = PUBLISH_CLASSPATH_RE.subn(
+        f'classpath("cn.entertech.android:publish:{version}")',
+        content,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("Cannot find root build publish plugin classpath")
+    return updated
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Synchronize README publish plugin version.")
     parser.add_argument("--readme", default="README.md")
     parser.add_argument("--build-file", default="plugin_base/build.gradle.kts")
+    parser.add_argument("--root-build-file", default="")
     parser.add_argument("--version")
     parser.add_argument("--publish-target", default="central", choices=("central", "github_packages", "all"))
     parser.add_argument("--github-packages-repository", default="")
@@ -138,6 +154,16 @@ def main() -> None:
         print(f"Updated {readme_path} publish plugin docs to {version}")
     else:
         print(f"{readme_path} publish plugin docs already {version}")
+
+    if args.root_build_file:
+        root_build_path = Path(args.root_build_file)
+        root_current = root_build_path.read_text(encoding="utf-8")
+        root_updated = sync_root_build_publish_version(root_current, version)
+        if root_updated != root_current:
+            root_build_path.write_text(root_updated, encoding="utf-8")
+            print(f"Updated {root_build_path} publish plugin classpath to {version}")
+        else:
+            print(f"{root_build_path} publish plugin classpath already {version}")
 
 
 if __name__ == "__main__":
