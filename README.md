@@ -684,15 +684,25 @@ dependencies {
 | 只要一个 `.aar` 文件 | `assembleRelease` 或具体 `assemble<Variant>Release` | `module/build/outputs/aar/` | 手动拷贝、临时检查 AAR 内容 |
 | 让其他项目通过 Maven 坐标依赖 | `PublishLibraryLocalTask` 或 `publishToMavenLocal` | `~/.m2/repository/` | 本地联调、验证 POM 依赖、模拟远程发布消费方式 |
 
-## Central Portal 发布
+## 发布到 GitHub Packages
 
-远程发布仍执行旧任务名：
+GitHub Packages 是默认远程发布目标。发布前需要确认模块已经配置 `PublishInfo` 的 Maven 坐标：
+
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "demo-lib"
+    version = "1.0.0"
+}
+```
+
+执行远程发布任务：
 
 ```bash
 ./gradlew :module:PublishLibraryRemoteTask
 ```
 
-默认远程发布会上传到 GitHub Packages：
+显式指定 GitHub Packages repository：
 
 ```bash
 GITHUB_ACTOR=<github-user> \
@@ -701,6 +711,65 @@ GITHUB_TOKEN=<token-with-package-write> \
   -PgithubPackagesRepository=owner/repo \
   --stacktrace
 ```
+
+也可以在 `PublishInfo` 中固定仓库信息：
+
+```kotlin
+PublishInfo {
+    remotePublishMode = "githubPackages"
+    githubPackagesRepository = "owner/repo"
+    githubPackagesRepositoryName = "GitHubPackages"
+}
+```
+
+`githubPackagesRepository=owner/repo` 会推导出 Maven repository URL：
+
+```text
+https://maven.pkg.github.com/owner/repo
+```
+
+如果需要直接覆盖完整地址，使用 `githubPackagesUrl`：
+
+```bash
+./gradlew :module:PublishLibraryRemoteTask \
+  -PgithubPackagesUrl=https://maven.pkg.github.com/owner/repo \
+  --stacktrace
+```
+
+凭据来源建议使用 CI 环境变量：
+
+| 用途 | 推荐环境变量 | 兼容 Gradle property |
+| --- | --- | --- |
+| GitHub Packages 用户名 | `GITHUB_ACTOR` 或 `GITHUB_PACKAGES_USER` | `-PgithubPackagesUsername=...` 或 `-Pgpr.user=...` |
+| GitHub Packages token | `GITHUB_TOKEN` 或 `GITHUB_PACKAGES_TOKEN` | `-PgithubPackagesPassword=...` 或 `-Pgpr.key=...` |
+
+GitHub Actions 中可以使用默认 `GITHUB_TOKEN`，但 repository/package 权限必须允许写入 packages：
+
+```yaml
+permissions:
+  contents: read
+  packages: write
+```
+
+消费 GitHub Packages 产物时，业务工程需要配置同一个 Maven repository，并提供具备 package read 权限的 GitHub token：
+
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/owner/repo")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+                ?: System.getenv("GITHUB_ACTOR")
+            password = providers.gradleProperty("gpr.key").orNull
+                ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+```
+
+## Central Portal 发布
 
 发布到 Central Portal 时，需要显式指定 `remotePublishMode=central`，并先确认这些事项：
 
