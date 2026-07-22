@@ -64,6 +64,21 @@ object PublishConfigResolver {
         ).ifBlank { MODE_GITHUB_PACKAGES }
     }
 
+    fun resolveVersion(
+        project: Project,
+        publishInfo: PublishInfo,
+        configuredVersion: String = publishInfo.version
+    ): String {
+        return firstNotBlank(
+            commandLineProjectProperty(project, "publishVersion"),
+            projectProperty(project, "publishVersion"),
+            environment("PUBLISH_VERSION"),
+            commandLineProjectProperty(project, "version"),
+            projectProperty(project, "version").takeUnless { it == Project.DEFAULT_VERSION },
+            configuredVersion
+        )
+    }
+
     fun isCentralPublish(project: Project, publishInfo: PublishInfo): Boolean {
         val mode = resolveRemotePublishMode(project, publishInfo)
         if (mode != MODE_CENTRAL) {
@@ -451,6 +466,10 @@ object PublishConfigResolver {
 
     private fun projectProperty(project: Project, name: String): String {
         return project.findProperty(name)?.toString()?.trim().orEmpty()
+    }
+
+    private fun commandLineProjectProperty(project: Project, name: String): String {
+        return project.gradle.startParameter.projectProperties[name]?.trim().orEmpty()
     }
 
     private fun explicitPublishInfoValue(publishInfo: PublishInfo, fieldName: String, value: String): String {

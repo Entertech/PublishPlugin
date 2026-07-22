@@ -1009,6 +1009,7 @@ CI 或本地临时发布时，建议用 Gradle property 或环境变量覆盖敏
 | GitHub Packages URL | `-PgithubPackagesUrl=...` | `GITHUB_PACKAGES_URL` | 显式覆盖完整 Maven repository URL。 |
 | GitHub Packages 用户名 | `-PgithubPackagesUsername=...` / `-Pgpr.user=...` | `GITHUB_PACKAGES_USER` / `GITHUB_ACTOR` / `USERNAME` | GitHub Packages repository credentials username。 |
 | GitHub Packages Token | `-PgithubPackagesPassword=...` / `-Pgpr.key=...` | `GITHUB_PACKAGES_TOKEN` / `GITHUB_TOKEN` / `TOKEN` | GitHub Packages repository credentials password/token。 |
+| 发布版本 | `-PpublishVersion=...` / `-Pversion=...` | `PUBLISH_VERSION` | 临时覆盖 `PublishInfo.version`。`publishVersion` 优先级更高；`version` 用于兼容 reusable workflow 的 `version` 输入。 |
 | Central namespace | `-PcentralNamespace=...` | `CENTRAL_NAMESPACE` | 覆盖 `PublishInfo.centralNamespace`。 |
 | Central 发布方式 | `-PcentralPublishingType=user_managed` | `CENTRAL_PUBLISHING_TYPE` | 可选 `user_managed` / `automatic`。 |
 | Central repository 名称 | `-PcentralRepositoryName=CentralStaging` | `CENTRAL_REPOSITORY_NAME` | 一般不需要改。 |

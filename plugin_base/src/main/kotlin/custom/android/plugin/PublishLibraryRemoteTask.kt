@@ -41,12 +41,13 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
             PluginLogUtil.printlnErrorInScreen("PublishInfo.artifactId is required")
             return false
         }
-        if (publishInfo.version.isBlank()) {
+        val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo)
+        if (resolvedVersion.isBlank()) {
             PluginLogUtil.printlnErrorInScreen("PublishInfo.version is required")
             return false
         }
-        if (publishInfo.version.contains("debug", ignoreCase = true)) {
-            PluginLogUtil.printlnErrorInScreen("${publishInfo.version} contains debug")
+        if (resolvedVersion.contains("debug", ignoreCase = true)) {
+            PluginLogUtil.printlnErrorInScreen("$resolvedVersion contains debug")
             return false
         }
 
@@ -187,7 +188,7 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
 
     override fun configureNestedGradleExec(exec: ExecSpec, publishInfo: PublishInfo) {
         forwardedProjectProperties.forEach { propertyName ->
-            val value = project.findProperty(propertyName)?.toString()
+            val value = forwardedProjectPropertyValue(propertyName)
             if (!value.isNullOrBlank()) {
                 exec.environment("ORG_GRADLE_PROJECT_$propertyName", value)
                 forwardedProjectPropertyAliases[propertyName]?.let { alias ->
@@ -195,6 +196,13 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
                 }
             }
         }
+    }
+
+    private fun forwardedProjectPropertyValue(propertyName: String): String? {
+        if (propertyName == "version") {
+            return project.gradle.startParameter.projectProperties[propertyName]
+        }
+        return project.findProperty(propertyName)?.toString()
     }
 
     override fun fetchTaskName(): String = TAG
@@ -216,6 +224,8 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         "githubPackagesPassword",
         "gpr.user",
         "gpr.key",
+        "publishVersion",
+        "version",
         "centralNamespace",
         "centralPublishingType",
         "centralRepositoryName",

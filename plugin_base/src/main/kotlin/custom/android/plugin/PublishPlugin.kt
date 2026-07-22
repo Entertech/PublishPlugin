@@ -188,8 +188,9 @@ open class PublishPlugin : Plugin<Project> {
         version: String
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
-        val publishSources = centralPublish || version.endsWith("-debug")
-        val publicationVersion = resolvePublicationVersion(project, version)
+        val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo, version)
+        val publishSources = centralPublish || resolvedVersion.endsWith("-debug")
+        val publicationVersion = resolvePublicationVersion(project, resolvedVersion)
         skipSourcesVariants(project, softwareComponent)
         publishing.publications { publications ->
             publications.create(

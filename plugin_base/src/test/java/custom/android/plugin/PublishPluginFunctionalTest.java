@@ -126,6 +126,37 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void publishVersionPropertyOverridesVersionPropertyForPublicationVersion() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "-PpublishVersion=1.2.3",
+                        "-Pversion=1.2.4",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsVersion(projectDir.toPath(), "EnterPublish", "1.2.3");
+    }
+
+    @Test
+    public void versionPropertyOverridesPublishInfoVersionForPublicationVersion() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForEnterPublishPublication",
+                        "-Pversion=1.2.4",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsVersion(projectDir.toPath(), "EnterPublish", "1.2.4");
+    }
+
+    @Test
     public void centralModeAddsCentralRepositoryAndPomMetadataCanBeOverriddenFromCli() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
 
@@ -206,6 +237,28 @@ public class PublishPluginFunctionalTest {
         assertTrue(invoked.contains(":fixture:publishEnterPublishPublicationToGitHubPackagesRepository"));
         assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesUsername=github-user"));
         assertTrue(environment.contains("ORG_GRADLE_PROJECT_githubPackagesPassword=github-token"));
+    }
+
+    @Test
+    public void remoteTaskForwardsCliVersionPropertiesToNestedGradle() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        writeRecordingGradlew(projectDir);
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:PublishLibraryRemoteTask",
+                        "-PgithubPackagesRepository=Entertech/fixture",
+                        "-Pgpr.user=github-user",
+                        "-Pgpr.key=github-token",
+                        "-PpublishVersion=1.2.3",
+                        "-Pversion=1.2.4",
+                        "--stacktrace"
+                )
+                .build();
+
+        String environment = read(projectDir.toPath().resolve("gradlew.env"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_publishVersion=1.2.3"));
+        assertTrue(environment.contains("ORG_GRADLE_PROJECT_version=1.2.4"));
     }
 
     @Test
@@ -539,6 +592,13 @@ public class PublishPluginFunctionalTest {
         Path pomPath = projectDir.resolve("fixture/build/publications/" + publicationName + "/pom-default.xml");
         assertTrue("Missing POM for " + publicationName, Files.exists(pomPath));
         assertTrue(read(pomPath).contains("<artifactId>" + artifactId + "</artifactId>"));
+    }
+
+    private static void assertPomContainsVersion(Path projectDir, String publicationName, String version)
+            throws IOException {
+        Path pomPath = projectDir.resolve("fixture/build/publications/" + publicationName + "/pom-default.xml");
+        assertTrue("Missing POM for " + publicationName, Files.exists(pomPath));
+        assertTrue(read(pomPath).contains("<version>" + version + "</version>"));
     }
 
     private static void assertMavenAarPublication(Path mavenLocal, String artifactId) throws IOException {
