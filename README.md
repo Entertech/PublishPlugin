@@ -4,6 +4,8 @@
 
 当前远程发布统一入口是 `PublishLibraryRemoteTask`，默认发布到 GitHub Packages；GitHub Packages 和 Sonatype Central Portal 统一通过 `publishTarget` 选择。旧私服发布仍保留历史兼容入口。
 
+本仓库需求分支、`pre_publish` 预发布和 `main` 合入规则见 [分支与发布工作流](doc/workflow.md)。
+
 ## 快速开始
 
 ### 1. Skills 配置
