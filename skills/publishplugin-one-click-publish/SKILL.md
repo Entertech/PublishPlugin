@@ -1,9 +1,9 @@
 ---
-name: publishplugin-one-click-publish
-description: Use when, and only when, the user explicitly mentions the enter publish or flowtime publish publishing plugin and asks to one-click configure publishing information or publish workflow settings for that plugin.
+name: enter-one-click-publish-config
+description: Use when, and only when, the user explicitly mentions Enter's one-click publishing configuration or the Enter Publish / Flowtime Publish plugin and asks to configure publishing information or workflow settings.
 ---
 
-# PublishPlugin One-Click Publish
+# Enter One-Click Publish Configuration
 
 ## Overview
 
