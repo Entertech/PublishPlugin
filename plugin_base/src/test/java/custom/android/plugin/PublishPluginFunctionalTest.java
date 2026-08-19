@@ -7,12 +7,17 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Year;
+import java.util.Enumeration;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class PublishPluginFunctionalTest {
@@ -359,8 +364,8 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
-    public void centralModePublishesJavadocWithoutSourcesWhenObfuscated() throws IOException {
-        File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
+    public void centralModePublishesDummySourcesWhenObfuscated() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", true, centralPublishInfo(), "");
         File mavenLocal = temporaryFolder.newFolder("central-obfuscated-maven-local");
 
         gradleRunner(projectDir)
@@ -376,9 +381,16 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        Path sourcesJar = versionDir.resolve("fixture-1.0.0-local-sources.jar");
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
-        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(sourcesJar));
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
+        assertTrue(zipContains(sourcesJar, "README.md"));
+        assertFalse(zipContainsName(sourcesJar, "FixturePlugin.java"));
+        String readme = readZipEntry(sourcesJar, "README.md");
+        assertTrue(readme.contains("placeholder sources jar required by Maven Central"));
+        assertTrue(readme.contains("obfuscated/closed-source artifact"));
+        assertTrue(readme.contains("https://example.com/fixture"));
     }
 
     @Test
@@ -404,9 +416,12 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        Path sourcesJar = versionDir.resolve("fixture-1.0.0-local-sources.jar");
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(sourcesJar));
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
+        assertTrue(zipContainsName(sourcesJar, "FixturePlugin.java"));
+        assertFalse(zipContains(sourcesJar, "README.md"));
     }
 
     @Test
@@ -423,8 +438,10 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        Path sourcesJar = versionDir.resolve("fixture-1.0.0-local-sources.jar");
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(sourcesJar));
+        assertTrue(zipContainsName(sourcesJar, "FixturePlugin.java"));
     }
 
     @Test
@@ -825,6 +842,40 @@ public class PublishPluginFunctionalTest {
 
     private static String read(Path path) throws IOException {
         return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+    }
+
+    private static boolean zipContains(Path jar, String entryName) throws IOException {
+        try (ZipFile zip = new ZipFile(jar.toFile())) {
+            return zip.getEntry(entryName) != null;
+        }
+    }
+
+    private static boolean zipContainsName(Path jar, String fragment) throws IOException {
+        try (ZipFile zip = new ZipFile(jar.toFile())) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                if (entries.nextElement().getName().contains(fragment)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static String readZipEntry(Path jar, String entryName) throws IOException {
+        try (ZipFile zip = new ZipFile(jar.toFile())) {
+            ZipEntry entry = zip.getEntry(entryName);
+            assertNotNull(entry);
+            try (InputStream in = zip.getInputStream(entry)) {
+                byte[] buffer = new byte[4096];
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+                return new String(out.toByteArray(), StandardCharsets.UTF_8);
+            }
+        }
     }
 
     private static GradleRunner gradleRunner(File projectDir) {

@@ -7,7 +7,7 @@ Keep these in module `PublishInfo`:
 | Field | Reason |
 | --- | --- |
 | `groupId`, `artifactId`, `version` | Maven component identity. |
-| `obfuscate` | Component source-publish policy. Default `true` skips sources jars. |
+| `obfuscate` | Component source-publish policy. Default `true` omits real sources; Central still uploads a README-only placeholder `sources.jar`. |
 | `pluginId`, `implementationClass` | Gradle Plugin component identity. |
 | `pomName`, `pomDescription`, `pomUrl` | Component POM metadata. Defaults may fill these when omitted. |
 

@@ -207,12 +207,22 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
         val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo, version)
-        val publishSources = PublishConfigResolver.shouldPublishSources(project, publishInfo, resolvedVersion)
+        val publishRealSources = PublishConfigResolver.shouldPublishSources(project, publishInfo, resolvedVersion)
+        val attachSources = PublishConfigResolver.shouldAttachSourcesJar(
+            project,
+            publishInfo,
+            resolvedVersion,
+            centralPublish
+        )
         val publicationVersion = resolvePublicationVersion(project, resolvedVersion)
         skipSourcesVariants(project, softwareComponent)
-        if (!publishSources) {
+        if (!attachSources) {
             PluginLogUtil.printlnInfoInScreen(
                 "$TAG skip sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
+            )
+        } else if (!publishRealSources) {
+            PluginLogUtil.printlnInfoInScreen(
+                "$TAG attach dummy sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for Central publish of $groupId:$artifactId:$resolvedVersion"
             )
         }
         publishing.publications { publications ->
@@ -224,16 +234,21 @@ open class PublishPlugin : Plugin<Project> {
                 publication.version = publicationVersion
                 publication.from(softwareComponent)
                 configurePom(project, publication, publishInfo, artifactId)
-                if (publishSources) {
-                    createSourcesJarTask(project)?.let { task ->
-                        publication.artifact(task)
+                if (attachSources) {
+                    if (publishRealSources) {
+                        createSourcesJarTask(project)?.let { task ->
+                            publication.artifact(task)
+                        }
+                    } else {
+                        removeSourcesArtifacts(publication)
+                        publication.artifact(createDummySourcesJarTask(project, publishInfo))
                     }
                 }
                 if (centralPublish) {
                     publication.artifact(createJavadocJarTask(project))
                     configureSigning(project, publication)
                 }
-                if (!publishSources) {
+                if (!attachSources) {
                     removeSourcesArtifacts(publication)
                 }
             }
@@ -780,6 +795,37 @@ open class PublishPlugin : Plugin<Project> {
             jar.from(source)
             jar.archiveClassifier.set("sources")
         }
+    }
+
+    private fun createDummySourcesJarTask(project: Project, publishInfo: PublishInfo): Any {
+        val taskName = "dummySourcesJar"
+        return project.tasks.findByName(taskName) ?: project.tasks.create(
+            taskName, Jar::class.java
+        ) { jar ->
+            val dummySourcesDir = File(project.buildDir, "dummy-sources")
+            dummySourcesDir.mkdirs()
+            File(dummySourcesDir, "README.md").writeText(
+                dummySourcesReadme(project, publishInfo)
+            )
+            jar.archiveClassifier.set("sources")
+            jar.from(dummySourcesDir)
+        }
+    }
+
+    private fun dummySourcesReadme(project: Project, publishInfo: PublishInfo): String {
+        val displayName = publishInfo.artifactId.ifBlank { project.name }
+        val projectUrl = PublishConfigResolver.resolvePomUrl(project, publishInfo)
+            .ifBlank { PublishConfigResolver.resolveScmUrl(project, publishInfo) }
+        val builder = StringBuilder()
+        builder.append("# ").append(displayName).append("\n\n")
+        builder.append("This is a placeholder sources jar required by Maven Central.\n\n")
+        builder.append(
+            "Business source code is not included because this component is published as an obfuscated/closed-source artifact.\n"
+        )
+        if (projectUrl.isNotBlank()) {
+            builder.append("\nProject: ").append(projectUrl).append("\n")
+        }
+        return builder.toString()
     }
 
     private fun createJavadocJarTask(project: Project): Any {
