@@ -16,6 +16,7 @@ object PublishConfigLoader {
         "pomName",
         "pomDescription",
         "pomUrl",
+        "hasSource",
         "obfuscate"
     )
 

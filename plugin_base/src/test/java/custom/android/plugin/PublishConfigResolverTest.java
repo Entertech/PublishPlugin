@@ -58,35 +58,49 @@ public class PublishConfigResolverTest {
     }
 
     @Test
-    public void obfuscateDefaultsToTrueAndSkipsSourcesForReleaseVersions() {
+    public void hasSourceDefaultsToFalseAndSkipsRealSourcesForReleaseVersions() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();
         publishInfo.setVersion("1.0.0");
 
-        assertTrue(PublishConfigResolver.INSTANCE.resolveObfuscate(project, publishInfo));
+        assertFalse(PublishConfigResolver.INSTANCE.resolveHasSource(project, publishInfo));
         assertFalse(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
         assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0-debug"));
     }
 
     @Test
-    public void obfuscateFalsePublishesSourcesForReleaseVersions() {
+    public void hasSourceTruePublishesSourcesForReleaseVersions() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();
-        publishInfo.setObfuscate(false);
+        publishInfo.setHasSource(true);
 
-        assertFalse(PublishConfigResolver.INSTANCE.resolveObfuscate(project, publishInfo));
+        assertTrue(PublishConfigResolver.INSTANCE.resolveHasSource(project, publishInfo));
         assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
     }
 
     @Test
-    public void obfuscatePropertyOverridesPublishInfo() {
+    public void hasSourcePropertyOverridesPublishInfo() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();
-        publishInfo.setObfuscate(true);
-        project.getExtensions().getExtraProperties().set("obfuscate", "false");
+        publishInfo.setHasSource(false);
+        project.getExtensions().getExtraProperties().set("hasSource", "true");
 
-        assertFalse(PublishConfigResolver.INSTANCE.resolveObfuscate(project, publishInfo));
+        assertTrue(PublishConfigResolver.INSTANCE.resolveHasSource(project, publishInfo));
         assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
+    }
+
+    @Test
+    public void obfuscateFalseStillPublishesSourcesForCompatibility() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        publishInfo.setObfuscate(false);
+
+        assertTrue(PublishConfigResolver.INSTANCE.resolveHasSource(project, publishInfo));
+        assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
+
+        project.getExtensions().getExtraProperties().set("obfuscate", "true");
+        assertFalse(PublishConfigResolver.INSTANCE.resolveHasSource(project, publishInfo));
+        assertFalse(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
     }
 
 }

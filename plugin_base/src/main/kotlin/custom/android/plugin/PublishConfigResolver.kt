@@ -98,14 +98,26 @@ object PublishConfigResolver {
         )
     }
 
-    fun resolveObfuscate(project: Project, publishInfo: PublishInfo): Boolean {
-        val override = firstPresentBoolean(
+    fun resolveHasSource(project: Project, publishInfo: PublishInfo): Boolean {
+        val hasSourceOverride = firstPresentBoolean(
+            commandLineProjectProperty(project, "hasSource"),
+            projectProperty(project, "hasSource"),
+            environment("PUBLISH_HAS_SOURCE"),
+            environment("HAS_SOURCE")
+        )
+        if (hasSourceOverride != null) {
+            return hasSourceOverride
+        }
+        val obfuscateOverride = firstPresentBoolean(
             commandLineProjectProperty(project, "obfuscate"),
             projectProperty(project, "obfuscate"),
             environment("PUBLISH_OBFUSCATE"),
             environment("OBFUSCATE")
         )
-        return override ?: publishInfo.obfuscate
+        if (obfuscateOverride != null) {
+            return !obfuscateOverride
+        }
+        return publishInfo.hasSource
     }
 
     fun shouldPublishSources(
@@ -116,7 +128,7 @@ object PublishConfigResolver {
         if (version.endsWith("-debug")) {
             return true
         }
-        return !resolveObfuscate(project, publishInfo)
+        return resolveHasSource(project, publishInfo)
     }
 
     fun resolveWorkflowPublishTarget(project: Project, config: PublishConfig): String {

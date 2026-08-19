@@ -67,15 +67,26 @@ open class PublishInfo {
         }
 
     /**
-     * Whether this component is published as an obfuscated/closed-source artifact.
-     * When true, real business sources are omitted and a placeholder sources jar
-     * is attached instead. Set false to publish real sources.
+     * Whether this component publishes real business sources.
+     * When false, a placeholder sources jar is attached instead.
      * Debug versions still include real sources.
      */
-    var obfuscate: Boolean = true
+    var hasSource: Boolean = false
+        set(value) {
+            markExplicit("hasSource")
+            field = value
+        }
+
+    /**
+     * Compatibility alias for [hasSource].
+     * `obfuscate = true` means `hasSource = false`.
+     */
+    @Deprecated("Use hasSource. obfuscate = true means hasSource = false.")
+    var obfuscate: Boolean
+        get() = !hasSource
         set(value) {
             markExplicit("obfuscate")
-            field = value
+            hasSource = !value
         }
 
     var implementationClass = ""

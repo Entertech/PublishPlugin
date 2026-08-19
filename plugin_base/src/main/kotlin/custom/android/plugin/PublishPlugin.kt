@@ -212,7 +212,7 @@ open class PublishPlugin : Plugin<Project> {
         skipSourcesVariants(project, softwareComponent)
         if (!publishRealSources) {
             PluginLogUtil.printlnInfoInScreen(
-                "$TAG attach dummy sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
+                "$TAG attach dummy sources jar because hasSource=${PublishConfigResolver.resolveHasSource(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
             )
         }
         publishing.publications { publications ->
@@ -805,7 +805,7 @@ open class PublishPlugin : Plugin<Project> {
         builder.append("# ").append(displayName).append("\n\n")
         builder.append("This is a placeholder sources jar required by Maven Central.\n\n")
         builder.append(
-            "Business source code is not included because this component is published as an obfuscated/closed-source artifact.\n"
+            "Business source code is not included because this component is published without source.\n"
         )
         if (projectUrl.isNotBlank()) {
             builder.append("\nProject: ").append(projectUrl).append("\n")

@@ -27,7 +27,7 @@ public class PublishPluginFunctionalTest {
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
-    public void publishToMavenLocalPublishesDummySourcesWhenObfuscated() throws IOException {
+    public void publishToMavenLocalPublishesDummySourcesWhenHasSourceIsFalse() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", true);
         File mavenLocal = temporaryFolder.newFolder("maven-local");
 
@@ -369,7 +369,7 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
-    public void centralModePublishesDummySourcesWhenObfuscated() throws IOException {
+    public void centralModePublishesDummySourcesWhenHasSourceIsFalse() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", true, centralPublishInfo(), "");
         File mavenLocal = temporaryFolder.newFolder("central-obfuscated-maven-local");
 
@@ -395,11 +395,11 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
-    public void centralModePublishesSourcesAndJavadocsWhenObfuscateDisabled() throws IOException {
+    public void centralModePublishesSourcesAndJavadocsWhenHasSourceIsTrue() throws IOException {
         File projectDir = createGradlePluginProject(
                 "1.0.0",
                 false,
-                "    obfuscate = false\n" + centralPublishInfo(),
+                "    hasSource = true\n" + centralPublishInfo(),
                 ""
         );
         File mavenLocal = temporaryFolder.newFolder("central-sources-maven-local");
@@ -426,8 +426,8 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
-    public void publishToMavenLocalPublishesSourcesWhenObfuscateDisabled() throws IOException {
-        File projectDir = createGradlePluginProject("1.0.0", false, "    obfuscate = false\n", "");
+    public void publishToMavenLocalPublishesSourcesWhenHasSourceIsTrue() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, "    hasSource = true\n", "");
         File mavenLocal = temporaryFolder.newFolder("open-source-maven-local");
 
         gradleRunner(projectDir)
@@ -441,6 +441,25 @@ public class PublishPluginFunctionalTest {
         Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
         Path sourcesJar = versionDir.resolve("fixture-1.0.0-local-sources.jar");
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertTrue(Files.exists(sourcesJar));
+        assertTrue(zipContainsName(sourcesJar, "FixturePlugin.java"));
+    }
+
+    @Test
+    public void publishToMavenLocalStillHonorsObfuscateFalseAlias() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, "    obfuscate = false\n", "");
+        File mavenLocal = temporaryFolder.newFolder("obfuscate-alias-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        Path sourcesJar = versionDir.resolve("fixture-1.0.0-local-sources.jar");
         assertTrue(Files.exists(sourcesJar));
         assertTrue(zipContainsName(sourcesJar, "FixturePlugin.java"));
     }
@@ -851,7 +870,7 @@ public class PublishPluginFunctionalTest {
         assertFalse(zipContainsName(sourcesJar, businessSourceName));
         String readme = readZipEntry(sourcesJar, "README.md");
         assertTrue(readme.contains("placeholder sources jar required by Maven Central"));
-        assertTrue(readme.contains("obfuscated/closed-source artifact"));
+        assertTrue(readme.contains("published without source"));
     }
 
     private static boolean zipContains(Path jar, String entryName) throws IOException {

@@ -246,7 +246,7 @@ ORG_GRADLE_PROJECT_signingInMemoryKeyPassword=<gpg-password> \
 | Central Portal 支持 | 已封装 Central staging 上传和 manual upload；状态轮询、deployment validation 仍偏轻 | 内置 Central Portal 发布、自动发布、deployment validation 等能力 | Vanniktech 更成熟 |
 | POM 元数据 | Entertech 默认 license/developer/SCM 规则内置，可由 `PublishInfo`、Gradle property、环境变量覆盖 | 使用通用 DSL 或 Gradle properties 配置 | 自研更贴公司默认值，Vanniktech 更标准 |
 | GPG 签名 | 已支持 in-memory key，但签名属性解析和校验由本插件维护 | 内置 CI 友好的 signing 配置 | Vanniktech 维护成本更低 |
-| sources/javadoc | 由 `PublishInfo.obfuscate` 控制真实源码是否上传。本地 Maven、GitHub Packages 和 Central 都始终上传 `sources.jar`：默认混淆时用只含 README 的占位 jar，`obfuscate = false` 或 `-debug` 上传真实源码。Central 额外强制 javadoc 和签名 | 自动配置 sources/javadoc，可配合 Dokka | Vanniktech 更完整 |
+| sources/javadoc | 由 `PublishInfo.hasSource` 控制真实源码是否上传。本地 Maven、GitHub Packages 和 Central 都始终上传 `sources.jar`：默认 `hasSource = false` 用只含 README 的占位 jar，`hasSource = true` 或 `-debug` 上传真实源码。Central 额外强制 javadoc 和签名 | 自动配置 sources/javadoc，可配合 Dokka | Vanniktech 更完整 |
 | Android 多 variant | 只发布 release component，支持 `artifactIdForVariant` 和 `skipVariantIf` | 支持 Android variant 发布和过滤，但 DSL 不同 | 两者都能做，自研更贴现有业务规则 |
 | Gradle Plugin 发布 | 支持 `java-gradle-plugin`，并复用公司坐标和 POM 规则 | 也支持 Gradle Plugin 发布 | 能力接近 |
 | 旧私服发布 | 保留 `remotePublishMode = "customRepository"` 和旧私服字段 | 支持发布到任意 Maven repository，但配置方式不同 | 自研迁移成本更低 |
@@ -311,7 +311,7 @@ PublishInfo {
 }
 ```
 
-仓库级配置和一次性 secret 输入放在根目录 `local.properties` 的 `publish.*` 字段中。不要在 `local.properties` 中声明 `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl`、`obfuscate` 等组件字段。
+仓库级配置和一次性 secret 输入放在根目录 `local.properties` 的 `publish.*` 字段中。不要在 `local.properties` 中声明 `groupId`、`artifactId`、`version`、`pluginId`、`implementationClass`、`pomName`、`pomDescription`、`pomUrl`、`hasSource`、`obfuscate` 等组件字段。
 
 ### 配置入口
 
@@ -531,7 +531,7 @@ Central token、GPG key、signing password 在一键发布配置阶段只用于�
 | `groupId` | 所有发布 | Maven 坐标的 groupId。Central 发布时必须落在已验证的 `centralNamespace` 下，例如 namespace 是 `ai.looktech`，则 `groupId` 可以是 `ai.looktech` 或 `ai.looktech.xxx`。 |
 | `artifactId` | 所有发布 | Maven 坐标的 artifactId。单 publication 直接使用该值；多 release variant 场景下是默认值，可被 `artifactIdForVariant` 为每个 variant 动态覆盖。 |
 | `version` | 所有发布 | Maven 坐标的 version。本地发布时，版本以 `-debug` 结尾会上传真实 sources jar；远程发布会拒绝包含 `debug` 的版本。 |
-| `obfuscate` | 可选，默认 `true` | 是否按混淆/闭源方式发布。`true` 时不上传真实业务源码，本地 Maven、GitHub Packages 和 Central 都会改传只含 README 的占位 `sources.jar`。`false` 时间接开启真实源码上传。`-debug` 版本仍会带真实 sources。该字段只影响源码包内容，不改写模块自己的 R8/`isMinifyEnabled`。 |
+| `hasSource` | 可选，默认 `false` | 是否上传真实业务源码。`false` 时本地 Maven、GitHub Packages 和 Central 都传只含 README 的占位 `sources.jar`。`true` 上传真实源码。`-debug` 版本仍会带真实 sources。旧字段 `obfuscate` 仍可用：`obfuscate = true` 等于 `hasSource = false`。该字段只影响源码包内容，不改写模块自己的 R8/`isMinifyEnabled`。 |
 
 ### Gradle Plugin 字段
 
@@ -702,10 +702,10 @@ affective_local_sdk-breath-noAuth-release.aar
 
 - 本地发布时，实际 publication version 会使用 `-local` 后缀；`version = "1.0.0"` 会发布为 `1.0.0-local`。
 - 如果 `PublishInfo.version` 已经以 `-local` 结尾，则保持原值，不会追加成 `-local-local`。
-- `PublishInfo.obfuscate` 默认 `true`，表示按混淆/闭源方式发布。本地 Maven、GitHub Packages 和 Central Portal 都会上传 `sources.jar`，但内容是只含 README 的占位包，不含业务源码。
-- `obfuscate = false` 时上传真实 sources jar，适合开源组件。
-- `version` 以 `-debug` 结尾时，即使 `obfuscate = true` 也会发布真实 sources jar。
-- Central 远程发布额外附带 javadoc 和 GPG 签名。`obfuscate` 只决定各目标的 `sources.jar` 是占位包还是真实源码。
+- `PublishInfo.hasSource` 默认 `false`，表示不上传真实业务源码。本地 Maven、GitHub Packages 和 Central Portal 都会上传 `sources.jar`，但内容是只含 README 的占位包。
+- `hasSource = true` 时上传真实 sources jar，适合开源组件。
+- `version` 以 `-debug` 结尾时，即使 `hasSource = false` 也会发布真实 sources jar。
+- Central 远程发布额外附带 javadoc 和 GPG 签名。`hasSource` 只决定各目标的 `sources.jar` 是占位包还是真实源码。
 
 发布成功后，产物会进入本机 Maven 仓库：
 
@@ -1086,7 +1086,7 @@ CI 或本地临时发布时，建议用 Gradle property 或环境变量覆盖敏
 | GitHub Packages 用户名 | `-PgithubPackagesUsername=...` / `-Pgpr.user=...` | `GITHUB_PACKAGES_USER` / `GITHUB_ACTOR` / `USERNAME` | GitHub Packages repository credentials username。 |
 | GitHub Packages Token | `-PgithubPackagesPassword=...` / `-Pgpr.key=...` | `GITHUB_PACKAGES_TOKEN` / `GITHUB_TOKEN` / `TOKEN` | GitHub Packages repository credentials password/token。 |
 | 发布版本 | `-PpublishVersion=...` / `-Pversion=...` | `PUBLISH_VERSION` | 临时覆盖 `PublishInfo.version`。`publishVersion` 优先级更高；`version` 用于兼容 reusable workflow 的 `version` 输入。 |
-| 混淆/源码包 | `-Pobfuscate=true` / `-Pobfuscate=false` | `PUBLISH_OBFUSCATE` / `OBFUSCATE` | 覆盖 `PublishInfo.obfuscate`。`true` 不上传真实源码，改为上传占位 `sources.jar`。`false` 上传真实 sources。 |
+| 源码包 | `-PhasSource=true` / `-PhasSource=false` | `PUBLISH_HAS_SOURCE` / `HAS_SOURCE` | 覆盖 `PublishInfo.hasSource`。`true` 上传真实 sources；`false` 上传占位 `sources.jar`。旧参数 `-Pobfuscate` / `PUBLISH_OBFUSCATE` / `OBFUSCATE` 仍可用，语义相反。 |
 | Central namespace | `-PcentralNamespace=...` | `CENTRAL_NAMESPACE` | 覆盖 `PublishInfo.centralNamespace`。 |
 | Central 发布方式 | `-PcentralPublishingType=user_managed` | `CENTRAL_PUBLISHING_TYPE` | 可选 `user_managed` / `automatic`。 |
 | Central release 类型 | `-PcentralReleaseType=snapshot` | `CENTRAL_RELEASE_TYPE` | 可选 `release` / `snapshot`。`snapshot` 使用 `CentralSnapshots` 和 `https://central.sonatype.com/repository/maven-snapshots/`。 |
