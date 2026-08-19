@@ -207,9 +207,14 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
         val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo, version)
-        val publishSources = centralPublish || resolvedVersion.endsWith("-debug")
+        val publishSources = PublishConfigResolver.shouldPublishSources(project, publishInfo, resolvedVersion)
         val publicationVersion = resolvePublicationVersion(project, resolvedVersion)
         skipSourcesVariants(project, softwareComponent)
+        if (!publishSources) {
+            PluginLogUtil.printlnInfoInScreen(
+                "$TAG skip sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
+            )
+        }
         publishing.publications { publications ->
             publications.create(
                 publicationName, MavenPublication::class.java

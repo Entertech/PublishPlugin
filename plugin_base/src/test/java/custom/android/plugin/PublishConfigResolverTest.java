@@ -5,6 +5,8 @@ import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class PublishConfigResolverTest {
     @Test
@@ -53,5 +55,37 @@ public class PublishConfigResolverTest {
                 "scm:git:ssh://git@github.com/Entertech/PublishPlugin.git",
                 PublishConfigResolver.INSTANCE.resolveScmDeveloperConnection(project, publishInfo)
         );
+    }
+
+    @Test
+    public void obfuscateDefaultsToTrueAndSkipsSourcesForReleaseVersions() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        publishInfo.setVersion("1.0.0");
+
+        assertTrue(PublishConfigResolver.INSTANCE.resolveObfuscate(project, publishInfo));
+        assertFalse(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
+        assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0-debug"));
+    }
+
+    @Test
+    public void obfuscateFalsePublishesSourcesForReleaseVersions() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        publishInfo.setObfuscate(false);
+
+        assertFalse(PublishConfigResolver.INSTANCE.resolveObfuscate(project, publishInfo));
+        assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
+    }
+
+    @Test
+    public void obfuscatePropertyOverridesPublishInfo() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        publishInfo.setObfuscate(true);
+        project.getExtensions().getExtraProperties().set("obfuscate", "false");
+
+        assertFalse(PublishConfigResolver.INSTANCE.resolveObfuscate(project, publishInfo));
+        assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
     }
 }

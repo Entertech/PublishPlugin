@@ -359,9 +359,37 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
-    public void centralModePublishesSourcesAndJavadocsToMavenLocalForReleaseVersion() throws IOException {
+    public void centralModePublishesJavadocWithoutSourcesWhenObfuscated() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
-        File mavenLocal = temporaryFolder.newFolder("central-maven-local");
+        File mavenLocal = temporaryFolder.newFolder("central-obfuscated-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-PcentralPublish=true",
+                        "-PpublishTarget=central",
+                        "-PcentralUsername=token-user",
+                        "-PcentralPassword=token-password",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
+    }
+
+    @Test
+    public void centralModePublishesSourcesAndJavadocsWhenObfuscateDisabled() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                "    obfuscate = false\n" + centralPublishInfo(),
+                ""
+        );
+        File mavenLocal = temporaryFolder.newFolder("central-sources-maven-local");
 
         gradleRunner(projectDir)
                 .withArguments(
@@ -379,6 +407,24 @@ public class PublishPluginFunctionalTest {
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
+    }
+
+    @Test
+    public void publishToMavenLocalPublishesSourcesWhenObfuscateDisabled() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, "    obfuscate = false\n", "");
+        File mavenLocal = temporaryFolder.newFolder("open-source-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
+        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
     }
 
     @Test

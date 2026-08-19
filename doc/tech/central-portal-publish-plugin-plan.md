@@ -28,7 +28,7 @@
 1. 坐标由模块明确声明：`coordinates(group, artifactId, version)`。
 2. POM 元数据在公共层统一补齐：项目 URL、license、developer、SCM。
 3. Central 发布必须签名：`signAllPublications()`。
-4. Central 发布必须包含 sources/javadoc artifact。
+4. Central 发布必须包含 javadoc artifact 和签名；sources 由 `PublishInfo.obfuscate` 控制。
 5. 凭据不写死在代码里，通过 Gradle properties 或环境变量传入。
 6. 业务模块只关心 `artifactId`、`name`、`description` 这些差异项。
 
@@ -46,7 +46,7 @@ https://s01.oss.sonatype.org/content/repositories/releases/
 
 3. `PublishInfo` 只有基本坐标和仓库账号，缺少 Central 必需的 POM 字段。
 
-4. 本地发布已经按需求处理为“非 debug 不带 sources”，但 Central 远程发布必须强制带 sources/javadoc。
+4. 本地发布已经按需求处理为“非 debug 不带 sources”；Central 远程发布与 GitHub Packages 共用 `obfuscate` 规则，不再强制 sources。
 
 5. 当前没有 GPG signing。
 
@@ -55,7 +55,7 @@ https://s01.oss.sonatype.org/content/repositories/releases/
 7. 当前 remote/local 复用同一个 publication 配置，后续需要按任务上下文区分：
 
 - 本地 Maven：轻量调试，不强制 sources/javadoc/signing。
-- Central：严格发布，强制 sources/javadoc/signing/POM 校验。
+- Central：严格发布，强制 javadoc/signing/POM 校验；sources 由 `obfuscate` 控制。
 
 ## 兼容性原则
 
@@ -409,7 +409,7 @@ ORG_GRADLE_PROJECT_signingInMemoryKeyPassword="$GPG_PASSWORD" \
 | `-PcentralPublishingType=...` | `centralPublishingType` |
 | `-PcentralUsername=...` | token username |
 | `-PcentralPassword=...` | token password |
-| `-PcentralPublish=true` | 本地/dry-run 启用 Central 严格 publication 配置，生成 sources/javadoc/POM/CentralStaging task，但不替代 `PublishLibraryRemoteTask` |
+| `-PcentralPublish=true` | 本地/dry-run 启用 Central 严格 publication 配置，生成 javadoc/POM/CentralStaging task，sources 仍受 `obfuscate` 控制，但不替代 `PublishLibraryRemoteTask` |
 | `-PpomName=...` | `pomName` |
 | `-PpomDescription=...` | `pomDescription` |
 | `-PpomUrl=...` | `pomUrl` |
@@ -640,9 +640,11 @@ POM 校验参考 `lt-rpc-schema` 的失败信息：Kotlin publication 检查会�
 
 规则：
 
-- 本地 `publishToMavenLocal`：非 `-debug` 不带 sources，保持当前用户诉求。
-- `-debug` 本地发布：可带 sources，保持当前插件已有逻辑。
-- Central 远程发布：无论是否 debug，必须带 sources/javadoc；但 `PublishLibraryRemoteTask` 禁止 debug version。
+- `PublishInfo.obfuscate` 默认 `true`，表示按混淆/闭源方式发布，不上传 sources jar。
+- `obfuscate = false` 时上传 sources jar，GitHub Packages 和 Central Portal 使用同一套规则。
+- 本地 `publishToMavenLocal`：非 `-debug` 且 `obfuscate = true` 时不带 sources。
+- `-debug` 版本：可带 sources，保持当前插件已有逻辑。
+- Central 远程发布：仍强制 javadoc 和签名；不再因为目标是 Central 就强制 sources。`PublishLibraryRemoteTask` 仍然禁止 debug version。
 
 sources jar：
 
@@ -719,7 +721,7 @@ centralPublishingType = "automatic"
 4. `plugin_base/build.gradle` 迁移为 `plugin_base/build.gradle.kts`。
 5. 配置 `CentralStaging` repository。
 6. `PublishLibraryRemoteTask` 执行前校验 POM/namespace/凭据/signing。
-7. Central publication 强制 sources/javadoc。
+7. Central publication 强制 javadoc/signing；sources 由 `PublishInfo.obfuscate` 控制。
 8. 接入 `signing` 插件并生成 `.asc`。
 9. 发布完成后调用 manual upload endpoint。
 10. 增加 CLI 参数覆盖能力。
@@ -729,7 +731,7 @@ centralPublishingType = "automatic"
     - old `PublishInfo` 字段仍能完成插件配置。
     - old `publishUserName` / `publishPassword` 能作为 Central token fallback。
     - old `local.properties` 字段仍能作为字段输入 fallback。
-    - central release 生成 sources/javadoc/signatures。
+    - central release 在 `obfuscate = false` 时生成 sources/javadoc/signatures；默认混淆发布只生成 javadoc/signatures。
     - 缺 POM 必需字段时报错。
     - 缺 signing key 时报错。
     - Central repository URL 正确。
@@ -851,7 +853,7 @@ https://central.sonatype.com/publishing/deployments
 - 复用 `PublishLibraryRemoteTask` 作为 Central 远程发布入口。
 - 支持 CLI 参数覆盖，便于本地和非 GitHub CI 使用。
 - 提供 GitHub Actions workflow 示例，支持手动 `workflow_dispatch` 发布。
-- Central 发布强制 POM、sources、javadoc、signing。
+- Central 发布强制 POM、javadoc、signing；sources 由 `PublishInfo.obfuscate` 控制。
 - 使用 Sonatype OSSRH Staging API 兼容层完成第一版迁移。
 - 默认 `user_managed`，先人工在 Portal 发布。
 

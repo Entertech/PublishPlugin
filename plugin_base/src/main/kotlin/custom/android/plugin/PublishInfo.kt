@@ -66,6 +66,17 @@ open class PublishInfo {
             field = value
         }
 
+    /**
+     * Whether this component is published as an obfuscated/closed-source artifact.
+     * When true, sources jars are omitted. Set false to publish sources.
+     * Debug versions still include sources.
+     */
+    var obfuscate: Boolean = true
+        set(value) {
+            markExplicit("obfuscate")
+            field = value
+        }
+
     var implementationClass = ""
         set(value) {
             markExplicit("implementationClass")

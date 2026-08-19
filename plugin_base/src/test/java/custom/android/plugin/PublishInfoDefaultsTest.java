@@ -5,6 +5,7 @@ import org.junit.Test;
 import java.time.Year;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class PublishInfoDefaultsTest {
     @Test
@@ -19,5 +20,6 @@ public class PublishInfoDefaultsTest {
         assertEquals("Entertech", publishInfo.getDeveloperOrganization());
         assertEquals("https://github.com/Entertech", publishInfo.getDeveloperOrganizationUrl());
         assertEquals("https://github.com/Entertech", publishInfo.getDeveloperUrl());
+        assertTrue(publishInfo.getObfuscate());
     }
 }
