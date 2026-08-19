@@ -27,7 +27,7 @@ public class PublishPluginFunctionalTest {
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
-    public void publishToMavenLocalDoesNotPublishSourcesJarForNonDebugVersion() throws IOException {
+    public void publishToMavenLocalPublishesDummySourcesWhenObfuscated() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", true);
         File mavenLocal = temporaryFolder.newFolder("maven-local");
 
@@ -40,9 +40,11 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
+        Path sourcesJar = versionDir.resolve("fixture-1.0.0-local-sources.jar");
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
-        assertFalse(Files.exists(versionDir.resolve("fixture-1.0.0-local-sources.jar")));
+        assertTrue(Files.exists(sourcesJar));
         assertFalse(read(versionDir.resolve("fixture-1.0.0-local.module")).contains("SourcesElements"));
+        assertDummySourcesJar(sourcesJar, "FixturePlugin.java");
     }
 
     @Test
@@ -112,8 +114,11 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         Path versionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-debug-local");
+        Path sourcesJar = versionDir.resolve("fixture-1.0.0-debug-local-sources.jar");
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-local.jar")));
-        assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-debug-local-sources.jar")));
+        assertTrue(Files.exists(sourcesJar));
+        assertTrue(zipContainsName(sourcesJar, "FixturePlugin.java"));
+        assertFalse(zipContains(sourcesJar, "README.md"));
     }
 
     @Test
@@ -385,12 +390,8 @@ public class PublishPluginFunctionalTest {
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local.jar")));
         assertTrue(Files.exists(sourcesJar));
         assertTrue(Files.exists(versionDir.resolve("fixture-1.0.0-local-javadoc.jar")));
-        assertTrue(zipContains(sourcesJar, "README.md"));
-        assertFalse(zipContainsName(sourcesJar, "FixturePlugin.java"));
-        String readme = readZipEntry(sourcesJar, "README.md");
-        assertTrue(readme.contains("placeholder sources jar required by Maven Central"));
-        assertTrue(readme.contains("obfuscated/closed-source artifact"));
-        assertTrue(readme.contains("https://example.com/fixture"));
+        assertDummySourcesJar(sourcesJar, "FixturePlugin.java");
+        assertTrue(readZipEntry(sourcesJar, "README.md").contains("https://example.com/fixture"));
     }
 
     @Test
@@ -774,8 +775,9 @@ public class PublishPluginFunctionalTest {
         assertTrue("Missing POM for " + artifactId, Files.exists(versionDir.resolve(artifactId + "-" + version + ".pom")));
         assertTrue("Missing module metadata for " + artifactId,
                 Files.exists(versionDir.resolve(artifactId + "-" + version + ".module")));
-        assertFalse("Non-debug publish should not include sources for " + artifactId,
-                Files.exists(versionDir.resolve(artifactId + "-" + version + "-sources.jar")));
+        Path sourcesJar = versionDir.resolve(artifactId + "-" + version + "-sources.jar");
+        assertTrue("Missing sources jar for " + artifactId, Files.exists(sourcesJar));
+        assertDummySourcesJar(sourcesJar, "Fixture.java");
     }
 
     private static void assertMavenArtifactMissing(Path mavenLocal, String artifactId) {
@@ -842,6 +844,14 @@ public class PublishPluginFunctionalTest {
 
     private static String read(Path path) throws IOException {
         return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+    }
+
+    private static void assertDummySourcesJar(Path sourcesJar, String businessSourceName) throws IOException {
+        assertTrue(zipContains(sourcesJar, "README.md"));
+        assertFalse(zipContainsName(sourcesJar, businessSourceName));
+        String readme = readZipEntry(sourcesJar, "README.md");
+        assertTrue(readme.contains("placeholder sources jar required by Maven Central"));
+        assertTrue(readme.contains("obfuscated/closed-source artifact"));
     }
 
     private static boolean zipContains(Path jar, String entryName) throws IOException {

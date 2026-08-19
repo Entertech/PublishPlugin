@@ -119,15 +119,6 @@ object PublishConfigResolver {
         return !resolveObfuscate(project, publishInfo)
     }
 
-    fun shouldAttachSourcesJar(
-        project: Project,
-        publishInfo: PublishInfo,
-        version: String = resolveVersion(project, publishInfo),
-        centralPublish: Boolean = isCentralPublish(project, publishInfo)
-    ): Boolean {
-        return shouldPublishSources(project, publishInfo, version) || centralPublish
-    }
-
     fun resolveWorkflowPublishTarget(project: Project, config: PublishConfig): String {
         val normalized = normalizeWorkflowPublishTarget(
             firstNotBlank(

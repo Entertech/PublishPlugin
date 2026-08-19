@@ -68,8 +68,8 @@ open class PublishInfo {
 
     /**
      * Whether this component is published as an obfuscated/closed-source artifact.
-     * When true, real business sources are omitted. Central still attaches a
-     * placeholder sources jar. Set false to publish real sources.
+     * When true, real business sources are omitted and a placeholder sources jar
+     * is attached instead. Set false to publish real sources.
      * Debug versions still include real sources.
      */
     var obfuscate: Boolean = true

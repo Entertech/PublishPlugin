@@ -89,15 +89,4 @@ public class PublishConfigResolverTest {
         assertTrue(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
     }
 
-    @Test
-    public void centralPublishAttachesSourcesJarEvenWhenObfuscated() {
-        Project project = ProjectBuilder.builder().build();
-        PublishInfo publishInfo = new PublishInfo();
-        publishInfo.setVersion("1.0.0");
-
-        assertFalse(PublishConfigResolver.INSTANCE.shouldPublishSources(project, publishInfo, "1.0.0"));
-        assertTrue(PublishConfigResolver.INSTANCE.shouldAttachSourcesJar(project, publishInfo, "1.0.0", true));
-        assertFalse(PublishConfigResolver.INSTANCE.shouldAttachSourcesJar(project, publishInfo, "1.0.0", false));
-        assertTrue(PublishConfigResolver.INSTANCE.shouldAttachSourcesJar(project, publishInfo, "1.0.0-debug", false));
-    }
 }

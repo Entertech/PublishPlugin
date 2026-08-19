@@ -46,7 +46,7 @@ https://s01.oss.sonatype.org/content/repositories/releases/
 
 3. `PublishInfo` 只有基本坐标和仓库账号，缺少 Central 必需的 POM 字段。
 
-4. 本地发布已经按需求处理为“非 debug 且混淆时不带 sources”；Central 远程发布始终带 `sources.jar`，混淆时使用占位 sources。
+4. 本地 Maven、GitHub Packages 和 Central 都始终带 `sources.jar`；混淆时使用占位 sources，便于本地先验证 Central 产物。
 
 5. 当前没有 GPG signing。
 
@@ -54,7 +54,7 @@ https://s01.oss.sonatype.org/content/repositories/releases/
 
 7. 当前 remote/local 复用同一个 publication 配置，后续需要按任务上下文区分：
 
-- 本地 Maven：轻量调试，不强制 sources/javadoc/signing。
+- 本地 Maven：轻量调试，不强制 javadoc/signing；sources 与远程共用 `obfuscate` 规则。
 - Central：严格发布，强制 sources/javadoc/signing/POM 校验；`obfuscate` 控制 sources 是真实源码还是占位 jar。
 
 ## 兼容性原则
@@ -559,7 +559,7 @@ jobs:
 
 保留现有任务：
 
-- `PublishLibraryLocalTask`：本地验证，不强制 sources/javadoc/signing。
+- `PublishLibraryLocalTask`：本地验证，不强制 javadoc/signing；sources 与远程共用 `obfuscate` 规则。
 - `PublishLibraryRemoteTask`：继续作为“远程发布”入口，内部实现迁移为 Central Portal 发布；重点是旧 `PublishInfo` 字段仍然可用。
 
 ### 2. Central repository 配置
@@ -642,15 +642,15 @@ POM 校验参考 `lt-rpc-schema` 的失败信息：Kotlin publication 检查会�
 
 - `PublishInfo.obfuscate` 默认 `true`，表示按混淆/闭源方式发布，不上传真实业务源码。
 - `obfuscate = false` 时上传真实 sources jar。
-- 本地 `publishToMavenLocal` 和 GitHub Packages：非 `-debug` 且 `obfuscate = true` 时不带 sources。
+- 本地 `publishToMavenLocal`、GitHub Packages 和 Central 都始终附带 `sources.jar`。
 - `-debug` 版本：发布真实 sources，保持当前插件已有逻辑。
-- Central 远程发布：始终附带 `sources.jar`、javadoc 和签名。`obfuscate = true` 时 `sources.jar` 只包含 README 占位内容，不含业务源码。`PublishLibraryRemoteTask` 仍然禁止 debug version。
+- `obfuscate = true` 时 `sources.jar` 只包含 README 占位内容，不含业务源码。Central 额外强制 javadoc 和签名。`PublishLibraryRemoteTask` 仍然禁止 debug version。
 
 sources jar：
 
 - Android Library：读取 `android.sourceSets["main"].java.srcDirs`。
 - Java/Groovy/Gradle 插件：读取 `sourceSets["main"].allSource`。
-- Central 且 `obfuscate = true`：不打包业务源码，改为生成 `build/dummy-sources/README.md`，再打成 classifier 为 `sources` 的占位 jar。占位 README 指向已解析的 `pomUrl` / `scmUrl`。
+- `obfuscate = true`：不打包业务源码，改为生成 `build/dummy-sources/README.md`，再打成 classifier 为 `sources` 的占位 jar。占位 README 指向已解析的 `pomUrl` / `scmUrl`。本地、GitHub Packages 和 Central 共用这个逻辑。
 
 javadoc jar：
 
@@ -728,7 +728,7 @@ centralPublishingType = "automatic"
 10. 增加 CLI 参数覆盖能力。
 11. README 增加 Central 使用说明和 GitHub Actions 示例。
 12. 添加 Gradle TestKit 测试覆盖：
-    - local 非 debug 不生成 sources。
+    - local 非 debug 且混淆时生成占位 sources；`obfuscate = false` 或 `-debug` 生成真实 sources。
     - old `PublishInfo` 字段仍能完成插件配置。
     - old `publishUserName` / `publishPassword` 能作为 Central token fallback。
     - old `local.properties` 字段仍能作为字段输入 fallback。

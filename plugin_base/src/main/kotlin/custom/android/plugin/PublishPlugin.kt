@@ -208,21 +208,11 @@ open class PublishPlugin : Plugin<Project> {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
         val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo, version)
         val publishRealSources = PublishConfigResolver.shouldPublishSources(project, publishInfo, resolvedVersion)
-        val attachSources = PublishConfigResolver.shouldAttachSourcesJar(
-            project,
-            publishInfo,
-            resolvedVersion,
-            centralPublish
-        )
         val publicationVersion = resolvePublicationVersion(project, resolvedVersion)
         skipSourcesVariants(project, softwareComponent)
-        if (!attachSources) {
+        if (!publishRealSources) {
             PluginLogUtil.printlnInfoInScreen(
-                "$TAG skip sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
-            )
-        } else if (!publishRealSources) {
-            PluginLogUtil.printlnInfoInScreen(
-                "$TAG attach dummy sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for Central publish of $groupId:$artifactId:$resolvedVersion"
+                "$TAG attach dummy sources jar because obfuscate=${PublishConfigResolver.resolveObfuscate(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
             )
         }
         publishing.publications { publications ->
@@ -234,22 +224,17 @@ open class PublishPlugin : Plugin<Project> {
                 publication.version = publicationVersion
                 publication.from(softwareComponent)
                 configurePom(project, publication, publishInfo, artifactId)
-                if (attachSources) {
-                    if (publishRealSources) {
-                        createSourcesJarTask(project)?.let { task ->
-                            publication.artifact(task)
-                        }
-                    } else {
-                        removeSourcesArtifacts(publication)
-                        publication.artifact(createDummySourcesJarTask(project, publishInfo))
+                if (publishRealSources) {
+                    createSourcesJarTask(project)?.let { task ->
+                        publication.artifact(task)
                     }
+                } else {
+                    removeSourcesArtifacts(publication)
+                    publication.artifact(createDummySourcesJarTask(project, publishInfo))
                 }
                 if (centralPublish) {
                     publication.artifact(createJavadocJarTask(project))
                     configureSigning(project, publication)
-                }
-                if (!attachSources) {
-                    removeSourcesArtifacts(publication)
                 }
             }
         }
