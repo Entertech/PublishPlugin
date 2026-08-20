@@ -99,7 +99,7 @@ buildscript {
     }
 
     dependencies {
-        classpath("cn.entertech.android:publish:1.3.0")
+        classpath("cn.entertech.android:publish:1.2.3")
     }
 }
 ```
@@ -1302,14 +1302,14 @@ SIGNING_PASSWORD
 发布坐标：
 
 ```text
-cn.entertech.android:publish:1.3.0
-cn.entertech.publish:cn.entertech.publish.gradle.plugin:1.3.0
+cn.entertech.android:publish:1.2.3
+cn.entertech.publish:cn.entertech.publish.gradle.plugin:1.2.3
 ```
 
 其中第二个是 Gradle plugin marker，用于支持：
 
 ```kotlin
 plugins {
-    id("cn.entertech.publish") version "1.3.0"
+    id("cn.entertech.publish") version "1.2.3"
 }
 ```
