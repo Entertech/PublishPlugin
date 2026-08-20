@@ -7,6 +7,7 @@ Keep these in module `PublishInfo`:
 | Field | Reason |
 | --- | --- |
 | `groupId`, `artifactId`, `version` | Maven component identity. |
+| `hasSource` | Component source-publish policy. Default `false` omits real sources and uploads a README-only placeholder `sources.jar` for local Maven, GitHub Packages, and Central. `obfuscate` remains a compatibility alias. |
 | `pluginId`, `implementationClass` | Gradle Plugin component identity. |
 | `pomName`, `pomDescription`, `pomUrl` | Component POM metadata. Defaults may fill these when omitted. |
 

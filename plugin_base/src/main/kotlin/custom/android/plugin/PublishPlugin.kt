@@ -207,9 +207,14 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
         val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo, version)
-        val publishSources = centralPublish || resolvedVersion.endsWith("-debug")
+        val publishRealSources = PublishConfigResolver.shouldPublishSources(project, publishInfo, resolvedVersion)
         val publicationVersion = resolvePublicationVersion(project, resolvedVersion)
         skipSourcesVariants(project, softwareComponent)
+        if (!publishRealSources) {
+            PluginLogUtil.printlnInfoInScreen(
+                "$TAG attach dummy sources jar because hasSource=${PublishConfigResolver.resolveHasSource(project, publishInfo)} for $groupId:$artifactId:$resolvedVersion"
+            )
+        }
         publishing.publications { publications ->
             publications.create(
                 publicationName, MavenPublication::class.java
@@ -219,17 +224,17 @@ open class PublishPlugin : Plugin<Project> {
                 publication.version = publicationVersion
                 publication.from(softwareComponent)
                 configurePom(project, publication, publishInfo, artifactId)
-                if (publishSources) {
+                if (publishRealSources) {
                     createSourcesJarTask(project)?.let { task ->
                         publication.artifact(task)
                     }
+                } else {
+                    removeSourcesArtifacts(publication)
+                    publication.artifact(createDummySourcesJarTask(project, publishInfo))
                 }
                 if (centralPublish) {
                     publication.artifact(createJavadocJarTask(project))
                     configureSigning(project, publication)
-                }
-                if (!publishSources) {
-                    removeSourcesArtifacts(publication)
                 }
             }
         }
@@ -775,6 +780,43 @@ open class PublishPlugin : Plugin<Project> {
             jar.from(source)
             jar.archiveClassifier.set("sources")
         }
+    }
+
+    private fun createDummySourcesJarTask(project: Project, publishInfo: PublishInfo): Any {
+        val taskName = "dummySourcesJar"
+        project.tasks.findByName(taskName)?.let { return it }
+
+        val dummySourcesDir = File(project.buildDir, "dummy-sources")
+        val readmeContent = dummySourcesReadme(project, publishInfo)
+        val generateTask = project.tasks.findByName("generateDummySources")
+            ?: project.tasks.create("generateDummySources") { task ->
+                task.inputs.property("readmeContent", readmeContent)
+                task.outputs.dir(dummySourcesDir)
+                task.doLast {
+                    dummySourcesDir.mkdirs()
+                    File(dummySourcesDir, "README.md").writeText(readmeContent)
+                }
+            }
+        return project.tasks.create(taskName, Jar::class.java) { jar ->
+            jar.archiveClassifier.set("sources")
+            jar.from(generateTask)
+        }
+    }
+
+    private fun dummySourcesReadme(project: Project, publishInfo: PublishInfo): String {
+        val displayName = publishInfo.artifactId.ifBlank { project.name }
+        val projectUrl = PublishConfigResolver.resolvePomUrl(project, publishInfo)
+            .ifBlank { PublishConfigResolver.resolveScmUrl(project, publishInfo) }
+        val builder = StringBuilder()
+        builder.append("# ").append(displayName).append("\n\n")
+        builder.append("This is a placeholder sources jar required by Maven Central.\n\n")
+        builder.append(
+            "Business source code is not included because this component is published without source.\n"
+        )
+        if (projectUrl.isNotBlank()) {
+            builder.append("\nProject: ").append(projectUrl).append("\n")
+        }
+        return builder.toString()
     }
 
     private fun createJavadocJarTask(project: Project): Any {

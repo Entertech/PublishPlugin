@@ -98,6 +98,37 @@ object PublishConfigResolver {
         )
     }
 
+    fun resolveHasSource(project: Project, publishInfo: PublishInfo): Boolean {
+        val hasSourceOverride = firstPresentBoolean(
+            commandLineProjectProperty(project, "hasSource"),
+            projectProperty(project, "hasSource"),
+            environment("PUBLISH_HAS_SOURCE")
+        )
+        if (hasSourceOverride != null) {
+            return hasSourceOverride
+        }
+        val obfuscateOverride = firstPresentBoolean(
+            commandLineProjectProperty(project, "obfuscate"),
+            projectProperty(project, "obfuscate"),
+            environment("PUBLISH_OBFUSCATE")
+        )
+        if (obfuscateOverride != null) {
+            return !obfuscateOverride
+        }
+        return publishInfo.hasSource
+    }
+
+    fun shouldPublishSources(
+        project: Project,
+        publishInfo: PublishInfo,
+        version: String = resolveVersion(project, publishInfo)
+    ): Boolean {
+        if (version.endsWith("-debug")) {
+            return true
+        }
+        return resolveHasSource(project, publishInfo)
+    }
+
     fun resolveWorkflowPublishTarget(project: Project, config: PublishConfig): String {
         val normalized = normalizeWorkflowPublishTarget(
             firstNotBlank(
@@ -620,7 +651,20 @@ object PublishConfigResolver {
     }
 
     private fun String?.toBooleanLenient(): Boolean {
-        return this?.equals("true", ignoreCase = true) == true || this == "1" || this?.equals("yes", ignoreCase = true) == true
+        return this.parseBooleanFlag() == true
+    }
+
+    private fun firstPresentBoolean(vararg values: String?): Boolean? {
+        return values.firstNotNullOfOrNull { it.parseBooleanFlag() }
+    }
+
+    private fun String?.parseBooleanFlag(): Boolean? {
+        val normalized = this?.trim()?.lowercase().orEmpty()
+        return when (normalized) {
+            "true", "1", "yes" -> true
+            "false", "0", "no" -> false
+            else -> null
+        }
     }
 
     private fun String.camelToUpperSnake(): String {

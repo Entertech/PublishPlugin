@@ -15,7 +15,9 @@ object PublishConfigLoader {
         "implementationClass",
         "pomName",
         "pomDescription",
-        "pomUrl"
+        "pomUrl",
+        "hasSource",
+        "obfuscate"
     )
 
     private val moduleFields = setOf("modules")
