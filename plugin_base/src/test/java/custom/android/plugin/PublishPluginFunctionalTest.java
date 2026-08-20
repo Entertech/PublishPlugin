@@ -48,6 +48,44 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void cleanThenPublishToMavenLocalStillPublishesDummySourcesReadme() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", true);
+        File mavenLocal = temporaryFolder.newFolder("clean-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        "clean",
+                        ":fixture:publishToMavenLocal",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path sourcesJar = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local/fixture-1.0.0-local-sources.jar");
+        assertDummySourcesJar(sourcesJar, "FixturePlugin.java");
+    }
+
+    @Test
+    public void publishToMavenLocalHonorsHasSourceCommandLineOverride() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        File mavenLocal = temporaryFolder.newFolder("has-source-cli-maven-local");
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:publishToMavenLocal",
+                        "-PhasSource=true",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
+                        "--stacktrace"
+                )
+                .build();
+
+        Path sourcesJar = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local/fixture-1.0.0-local-sources.jar");
+        assertTrue(Files.exists(sourcesJar));
+        assertTrue(zipContainsName(sourcesJar, "FixturePlugin.java"));
+        assertFalse(zipContains(sourcesJar, "README.md"));
+    }
+
+    @Test
     public void publishToMavenLocalAppendsLocalVersionSuffix() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         File mavenLocal = temporaryFolder.newFolder("local-suffix-maven-local");

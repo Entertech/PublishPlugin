@@ -4,7 +4,16 @@
 
 当前远程发布统一入口是 `PublishLibraryRemoteTask`，默认发布到 GitHub Packages；GitHub Packages 和 Sonatype Central Portal 统一通过 `publishTarget` 选择。旧私服发布仍保留历史兼容入口。
 
-本仓库需求分支、`pre_publish` 预发布和 `main` 合入规则见 [分支与发布工作流](doc/workflow.md)。
+本仓库需求分支、`pre_publish` 预发布和 `main` 合入规则见 [分支与发布工作流](doc/workflow.md)。版本变更记录见 [changelog](doc/changelog.md)。
+
+## 升级必读（1.2.3）
+
+从 `1.2.2` 升级到 `1.2.3` 会改变 sources 包内容，发 Central 前必须先看这一节。
+
+- 以前 Central 发布会无条件附带真实业务源码。现在本地 Maven、GitHub Packages 和 Central 都始终上传 `sources.jar`，但默认 `hasSource = false`，内容是只含 README 的占位包。
+- 开源组件必须在模块 `PublishInfo` 里设置 `hasSource = true`，否则下次 Central 发布会悄悄丢掉真实源码。
+- 闭源组件保持默认即可。本地 `publishToMavenLocal` 也会带占位 sources，用来预演 Central 产物形态。
+- 运行时覆盖只用 `-PhasSource` / `PUBLISH_HAS_SOURCE`。不要使用无前缀的 `HAS_SOURCE` 或 `OBFUSCATE` 环境变量，避免被无关 CI 变量改掉发布结果。旧字段 `obfuscate` 仍可用：`obfuscate = true` 等于 `hasSource = false`。
 
 ## 快速开始
 
@@ -1086,7 +1095,7 @@ CI 或本地临时发布时，建议用 Gradle property 或环境变量覆盖敏
 | GitHub Packages 用户名 | `-PgithubPackagesUsername=...` / `-Pgpr.user=...` | `GITHUB_PACKAGES_USER` / `GITHUB_ACTOR` / `USERNAME` | GitHub Packages repository credentials username。 |
 | GitHub Packages Token | `-PgithubPackagesPassword=...` / `-Pgpr.key=...` | `GITHUB_PACKAGES_TOKEN` / `GITHUB_TOKEN` / `TOKEN` | GitHub Packages repository credentials password/token。 |
 | 发布版本 | `-PpublishVersion=...` / `-Pversion=...` | `PUBLISH_VERSION` | 临时覆盖 `PublishInfo.version`。`publishVersion` 优先级更高；`version` 用于兼容 reusable workflow 的 `version` 输入。 |
-| 源码包 | `-PhasSource=true` / `-PhasSource=false` | `PUBLISH_HAS_SOURCE` / `HAS_SOURCE` | 覆盖 `PublishInfo.hasSource`。`true` 上传真实 sources；`false` 上传占位 `sources.jar`。旧参数 `-Pobfuscate` / `PUBLISH_OBFUSCATE` / `OBFUSCATE` 仍可用，语义相反。 |
+| 源码包 | `-PhasSource=true` / `-PhasSource=false` | `PUBLISH_HAS_SOURCE` | 覆盖 `PublishInfo.hasSource`。`true` 上传真实 sources；`false` 上传占位 `sources.jar`。旧参数 `-Pobfuscate` / `PUBLISH_OBFUSCATE` 仍可用，语义相反。不要使用无前缀的 `HAS_SOURCE` 或 `OBFUSCATE` 环境变量。 |
 | Central namespace | `-PcentralNamespace=...` | `CENTRAL_NAMESPACE` | 覆盖 `PublishInfo.centralNamespace`。 |
 | Central 发布方式 | `-PcentralPublishingType=user_managed` | `CENTRAL_PUBLISHING_TYPE` | 可选 `user_managed` / `automatic`。 |
 | Central release 类型 | `-PcentralReleaseType=snapshot` | `CENTRAL_RELEASE_TYPE` | 可选 `release` / `snapshot`。`snapshot` 使用 `CentralSnapshots` 和 `https://central.sonatype.com/repository/maven-snapshots/`。 |

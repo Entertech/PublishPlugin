@@ -76,7 +76,7 @@ This mode supports both modules in this repository and modules in other reposito
 
 Check these invariants first:
 
-- `local.properties` may contain repository-wide fields only. It must reject component fields such as `publish.groupId`, `publish.artifactId`, `publish.version`, `publish.pluginId`, `publish.implementationClass`, `publish.pomName`, `publish.pomDescription`, and `publish.pomUrl`.
+- `local.properties` may contain repository-wide fields only. It must reject component fields such as `publish.groupId`, `publish.artifactId`, `publish.version`, `publish.pluginId`, `publish.implementationClass`, `publish.pomName`, `publish.pomDescription`, `publish.pomUrl`, `publish.hasSource`, and `publish.obfuscate`.
 - `modules` and `module.<alias>.*` are unsupported. Multi-module repos run each module's task separately.
 - `PublishInfo` explicit values outrank `local.properties`; blank `publish.*` values are ignored.
 - POM/SCM URL default inference must prefer the current project's `git remote origin` before GitHub Actions or other CI environment variables, so TestKit fixtures and nested builds are not polluted by the outer `GITHUB_REPOSITORY`.

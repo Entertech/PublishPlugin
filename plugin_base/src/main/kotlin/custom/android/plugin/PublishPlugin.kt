@@ -784,16 +784,22 @@ open class PublishPlugin : Plugin<Project> {
 
     private fun createDummySourcesJarTask(project: Project, publishInfo: PublishInfo): Any {
         val taskName = "dummySourcesJar"
-        return project.tasks.findByName(taskName) ?: project.tasks.create(
-            taskName, Jar::class.java
-        ) { jar ->
-            val dummySourcesDir = File(project.buildDir, "dummy-sources")
-            dummySourcesDir.mkdirs()
-            File(dummySourcesDir, "README.md").writeText(
-                dummySourcesReadme(project, publishInfo)
-            )
+        project.tasks.findByName(taskName)?.let { return it }
+
+        val dummySourcesDir = File(project.buildDir, "dummy-sources")
+        val readmeContent = dummySourcesReadme(project, publishInfo)
+        val generateTask = project.tasks.findByName("generateDummySources")
+            ?: project.tasks.create("generateDummySources") { task ->
+                task.inputs.property("readmeContent", readmeContent)
+                task.outputs.dir(dummySourcesDir)
+                task.doLast {
+                    dummySourcesDir.mkdirs()
+                    File(dummySourcesDir, "README.md").writeText(readmeContent)
+                }
+            }
+        return project.tasks.create(taskName, Jar::class.java) { jar ->
             jar.archiveClassifier.set("sources")
-            jar.from(dummySourcesDir)
+            jar.from(generateTask)
         }
     }
 

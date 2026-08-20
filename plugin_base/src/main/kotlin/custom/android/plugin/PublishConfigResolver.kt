@@ -102,8 +102,7 @@ object PublishConfigResolver {
         val hasSourceOverride = firstPresentBoolean(
             commandLineProjectProperty(project, "hasSource"),
             projectProperty(project, "hasSource"),
-            environment("PUBLISH_HAS_SOURCE"),
-            environment("HAS_SOURCE")
+            environment("PUBLISH_HAS_SOURCE")
         )
         if (hasSourceOverride != null) {
             return hasSourceOverride
@@ -111,8 +110,7 @@ object PublishConfigResolver {
         val obfuscateOverride = firstPresentBoolean(
             commandLineProjectProperty(project, "obfuscate"),
             projectProperty(project, "obfuscate"),
-            environment("PUBLISH_OBFUSCATE"),
-            environment("OBFUSCATE")
+            environment("PUBLISH_OBFUSCATE")
         )
         if (obfuscateOverride != null) {
             return !obfuscateOverride
