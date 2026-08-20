@@ -79,7 +79,7 @@ BUILD SUCCESSFUL
 
 根因：
 
-1. 插件为了非 debug 版本不发布 sources，会尝试对 `<variant>SourcesElements` 调用 `withVariantsFromConfiguration(...).skip()`。
+1. 插件为了默认混淆发布不带入业务 sources variant，会尝试对 `<variant>SourcesElements` 调用 `withVariantsFromConfiguration(...).skip()`。
 2. 某些 AGP/Gradle 场景下 `<variant>SourcesElements` configuration 存在，但它不是当前 `SoftwareComponent` 的 variant。
 3. `withVariantsFromConfiguration` 会抛出 `Variant for configuration ... does not exist in component ...`。
 4. 外层 `afterEvaluate` catch 只打印错误，没有重新抛出异常。
@@ -321,7 +321,7 @@ Android Library：
 5. 每个 publication 调用 `publication.from(component)`。
 6. 每个 publication 使用 `publishInfo.resolveArtifactId(variantInfo)` 计算 artifactId。
 7. POM 的 `name` fallback 使用最终 artifactId，而不是固定 `PublishInfo.artifactId`。
-8. 非 debug 本地发布移除 sources artifact 时，如果 `<variant>SourcesElements` configuration 不属于当前 component，只记录 debug 日志并继续创建 publication。
+8. 默认混淆发布跳过业务 sources variant 时，如果 `<variant>SourcesElements` configuration 不属于当前 component，只记录 debug 日志并继续创建 publication。
 9. 除上述已知 sources mismatch 外，publication 创建过程中的异常必须继续抛出，让 Gradle 构建失败。
 
 Gradle Plugin：

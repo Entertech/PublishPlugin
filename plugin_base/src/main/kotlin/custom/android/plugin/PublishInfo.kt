@@ -66,6 +66,30 @@ open class PublishInfo {
             field = value
         }
 
+    private var hasSourceValue: Boolean = false
+
+    /**
+     * Whether this component publishes real business sources.
+     * When false, a placeholder sources jar is attached instead.
+     * Debug versions still include real sources.
+     */
+    var hasSource: Boolean
+        get() = hasSourceValue
+        set(value) {
+            writeHasSource(value, "hasSource")
+        }
+
+    /**
+     * Compatibility alias for [hasSource].
+     * `obfuscate = true` means `hasSource = false`.
+     */
+    @Deprecated("Use hasSource. obfuscate = true means hasSource = false.")
+    var obfuscate: Boolean
+        get() = !hasSourceValue
+        set(value) {
+            writeHasSource(!value, "obfuscate")
+        }
+
     var implementationClass = ""
         set(value) {
             markExplicit("implementationClass")
@@ -197,6 +221,11 @@ open class PublishInfo {
         return artifactIdForVariantAction != null ||
             groupIdForVariantAction != null ||
             versionForVariantAction != null
+    }
+
+    private fun writeHasSource(value: Boolean, explicitField: String) {
+        markExplicit(explicitField)
+        hasSourceValue = value
     }
 
     private fun markExplicit(fieldName: String) {
