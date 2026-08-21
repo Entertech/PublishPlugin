@@ -12,12 +12,13 @@
 
 ## 方案摘要
 
-本方案做四项结构性调整：
+本方案做五项结构性调整：
 
 1. 用“组件类型 + 发布目标”生成唯一、明确的公开任务名，每个模块只注册 4 个 PublishPlugin 自定义任务。
 2. 把当前 `PublishLibraryRemoteTask` 中的目标判断拆成远程仓库 provider，由目标任务显式选择 provider。
 3. 把执行环境与发布目标解耦：同一个明确的 Gradle 发布任务既可在本机运行，也可在 GitHub Actions runner 运行。
 4. 删除 PublishPlugin 对 Android 根目录 `local.properties` 的发布配置依赖，改为共享 DSL、本机专用 properties、GitHub workflow/Secrets 三层配置。
+5. 在打包和仓库传输之间建立版本化 `ArtifactBundle` 契约，使发布器既能消费当前工程构建结果，也能直接消费项目指定目录中的已有 AAR/JAR 和伴生文件。
 
 本方案取代现有 `doc/tech/publish-one-click-config-plan.md` 中以下设计结论：
 
@@ -68,37 +69,46 @@
 
 这使本机运行配置与 GitHub Actions 初始化配置无法独立理解和维护。
 
+### 打包与发布耦合
+
+当前 `BasePublishTask`/`PublishLibraryRemoteTask` 通过 nested Gradle 直接调用 `publish...PublicationTo...Repository`。标准 Maven Publish task 会在同一执行图里完成编译产物解析、POM/module metadata 生成、签名和网络上传，因此：
+
+- publisher 无法只接收一个已经准备好的 AAR/JAR；
+- GitHub Actions 无法声明“跳过打包，直接发布某目录”；
+- provider 校验和产物生成互相依赖；
+- 很难在任何网络请求前完整校验全部伴生文件。
+
+新方案必须先在本地 staging 目录形成完整 bundle，再把网络传输作为独立阶段。
+
 ## 目标架构
 
 ```text
-                         +----------------------+
-                         | PublishInfo          |
-                         | component metadata   |
-                         +----------+-----------+
-                                    |
-                         +----------v-----------+
-                         | PublishRepositories  |
-                         | non-secret providers |
-                         +----------+-----------+
-                                    |
-                  +-----------------+-----------------+
-                  |                                   |
-        +---------v----------+              +---------v----------+
-        | local execution    |              | GitHub Actions     |
-        | env / Gradle prop  |              | workflow + Secrets |
-        | .publish/local...  |              | no local file      |
-        +---------+----------+              +---------+----------+
-                  |                                   |
-                  +-----------------+-----------------+
-                                    |
-                         +----------v-----------+
-                         | explicit public task |
-                         +----------+-----------+
-                                    |
-                         +----------v-----------+
-                         | repository provider  |
-                         +----------------------+
+        +--------------------+       +----------------------+
+        | project producer   |       | prebuilt producer    |
+        | compile/package    |       | manifest + AAR/JAR   |
+        +---------+----------+       +----------+-----------+
+                  |                             |
+                  +-------------+---------------+
+                                |
+                     +----------v-----------+
+                     | PreparedArtifactBundle|
+                     | immutable Maven layout|
+                     +----------+-----------+
+                                |
+                     +----------v-----------+
+                     | bundle validator     |
+                     | common + target rules|
+                     +----------+-----------+
+                                |
+                +---------------+----------------+
+                |               |                |
+        +-------v------+ +------v-------+ +------v-------+
+        | Maven Local  | | GitHub Pkgs  | | Central      |
+        | publisher    | | publisher    | | publisher    |
+        +--------------+ +--------------+ +--------------+
 ```
+
+执行环境在 producer 和 publisher 外围提供配置来源：本机使用环境变量/Gradle property/`.publish/local.properties`；GitHub Actions 使用 workflow inputs/Secrets。两种执行环境消费同一个 bundle 契约。
 
 ### 核心类型
 
@@ -119,16 +129,32 @@ internal enum class PublishDestination {
     ALL,
 }
 
+internal enum class ArtifactSource {
+    PROJECT,
+    PREBUILT,
+}
+
+internal data class PreparedArtifactBundle(
+    val schemaVersion: Int,
+    val rootDirectory: File,
+    val publications: List<PreparedPublication>,
+)
+
+internal interface ArtifactBundleProducer {
+    val source: ArtifactSource
+    fun prepare(request: ArtifactPreparationRequest): PreparedArtifactBundle
+}
+
 internal interface RemoteRepositoryProvider {
     val id: String
     val taskNamePart: String
     val order: Int
 
     fun isEnabled(context: PublishContext): Boolean
-    fun validate(context: PublishContext)
-    fun configureRepository(context: PublishContext)
-    fun resolvePublishCommand(context: PublishContext): String
-    fun afterPublish(context: PublishContext, output: String)
+    fun requirements(context: PublishContext): ArtifactRequirements
+    fun validate(bundle: PreparedArtifactBundle, context: PublishContext)
+    fun publish(bundle: PreparedArtifactBundle, context: PublishContext): PublishResult
+    fun afterPublish(bundle: PreparedArtifactBundle, result: PublishResult, context: PublishContext)
 }
 ```
 
@@ -140,6 +166,15 @@ CentralRepositoryProvider
 ```
 
 provider registry 由插件内部构造并注入任务，不在 resolver 中继续堆叠 `if/when`。
+
+producer 首期实现：
+
+```text
+ProjectArtifactBundleProducer
+PrebuiltArtifactBundleProducer
+```
+
+publisher/provider 只依赖 `PreparedArtifactBundle`，不依赖 Android `SoftwareComponent`、Java `SourceSet` 或编译 task。
 
 ## 公开任务设计
 
@@ -216,6 +251,13 @@ abstract val providerId: Property<String>
 
 @Internal
 abstract val componentKind: Property<PublishComponentKind>
+
+@Input
+abstract val artifactSource: Property<ArtifactSource>
+
+@Optional
+@InputDirectory
+abstract val artifactBundleDirectory: DirectoryProperty
 ```
 
 注册时固定 convention/value，用户不能用普通命令行 property 把 GitHub Packages task 改成 Central。
@@ -224,9 +266,9 @@ abstract val componentKind: Property<PublishComponentKind>
 
 ### LocalTask
 
-1. 校验 `PublishInfo` 的最终坐标。
-2. 使用现有多 publication 解析结果。
-3. 执行当前模块的 `publishToMavenLocal`。
+1. 根据 `artifactSource` 选择 project 或 prebuilt producer。
+2. 准备并校验 `PreparedArtifactBundle`。
+3. Maven Local publisher 把 bundle 发布到 `~/.m2/repository`。
 4. 不配置远程 repository，不校验远程凭据，不启用 Central signing 要求。
 5. 打印每个 publication 的 Maven Local 地址和依赖声明。
 
@@ -234,49 +276,161 @@ abstract val componentKind: Property<PublishComponentKind>
 
 1. 根据 task 注册时固定的 provider ID 获取 provider。
 2. 读取共享非敏感配置和当前执行环境的凭据。
-3. provider 独立校验配置。
-4. 设置内部 target 标识并执行底层标准 Maven Publish task。
-5. 执行 provider 的发布后动作。
-6. 输出单一目标的结果摘要。
+3. 获取 provider 的 `ArtifactRequirements`。
+4. producer 准备 `PreparedArtifactBundle`；预制模式只读取指定目录，不执行工程打包。
+5. 通用 validator 与 provider validator 在网络请求前完成全部校验。
+6. provider 只上传 bundle，不生成或修改主产物。
+7. 执行 provider 的发布后动作并输出单一目标摘要。
 
 ### RemoteAllTask
 
 1. 从 registry 按 `order` 获取显式启用的 providers。
 2. 没有 provider 时失败。
-3. 逐个调用与单 provider task 相同的执行服务，不复制校验和命令选择逻辑。
-4. 首期采用 fail-fast：某 provider 失败后不启动后续 provider。
-5. 输出 `succeeded`、`failed`、`not_started` 三组结果。
-6. 提示使用失败 provider 的专用任务重试。
+3. 合并所有 provider 的 artifact requirements，并且只准备一次 bundle。
+4. 在任何上传开始前，对所有目标完成预校验。
+5. 逐个调用与单 provider task 相同的 publisher，不复制校验和传输逻辑。
+6. 首期采用 fail-fast：某 provider 失败后不启动后续 provider。
+7. 输出 `succeeded`、`failed`、`not_started` 三组结果。
+8. 提示使用失败 provider 的专用任务重试。
 
 远程仓库发布无法提供跨 provider 原子事务。文档和日志不得把 `All` 描述成“全部成功或全部回滚”。
 
-### 底层 Gradle task 选择
+### 工程产物准备
 
-保留现有 Maven Publish task 规则：
+工程模式不直接把标准 Maven Publish task 指向远程仓库，而是指向插件创建的本地 staging Maven repository：
 
-| publication 数量 | provider | 底层 task |
-| --- | --- | --- |
-| 单 publication | GitHub Packages | `publish<Publication>PublicationTo<RepositoryName>Repository` |
-| 单 publication | Central | `publish<Publication>PublicationTo<RepositoryName>Repository` |
-| 多 publication | 任意远程 provider | `publishAllPublicationsTo<RepositoryName>Repository` |
-| 任意 publication | Maven Local | `publishToMavenLocal` |
+| publication 数量 | 准备 task |
+| --- | --- |
+| 单 publication | `publish<Publication>PublicationToPublishBundleStagingRepository` |
+| 多 publication | `publishAllPublicationsToPublishBundleStagingRepository` |
 
-当前 `BasePublishTask` 通过启动 nested Gradle 执行标准 task。第一阶段可保留该机制以降低改造范围，但必须通过内部 property 明确传递 provider：
+staging 根目录：
 
 ```text
--Pcn.entertech.publish.internalTarget=github_packages
--Pcn.entertech.publish.internalTarget=central
--Pcn.entertech.publish.internalTarget=local
+build/publish-bundles/<execution-id>/repository/
 ```
 
-内部 property：
+标准 Maven Publish 负责把当前工程的 AAR/JAR、POM、module metadata、sources、javadoc 和签名写成本地 Maven layout。随后 bundle scanner 生成 manifest 并计算 SHA-256。这个阶段不得发起任何远程网络请求。
+
+当前 `BasePublishTask` 可暂时通过 nested Gradle 执行 staging task，但必须传入内部 preparation target，而不是远程 repository：
+
+```text
+-Pcn.entertech.publish.internalStage=artifact_bundle
+-Pcn.entertech.publish.artifactRequirements=central
+```
+
+内部参数：
 
 1. 只供插件发起的 nested build 和 TestKit 使用。
-2. 不作为用户文档中的目标选择入口。
-3. 优先级高于任务名推断。
-4. 让 publication 配置阶段明确知道是否需要 Central signing/javadoc。
+2. 不作为用户文档中的发布目标入口。
+3. 只决定 staging bundle 需要包含哪些伴生文件，不决定上传仓库。
+4. `RemoteAllTask` 传入所有 provider requirements 的并集。
 
-长期可评估用 task dependency + BuildService 消除 nested Gradle，但不作为本次任务重构前置条件。
+长期可评估用 task dependency + BuildService 消除 nested Gradle，但 producer/publisher 接口不能因此合并。
+
+## ArtifactBundle 契约
+
+### 目录布局
+
+运行时统一复制或生成到受控 staging：
+
+```text
+build/publish-bundles/<execution-id>/
+  publish-artifacts.json
+  repository/
+    cn/entertech/android/demo-lib/2.0.0/
+      demo-lib-2.0.0.aar
+      demo-lib-2.0.0.pom
+      demo-lib-2.0.0.module
+      demo-lib-2.0.0-sources.jar
+      demo-lib-2.0.0-javadoc.jar
+      demo-lib-2.0.0.aar.asc
+      ...
+```
+
+manifest 使用相对路径，至少包含：
+
+```json
+{
+  "schemaVersion": 1,
+  "publications": [
+    {
+      "name": "EnterPublish",
+      "groupId": "cn.entertech.android",
+      "artifactId": "demo-lib",
+      "version": "2.0.0",
+      "packaging": "aar",
+      "files": [
+        {
+          "role": "main",
+          "path": "repository/cn/entertech/android/demo-lib/2.0.0/demo-lib-2.0.0.aar",
+          "size": 123456,
+          "sha256": "..."
+        }
+      ]
+    }
+  ]
+}
+```
+
+role allowlist 首期包括：
+
+```text
+main, pom, gradle_module, sources, javadoc, signature, checksum,
+plugin_marker
+```
+
+### 预制目录加载
+
+GitHub Actions 和本机共用 `PrebuiltArtifactBundleProducer`：
+
+1. 输入为项目根目录相对路径 `artifactBundlePath`。
+2. 使用 real path 校验最终目录位于 Gradle root project/workspace 内。
+3. 拒绝绝对路径、`..` 逃逸、指向目录外的 symlink 和 manifest 外的额外待发布文件。
+4. 读取并校验 `publish-artifacts.json` schema。
+5. 校验所有文件存在、是普通文件、size 和 SHA-256 一致。
+6. 校验 POM 坐标、文件名和 Maven layout 与 manifest 一致。
+7. 把文件复制到本次 execution staging；不修改输入目录。
+8. 预制模式的 Gradle task graph 不得包含 compile、assemble、bundle、jar 等工程产物生成任务。
+
+目录可来自 Git checkout，也可由当前 job 的 `actions/download-artifact` 写入。不同 GitHub Actions job 没有共享 workspace，reusable workflow 如果支持 `artifact_bundle_artifact` 输入，应先下载到 `artifact_bundle_path` 再加载。
+
+### 目标完整性规则
+
+| 目标 | 必需文件 |
+| --- | --- |
+| Maven Local | main、POM；manifest 声明的其他文件必须完整。 |
+| GitHub Packages | main、POM；Gradle module metadata/sources/javadoc 按 manifest 原样发布。 |
+| Central release | main、POM、sources、javadoc、所有 Central 要求的签名；module metadata 如声明则完整发布。 |
+| Central snapshot | main、POM、sources、javadoc、签名策略按现有 Central snapshot 规则。 |
+
+Gradle Plugin bundle 还必须覆盖 implementation publication 和必要的 plugin marker publications。多 Variant Library 可在同一 manifest 中声明多个 publications。
+
+缺少文件时 validator 一次性列出全部缺失项。publisher 不调用 producer 补文件；如允许使用本机/CI signing 凭据为预制文件补签，必须作为显式的 bundle finalization 步骤在 staging 中完成，并重新生成 manifest，仍然发生在 publisher 之前。
+
+### 仓库传输
+
+远程 provider 不再调用会触发工程打包的 `publish...PublicationTo...Repository`，而是通过独立 transport 上传 staging Maven layout：
+
+```kotlin
+internal interface MavenRepositoryTransport {
+    fun publish(
+        repository: ResolvedRepository,
+        bundle: PreparedArtifactBundle,
+        credentials: ResolvedCredentials,
+    ): PublishResult
+}
+```
+
+传输规则：
+
+1. 只上传 manifest 声明并通过校验的文件，不递归上传目录中的未知文件。
+2. 远程路径由经过校验的 Maven 坐标和文件角色生成，不直接拼接未经验证的用户输入。
+3. GitHub Packages transport 使用目标 Maven repository URL 和 package credentials。
+4. Central transport 先把完整 Maven layout 上传到 Central staging/snapshot endpoint；release 成功后再由 `CentralPortalClient` 执行现有 manual upload/publish 行为。
+5. Maven Local publisher 使用同一 Maven layout 写入用户 Maven Local，不调用 Android/Java 打包逻辑。
+6. 传输层负责认证、超时、重试、响应脱敏和部分成功记录，不负责生成 POM、签名或主产物。
+7. `RemoteAllTask` 复用同一份 immutable staging bundle，各 provider 不得相互修改文件。
 
 ## Publication 配置调整
 
@@ -474,6 +628,18 @@ CI 凭据只来自 GitHub Secrets。workflow 不创建 `.publish/local.propertie
 component_type:
   required: true
   type: string
+artifact_source:
+  required: false
+  default: "project"
+  type: string
+artifact_bundle_path:
+  required: false
+  default: ""
+  type: string
+artifact_bundle_artifact:
+  required: false
+  default: ""
+  type: string
 ```
 
 允许值：
@@ -491,6 +657,14 @@ central
 all
 ```
 
+`artifact_source` 允许 `project` 和 `prebuilt`。输入规则：
+
+1. `project` 模式按当前工程准备 bundle，不接受非空 `artifact_bundle_path`。
+2. `prebuilt` 模式要求 `artifact_bundle_path` 是项目根目录相对路径。
+3. `artifact_bundle_artifact` 非空时，workflow 先通过 `actions/download-artifact` 下载上游 job 产物到 bundle path。
+4. `artifact_bundle_artifact` 为空时，bundle 目录必须已存在于 checkout 或当前 job workspace。
+5. 路径校验完成后，预制模式不得执行 assemble、compile、bundle、jar 等打包步骤。
+
 ### Allowlist 任务映射
 
 workflow 不接受任意 `publish_task` 输入，而是在 shell 中进行固定映射：
@@ -507,6 +681,15 @@ workflow 不接受任意 `publish_task` 输入，而是在 shell 中进行固定
 任何其他组合在执行 Gradle 前失败。
 
 当前 workflow 对 `all` 分别调用两次通用 `PublishLibraryRemoteTask`。新方案只调用一次 `RemoteAllTask`，由插件内部 provider registry 保证与本机行为一致。
+
+预制模式调用同一个目标任务，并传入：
+
+```text
+-PartifactSource=prebuilt
+-PartifactBundlePath=<validated-relative-path>
+```
+
+任务内部使用 `PrebuiltArtifactBundleProducer`。workflow 不能用任意 shell `find` 结果直接上传，也不能根据扩展名猜测 Maven 坐标。
 
 ### CI snapshot
 
@@ -529,6 +712,8 @@ skill 的内部意图模型：
 module: :library
 execution: local | github_actions
 target: local | github_packages | central | all
+artifact_source: project | prebuilt
+artifact_bundle_path: <project-relative path, required for prebuilt>
 action: configure | dry_run | publish | rollback
 ```
 
@@ -537,6 +722,7 @@ action: configure | dry_run | publish | rollback
 - `github_actions + local` 非法；
 - `local + local` 不要求远程配置文件；
 - `target=all` 要求至少两个或一个显式启用 provider；
+- `artifact_source=prebuilt` 要求 manifest 和项目内相对目录，并明确跳过打包；
 - `action=publish` 才执行真实上传；
 - `rollback` 只处理 skill/脚本创建的 workflow 或 GitHub secrets，不注册 Gradle task。
 
@@ -546,7 +732,9 @@ action: configure | dry_run | publish | rollback
 inspect module
   -> detect component kind
   -> validate PublishInfo / PublishRepositories
+  -> choose project or prebuilt producer
   -> optionally create .publish/local.properties
+  -> validate ArtifactBundle before network
   -> verify ignored/untracked
   -> resolve exact task name
   -> dry run or execute Gradle
@@ -559,6 +747,7 @@ inspect module
   -> detect component kind
   -> validate shared DSL
   -> generate workflow
+  -> configure project/prebuilt artifact inputs
   -> gh auth/repository checks
   -> list/write missing secrets via stdin
   -> dry run or gh workflow run
@@ -579,6 +768,8 @@ scripts/configure-publish-offline.sh \
   --module :library \
   --execution github-actions \
   --target central \
+  --artifact-source prebuilt \
+  --artifact-bundle-path release-artifacts/library \
   --configure
 ```
 
@@ -602,7 +793,10 @@ CiCredentialContract
   - expected environment variable names only
 
 PublishExecutionPlanner
-  - component kind + destination -> task/provider plan
+  - component kind + destination + artifact source -> producer/task/provider plan
+
+ArtifactBundleResolver
+  - manifest schema, paths, publications, file roles, SHA-256
 ```
 
 必须删除的 fallback：
@@ -622,9 +816,17 @@ PublishExecutionPlanner
 | --- | --- |
 | `PublishComponentKind.kt` | 唯一组件类型识别模型。 |
 | `PublishRepositories.kt` | 非敏感 provider DSL。 |
-| `RemoteRepositoryProvider.kt` | provider 内部接口。 |
-| `GithubPackagesRepositoryProvider.kt` | GitHub Packages 配置、校验、命令选择。 |
-| `CentralRepositoryProvider.kt` | Central 配置、签名、上传后动作。 |
+| `ArtifactBundle.kt` | 版本化 manifest、publication 和文件角色模型。 |
+| `ArtifactBundleProducer.kt` | project/prebuilt producer 接口。 |
+| `ProjectArtifactBundleProducer.kt` | 将当前工程 publications 写入本地 staging Maven layout。 |
+| `PrebuiltArtifactBundleProducer.kt` | 从项目指定目录安全加载已有 AAR/JAR 与伴生文件。 |
+| `ArtifactBundleValidator.kt` | 通用完整性、路径、坐标、size、SHA-256 校验。 |
+| `ArtifactBundleManifestCodec.kt` | `publish-artifacts.json` 读写和 schema version 校验。 |
+| `MavenLocalPublisher.kt` | 仅消费 bundle 的 Maven Local 发布器。 |
+| `MavenRepositoryTransport.kt` | 只上传 manifest allowlist 文件的 Maven 仓库传输层。 |
+| `RemoteRepositoryProvider.kt` | 只消费 bundle 的 provider 内部接口。 |
+| `GithubPackagesRepositoryProvider.kt` | GitHub Packages bundle 校验与传输。 |
+| `CentralRepositoryProvider.kt` | Central bundle 完整性、传输和上传后动作。 |
 | `PublishProviderRegistry.kt` | provider 顺序与查找。 |
 | `PublishTaskNames.kt` | 精确公共任务名生成。 |
 | `PublishLocalTask.kt` | 参数化本地任务实现。 |
@@ -632,7 +834,7 @@ PublishExecutionPlanner
 | `PublishRemoteAllTask.kt` | All 编排与部分成功摘要。 |
 | `LocalPublishConfigLoader.kt` | 只读取 `.publish/local.properties`。 |
 | `LocalPublishConfigTemplateWriter.kt` | 本机配置模板与 Git ignore 安全检查。 |
-| `PublishExecutionPlanner.kt` | 目标到执行计划映射。 |
+| `PublishExecutionPlanner.kt` | 组件类型、目标和产物来源到执行计划的映射。 |
 | `LegacyPublishConfigScanner.kt` | 只读识别旧字段并输出迁移提示。 |
 
 ### 修改
@@ -640,14 +842,14 @@ PublishExecutionPlanner
 | 文件 | 修改点 |
 | --- | --- |
 | `PublishPlugin.kt` | 按组件类型只注册 4 个任务；通过 provider registry 配仓库。 |
-| `BasePublishTask.kt` | 抽取可复用执行服务，支持 kind/provider 参数。 |
+| `BasePublishTask.kt` | 仅编排 producer、validator、publisher，移除打包/上传混合实现。 |
 | `PublishConfigResolver.kt` | 拆分职责，移除 `local.properties` 和通用目标 fallback。 |
 | `PublishInfo.kt` | 移除或 deprecated 敏感仓库凭据字段；保留组件元数据。 |
 | `CentralPortalClient.kt` | 由 Central provider 调用。 |
-| `.github/workflows/publish.yml` | 增加 component allowlist 映射并调用新任务。 |
+| `.github/workflows/publish.yml` | 增加 component allowlist、project/prebuilt 模式、bundle path 和可选 Actions artifact 下载。 |
 | 业务示例 workflow | 增加 `component_type` 并更新 task 语义。 |
 | `scripts/configure-publish-offline.sh` | 改为直接配置 local 或 GitHub Actions。 |
-| `skills/publishplugin-one-click-publish/SKILL.md` | 改为 execution × target 双维度流程。 |
+| `skills/publishplugin-one-click-publish/SKILL.md` | 改为 execution × target × artifact source 三维流程。 |
 | skill reference | 删除 `local.properties` 混合模板与配置 Gradle tasks。 |
 | `README.md` | 更新任务、配置位置、迁移和示例。 |
 
@@ -673,7 +875,17 @@ PublishExecutionPlanner
 4. 新增组件类型冲突测试。
 5. 先得到失败测试，再修改注册逻辑。
 
-### Phase 2：provider 抽取
+### Phase 2：ArtifactBundle 与打包发布分层
+
+1. 定义 versioned manifest、file role 和 `PreparedArtifactBundle`。
+2. 使用本地 staging Maven repository 实现 project producer。
+3. 实现 prebuilt producer、workspace 路径安全和 SHA-256 校验。
+4. 抽取通用 validator 和 provider requirements。
+5. 让 Maven Local publisher 只消费 bundle。
+6. 添加测试证明预制模式不执行 compile/assemble/bundle/jar。
+7. 添加多 publication、Gradle Plugin marker 和多 Variant manifest 测试。
+
+### Phase 3：provider 抽取
 
 1. 建立 registry 和两个首期 providers。
 2. 把 GitHub Packages 校验/仓库命令从 `PublishLibraryRemoteTask` 移入 provider。
@@ -682,7 +894,7 @@ PublishExecutionPlanner
 5. 实现 All task 和部分成功摘要。
 6. 移除通用 `publishTarget` 对具体 task 的改写能力。
 
-### Phase 3：Library/Plugin 任务落地
+### Phase 4：Library/Plugin 任务落地
 
 1. 完成唯一组件类型识别。
 2. 注册对应类型的 4 个任务。
@@ -690,7 +902,7 @@ PublishExecutionPlanner
 4. 验证 Gradle Plugin publication 和 plugin marker。
 5. 删除所有任务别名。
 
-### Phase 4：配置分层
+### Phase 5：配置分层
 
 1. 新增 `PublishRepositories` DSL。
 2. 新增 `.publish/local.properties` loader/template。
@@ -698,15 +910,17 @@ PublishExecutionPlanner
 4. 新增旧配置只读扫描和迁移报告。
 5. 验证本机敏感字段不出现在命令行和日志。
 
-### Phase 5：Actions、脚本与 skill
+### Phase 6：Actions、脚本与 skill
 
 1. reusable workflow 增加 `component_type` allowlist。
 2. 更新 Library/Plugin 示例 workflow。
-3. 重写离线脚本，不再调用配置类 Gradle task。
-4. 更新仓库内一键发布 skill 及 reference。
-5. 执行 `./scripts/install-codex-skill.sh` 安装/验证仓库 source-of-truth symlink。
+3. 增加 `artifact_source`、`artifact_bundle_path` 和可选 Actions artifact 下载。
+4. 验证 prebuilt workflow 不运行打包任务。
+5. 重写离线脚本，不再调用配置类 Gradle task。
+6. 更新仓库内一键发布 skill 及 reference。
+7. 执行 `./scripts/install-codex-skill.sh` 安装/验证仓库 source-of-truth symlink。
 
-### Phase 6：文档与迁移
+### Phase 7：文档与迁移
 
 1. 更新 README 的所有旧任务名和配置示例。
 2. 标明 major 版本和删除别名的影响。
@@ -729,6 +943,19 @@ PublishExecutionPlanner
 - Library 单 release、多 Variant 都生成真实 Maven Local 产物。
 - Plugin 生成 implementation publication 和必要 marker。
 - LocalTask 不读取远程 credentials。
+
+### ArtifactBundle 与预制产物
+
+- project producer 只向本地 staging repository 写文件，不发起网络请求。
+- project producer 生成的 manifest 覆盖 AAR/JAR、POM、module metadata 和实际伴生文件。
+- prebuilt producer 可加载项目相对目录中的 AAR 或 JAR bundle。
+- manifest schema version 不支持、文件缺失、size/SHA-256 不一致时失败。
+- 拒绝绝对路径、`..`、workspace 外 real path 和逃逸 symlink。
+- 输入目录保持不变，所有补签或 checksum 都在 staging 副本完成。
+- 一个 manifest 支持多 Variant publications 和 Gradle Plugin marker publications。
+- 同一 bundle 可被 Maven Local、GitHub Packages、Central publisher 消费。
+- transport 只上传 manifest allowlist 文件，目录中的未知文件不会上传。
+- prebuilt task graph 明确断言没有 compile、assemble、bundle、jar 任务。
 
 ### GitHub Packages
 
@@ -767,6 +994,11 @@ PublishExecutionPlanner
 - `all` 只调用一个 `RemoteAllTask`。
 - secrets 只注入发布步骤。
 - CI snapshot 仍只允许 Central。
+- `artifact_source=project` 走 project producer。
+- `artifact_source=prebuilt` 要求并校验 `artifact_bundle_path`。
+- 指定 `artifact_bundle_artifact` 时先下载 Actions artifact，再从指定目录发布。
+- prebuilt workflow 日志和 task graph 不包含工程打包步骤。
+- bundle 目录不存在、路径逃逸或 manifest 无效时，在 secret 注入和网络上传前失败。
 
 ### 安全
 
@@ -826,13 +1058,18 @@ skill 变更后：
 4. **All 部分成功**：无法跨远程仓库回滚，必须输出可操作的结果摘要。
 5. **旧 customRepository 使用方**：在编码前应通过代码搜索或发布日志确认是否仍有真实调用；若有，按 provider 模型补需求。
 6. **旧 skill 约束冲突**：当前 skill 把 `local.properties` 作为固定边界。实现本方案时必须同步更新仓库 skill、reference、README 和旧技术文档，不能只改插件代码。
+7. **预制文件可信度**：已有 AAR/JAR 可能被替换或与 POM 坐标不一致。manifest、SHA-256、路径和坐标必须在网络请求前验证。
+8. **CI job 文件隔离**：上游 job 生成的目录不会自动出现在发布 job。workflow 必须显式下载 Actions artifact，不能把路径存在性当成跨 job 保证。
+9. **伴生文件差异**：GitHub Packages 可接受的 bundle 可能不满足 Central。requirements validator 必须按目标校验，不能由 publisher 临时构建缺失文件。
 
 ## 完成定义
 
-1. PRD 的 14 条验收标准全部有自动化测试或明确的人工验证记录。
+1. PRD 的验收标准全部有自动化测试或明确的人工验证记录。
 2. 每类模块 `customPlugin` 只显示 4 个任务。
 3. GitHub Packages、Central、All 在 Library 与 Plugin 模块均有端到端覆盖。
 4. 根目录 `local.properties` 与 PublishPlugin 完全解耦。
 5. 本机和 GitHub Actions 配置、凭据来源与文档完全分离。
 6. README、离线脚本、reusable workflow、skill 和 skill reference 与新契约一致。
 7. 全量测试通过，试点仓库本机与 CI 发布成功。
+8. project 和 prebuilt 两种产物来源都先形成相同的 `PreparedArtifactBundle`，所有 publisher 只消费该契约。
+9. GitHub Actions 能从当前项目指定目录直接发布 AAR/JAR 及伴生文件，且没有执行工程打包任务。

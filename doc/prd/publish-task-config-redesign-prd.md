@@ -25,15 +25,18 @@
 
 ## 核心概念
 
-本方案明确区分三个互相独立的维度：
+本方案明确区分四个互相独立的维度：
 
 | 维度 | 可选值 | 含义 |
 | --- | --- | --- |
 | 组件类型 | `Library`、`Plugin` | 当前模块发布的是 Android/Java Library，还是 Gradle Plugin。 |
 | 执行环境 | 本机、GitHub Actions | 发布命令由开发者电脑执行，还是由 CI runner 执行。 |
 | 发布目标 | Maven Local、GitHub Packages、Central、未来远程仓库 | 制品最终写入的位置。 |
+| 产物来源 | 当前工程构建、指定目录预制产物 | 发布前是构建当前工程，还是直接消费已有 AAR/JAR 及伴生文件。 |
 
 “本机执行”不等于“发布到 Maven Local”。开发者可以在本机执行 GitHub Packages 或 Central 远程发布；GitHub Actions 也可以执行相同的远程任务。执行环境只决定配置与凭据来源，不改变任务语义。
+
+“发布”也不等于“打包”。打包负责产出完整、可校验的制品集合；发布只负责把已经准备好的制品集合上传到目标仓库。默认模式可以先构建当前工程再发布，预制产物模式必须跳过工程编译和打包，直接发布指定目录中的文件。
 
 ## 产品目标
 
@@ -41,12 +44,14 @@
 2. 任务名称直接表达组件类型和发布目标，不再依赖一个通用远程任务加 `publishTarget` 猜测行为。
 3. Library 与 Gradle Plugin 使用各自对应的任务名。
 4. 远程仓库采用可扩展模型，首期支持 GitHub Packages 和 Central，后续新增仓库时不重写核心任务选择逻辑。
-5. 一键发布 skill 同时支持：
+5. 打包与发布逻辑完全解耦，发布层不依赖 Android/Java 编译过程，并能消费标准化的已有制品集合。
+6. GitHub Actions 支持指定项目内目录，不打包当前工程，直接发布其中的 AAR/JAR 和伴生文件。
+7. 一键发布 skill 同时支持：
    - 配置并在本机运行发布；
    - 配置并通过 GitHub Actions 运行发布。
-6. 本机运行配置和 GitHub Actions 配置完全分离，不再把发布字段写入 Android 根目录 `local.properties`。
-7. 组件元数据、非敏感仓库配置和敏感凭据各自只有清晰的归属位置。
-8. 删除重复别名和误导性的历史任务名，降低 IDE 任务列表和文档认知成本。
+8. 本机运行配置和 GitHub Actions 配置完全分离，不再把发布字段写入 Android 根目录 `local.properties`。
+9. 组件元数据、非敏感仓库配置和敏感凭据各自只有清晰的归属位置。
+10. 删除重复别名和误导性的历史任务名，降低 IDE 任务列表和文档认知成本。
 
 ## 非目标
 
@@ -55,6 +60,7 @@
 3. 本需求不支持在 GitHub Actions 中把制品发布到 runner 的 Maven Local 作为正式交付结果。
 4. 本需求不在第一阶段开放第三方动态注入任意远程仓库 provider 的公共 SPI；首期只保证内部架构可扩展。
 5. 本需求不自动迁移或删除业务仓库已有的 `local.properties` 敏感值；迁移工具只检测并给出安全处理提示。
+6. 本需求不根据 AAR/JAR 文件名猜测 Maven 坐标、publication 或伴生文件角色；预制产物必须提供 manifest。
 
 ## 用户角色与使用场景
 
@@ -115,6 +121,30 @@ Gradle Plugin 模块使用 `PublishPlugin*` 任务：
 5. 用户要求实际发布并授权后，通过 GitHub Actions 触发发布。
 
 GitHub Actions 流程不读取本机发布配置文件。
+
+### GitHub Actions 直接发布已有制品
+
+业务仓库已经在当前提交中保存了制品，或在 workflow 前置步骤中把制品下载到项目的特定目录。调用方选择 `artifact_source=prebuilt` 并传入项目根目录下的相对路径：
+
+```yaml
+with:
+  module: ":library"
+  component_type: "library"
+  publish_target: "central"
+  artifact_source: "prebuilt"
+  artifact_bundle_path: "release-artifacts/library"
+```
+
+GitHub Actions 必须：
+
+1. checkout 当前项目；
+2. 校验目录位于当前 workspace 内；
+3. 读取目录中的 `publish-artifacts.json`；
+4. 校验 manifest 声明的 AAR/JAR、POM、module metadata、sources、javadoc、签名等文件；
+5. 不执行当前模块的 compile、assemble、bundle、jar 或其他打包任务；
+6. 直接调用目标明确的发布任务上传该制品集合。
+
+如果制品来自同一 workflow 的前置 job，应先通过 `actions/download-artifact` 下载到 `artifact_bundle_path`，再进入发布步骤；不能假设不同 job 共享文件系统。
 
 ## 功能需求
 
@@ -206,7 +236,93 @@ PublishPluginRemoteCentralTask
 
 旧 `customRepository` 不属于首期公开 provider，不被 `RemoteAllTask` 隐式调用。如仍有业务需求，应按新 provider 模型单独立项并提供明确任务名。
 
-### FR-5：配置分层与文件隔离
+### FR-5：打包与发布分离
+
+系统必须建立统一的 `ArtifactBundle` 中间契约，把产物准备和仓库上传拆成两个独立阶段：
+
+```text
+Artifact producer -> ArtifactBundle -> validator -> repository publisher
+```
+
+产物 producer 支持两种模式：
+
+| 模式 | 行为 |
+| --- | --- |
+| `project` | 执行当前工程必要的标准构建/产物生成逻辑，整理为 `ArtifactBundle`。 |
+| `prebuilt` | 不构建当前工程，读取指定目录的 manifest 和已有文件，整理为同一种 `ArtifactBundle`。 |
+
+发布层要求：
+
+1. Maven Local、GitHub Packages、Central 和未来 provider 只接收 `ArtifactBundle`，不得直接调用 Android/Java 编译和打包 API。
+2. 4 个公开发布任务是流程入口，可以编排“准备 → 校验 → 发布”，但打包实现和发布实现必须是独立组件。
+3. 不新增公开的 PublishPlugin 打包 task；工程模式可复用 Gradle/AGP 已有标准任务，内部准备步骤不进入 `customPlugin` 任务集合。
+4. 预制产物模式必须保证 compile、assemble、bundle、jar 等工程打包任务没有进入执行图。
+5. 发布前完成全部本地校验；文件不完整、坐标冲突或校验和不匹配时，在任何网络请求之前失败。
+6. 发布层不得修改调用方传入的预制目录；如需生成校验和或签名，复制到受控 staging 目录后处理。
+
+`ArtifactBundle` 至少描述：
+
+- 一个或多个 publication 的 `groupId`、`artifactId`、`version`、packaging；
+- 主文件 AAR 或 JAR；
+- POM；
+- 可选 Gradle module metadata；
+- 可选 sources JAR、javadoc JAR；
+- 可选签名和 checksum 文件；
+- 每个文件的相对路径、角色、大小和 SHA-256。
+
+Central provider 可要求比 GitHub Packages 更完整的伴生文件。缺少目标仓库必需文件时，由 validator 给出缺失清单，publisher 不负责临时重新打包。
+
+### FR-6：项目目录预制产物
+
+本机和 GitHub Actions 都必须支持从项目根目录下的指定目录加载预制产物；GitHub Actions 是首要验收场景。
+
+目录约定：
+
+```text
+release-artifacts/library/
+  publish-artifacts.json
+  demo-lib-2.0.0.aar
+  demo-lib-2.0.0.pom
+  demo-lib-2.0.0.module
+  demo-lib-2.0.0-sources.jar
+  demo-lib-2.0.0-javadoc.jar
+  demo-lib-2.0.0.aar.asc
+  ...
+```
+
+要求：
+
+1. `artifact_bundle_path` 必须是相对项目根目录的路径；拒绝绝对路径、`..` 逃逸和解析后位于 workspace 外的 symlink。
+2. `publish-artifacts.json` 必须存在，且其 schema version 受支持。
+3. manifest 中的文件路径必须相对 bundle 目录，不能访问目录外文件。
+4. manifest 坐标必须与调用方显式版本覆盖及 workflow 输入一致；不一致时失败，禁止静默改写 POM。
+5. 支持一个目录声明多个 publications，满足多 Variant Library 和 Gradle Plugin marker publication。
+6. 主文件只能是允许的发布类型，首期为 `.aar`、`.jar`；伴生文件必须在 allowlist 中。
+7. GitHub Actions 必须输出 `artifact_source=prebuilt` 和经过规范化的相对目录，但不得输出 secret 或私钥内容。
+8. 预制目录既可以来自 Git checkout，也可以由前置步骤下载；如果来自另一个 job，调用方必须显式下载 GitHub Actions artifact。
+
+示例 manifest：
+
+```json
+{
+  "schemaVersion": 1,
+  "publications": [
+    {
+      "groupId": "cn.entertech.android",
+      "artifactId": "demo-lib",
+      "version": "2.0.0",
+      "packaging": "aar",
+      "files": [
+        { "role": "main", "path": "demo-lib-2.0.0.aar", "sha256": "..." },
+        { "role": "pom", "path": "demo-lib-2.0.0.pom", "sha256": "..." },
+        { "role": "sources", "path": "demo-lib-2.0.0-sources.jar", "sha256": "..." }
+      ]
+    }
+  ]
+}
+```
+
+### FR-7：配置分层与文件隔离
 
 配置必须按责任分为四层：
 
@@ -225,7 +341,7 @@ PublishPluginRemoteCentralTask
 4. CI secret 不得持久化到仓库内的任何 properties/yaml 文件。
 5. 不敏感且本机、CI 共用的配置不得在两份配置文件里重复维护，应进入 Gradle DSL。
 
-### FR-6：本机配置文件
+### FR-8：本机配置文件
 
 `.publish/local.properties` 是可选文件。推荐优先使用环境变量；需要持久化本机凭据时才生成。
 
@@ -249,7 +365,7 @@ publish.local.central.signingPassword=
 3. 不包含 workflow path、workflow uses、GitHub repository secret 名称或 Actions 开关。
 4. Maven Local 发布不要求该文件存在。
 
-### FR-7：GitHub Actions 配置
+### FR-9：GitHub Actions 配置
 
 GitHub Actions 的非敏感编排配置直接进入模块 workflow，不再通过本地 properties 中转：
 
@@ -267,12 +383,19 @@ GitHub Actions 的非敏感编排配置直接进入模块 workflow，不再通�
 
 workflow 必须按 allowlist 将输入映射为明确任务名，不能接受任意 Gradle task 字符串。
 
-### FR-8：一键发布 skill
+workflow 还必须支持：
+
+- `artifact_source=project|prebuilt`，默认 `project`；
+- `artifact_bundle_path`，仅在 `prebuilt` 时必填；
+- `artifact_source=prebuilt` 时跳过 JDK/Gradle 构建所需的打包步骤，只保留运行发布器所需的最小环境；
+- 在任务执行图和日志中验证没有运行 compile/assemble/bundle/jar 等打包任务。
+
+### FR-10：一键发布 skill
 
 `skills/publishplugin-one-click-publish/` 必须升级为双执行环境入口：
 
 ```text
-module + execution(local|github_actions) + target(local|github_packages|central|all)
+module + execution(local|github_actions) + target(local|github_packages|central|all) + artifactSource(project|prebuilt)
 ```
 
 行为要求：
@@ -281,11 +404,12 @@ module + execution(local|github_actions) + target(local|github_packages|central|
 2. `execution=local,target=<remote>`：读取环境变量或 `.publish/local.properties`，调用对应远程任务。
 3. `execution=github_actions,target=<remote>`：生成/更新 workflow、检查 secrets，并映射到对应远程任务。
 4. `execution=github_actions,target=local`：拒绝并解释 Maven Local 不是 CI 交付目标。
-5. 配置、预演和实际发布是独立步骤；默认先预演，只有用户要求运行发布时才执行实际发布。
-6. GitHub secret 值通过 stdin 传给 `gh`，不得出现在命令行参数和日志中。
-7. skill 和离线脚本可以承担生成配置、配置 secrets、回退配置等辅助动作，但不得为这些动作重新注册公开 Gradle task。
+5. `artifactSource=prebuilt`：要求 bundle path，校验 manifest，并明确报告将跳过工程打包。
+6. 配置、预演和实际发布是独立步骤；默认先预演，只有用户要求运行发布时才执行实际发布。
+7. GitHub secret 值通过 stdin 传给 `gh`，不得出现在命令行参数和日志中。
+8. skill 和离线脚本可以承担生成配置、配置 secrets、回退配置等辅助动作，但不得为这些动作重新注册公开 Gradle task。
 
-### FR-9：配置优先级
+### FR-11：配置优先级
 
 组件元数据：
 
@@ -313,7 +437,7 @@ GitHub Actions secret > 明确失败
 
 CI 不得回退到 `.publish/local.properties`，本机任务也不得把 GitHub repository secret 当作配置来源。
 
-### FR-10：日志与失败提示
+### FR-12：日志与失败提示
 
 每次发布前输出不含敏感值的摘要：
 
@@ -322,6 +446,8 @@ module=:library
 component=Library
 execution=local|github_actions
 target=local|github_packages|central|all
+artifact_source=project|prebuilt
+artifact_bundle=<generated>|<normalized project-relative path>
 publications=...
 ```
 
@@ -402,6 +528,11 @@ workflow allowlist 映射到明确 Remote task
 12. 一键发布 skill 能分别完成本机发布和 GitHub Actions 发布的配置、预演与执行。
 13. 新增远程 provider 时，核心 All 任务无需增加新的 `when(providerId)` 分支。
 14. 所有日志和测试夹具均不泄露 token、密码和私钥。
+15. 工程模式先生成标准化 `ArtifactBundle`，随后由发布层消费；发布层代码不依赖 Android/Java 编译 API。
+16. 预制模式能从项目指定目录发布 AAR/JAR 及其伴生文件，且 Gradle task graph 不包含工程打包任务。
+17. GitHub Actions 支持 `artifact_source=prebuilt` 和 `artifact_bundle_path`，能直接发布 checkout 或下载到当前项目目录的制品。
+18. manifest 缺文件、SHA-256 不匹配、坐标冲突、目录逃逸或 provider 必需伴生文件缺失时，在发起网络请求前失败。
+19. 同一份预制 `ArtifactBundle` 可分别交给 Maven Local、GitHub Packages 和 Central publisher；provider 不重新生成主产物。
 
 ## 成功指标
 
@@ -410,6 +541,7 @@ workflow allowlist 映射到明确 Remote task
 3. `local.properties` 中 PublishPlugin 新增字段数为 0。
 4. Library/Plugin 错用任务名的支持问题归零。
 5. 一键发布配置文档中不再把本机配置与 GitHub Actions 配置放在同一模板。
+6. 预制产物模式的 CI 日志中 compile/assemble/bundle/jar 执行数为 0。
 
 ## 风险与决策
 
@@ -418,3 +550,5 @@ workflow allowlist 映射到明确 Remote task
 3. 本机 properties 仍可能保存敏感值；因此文件为可选、必须 ignore，环境变量仍是推荐方式。
 4. `GithubPackages` 大小写按本需求固定为任务公共 API；provider ID 和 workflow input 继续使用 `github_packages`。
 5. 旧自定义 Maven 仓库不进入首期任务集合；如确认仍有使用方，应在实施前按新 provider 模型补充独立需求，而不是恢复通用远程任务。
+6. 已有制品可能不满足 Central 完整性规则；方案选择在上传前严格校验并列出缺失伴生文件，不由 publisher 隐式重建。
+7. GitHub Actions job 之间不共享 workspace；跨 job 的预制产物必须通过 Actions artifact 等显式传递机制下载到指定目录。
