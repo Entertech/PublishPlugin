@@ -83,7 +83,12 @@ open class ConfigurePublishTask : DefaultTask() {
                     githubPackagesUrl,
                     workflowPath,
                     workflowUses,
-                    project.findProperty("overwriteWorkflow")?.toString()?.toBooleanLenientLocal() == true
+                    project.findProperty("overwriteWorkflow")?.toString()?.toBooleanLenientLocal() == true,
+                    componentType = runCatching { PublishComponentKind.detect(project.plugins).name.lowercase() }
+                        .getOrDefault("library"),
+                    artifactSource = project.findProperty("artifactSource")?.toString().orEmpty()
+                        .ifBlank { "project" },
+                    artifactBundlePath = project.findProperty("artifactBundlePath")?.toString().orEmpty()
                 )
                 PluginLogUtil.printlnInfoInScreen("Generated workflow: ${workflowFile.absolutePath}")
             }

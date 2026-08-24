@@ -14,7 +14,6 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.plugins.MavenPublishPlugin
 import org.gradle.api.tasks.SourceSetContainer
-import org.gradle.api.tasks.TaskContainer
 import org.gradle.jvm.tasks.Jar
 import org.gradle.plugin.devel.GradlePluginDevelopmentExtension
 import org.gradle.plugins.signing.SigningExtension
@@ -69,6 +68,7 @@ open class PublishPlugin : Plugin<Project> {
         project.extensions.create(
             PublishInfo.EXTENSION_PUBLISH_INFO_NAME, PublishInfo::class.java,
         )
+        project.extensions.create("PublishRepositories", PublishRepositories::class.java)
         project.plugins.withId("com.android.library") {
             configureAndroidSingleVariantPublishing(project)
         }
@@ -137,62 +137,35 @@ open class PublishPlugin : Plugin<Project> {
 
 
         }
-        val currProjectName = project.displayName
-        PluginLogUtil.printlnDebugInScreen("$TAG currProjectName $currProjectName")
-        project.gradle.afterProject { currProject ->
-            PluginLogUtil.printlnDebugInScreen("$TAG currProject.displayName ${currProject.displayName}")
-            if (currProjectName == currProject.displayName) {
-                PluginLogUtil.printlnDebugInScreen("$TAG $currProjectName start register ")
-                project.tasks.register(
-                    PublishLibraryLocalTask.TAG, PublishLibraryLocalTask::class.java
-                )
-                project.tasks.register(
-                    PublishLibraryRemoteTask.TAG, PublishLibraryRemoteTask::class.java
-                )
-                project.tasks.register(
-                    "generatePublishConfig", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "GeneratePublishConfigTask", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "generateCentralPublishConfig", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "GenerateCentralPublishConfigTask", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "configurePublish", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "ConfigurePublishTask", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "configureCentralPublish", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "ConfigureCentralPublishTask", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "rollbackPublishSecrets", RollbackPublishSecretsTask::class.java
-                )
-                project.tasks.register(
-                    "RollbackPublishSecretsTask", RollbackPublishSecretsTask::class.java
-                )
-                project.tasks.register(
-                    "rollbackCentralPublishSecrets", RollbackPublishSecretsTask::class.java
-                )
-                project.tasks.register(
-                    "RollbackCentralPublishSecretsTask", RollbackPublishSecretsTask::class.java
-                )
+        project.afterEvaluate {
+            val kind = PublishComponentKind.detect(project.plugins)
+            val local = PublishTaskNames.local(kind)
+            val all = PublishTaskNames.remoteAll(kind)
+            val github = PublishTaskNames.remoteGithubPackages(kind)
+            val central = PublishTaskNames.remoteCentral(kind)
+            if (project.tasks.findByName(local) == null) {
+                project.tasks.register(local, PublishLocalTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.LOCAL
+                    task.description = "Publish prepared or project artifacts to Maven Local."
+                }
+                project.tasks.register(all, PublishRemoteAllTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.ALL
+                    task.description = "Publish prepared or project artifacts to all enabled remote repositories."
+                }
+                project.tasks.register(github, PublishRemoteGithubPackagesTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.GITHUB_PACKAGES
+                    task.description = "Publish prepared or project artifacts to GitHub Packages."
+                }
+                project.tasks.register(central, PublishRemoteCentralTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.CENTRAL
+                    task.description = "Publish prepared or project artifacts to Sonatype Central."
+                }
             }
         }
-    }
-
-    private fun registerTask(container: TaskContainer, task: BasePublishTask) {
-        container.register(
-            task.fetchTaskName(), task::class.java
-        )
     }
 
     private fun createPublication(
@@ -251,6 +224,8 @@ open class PublishPlugin : Plugin<Project> {
         return project.gradle.startParameter.taskNames.any { taskName ->
             val shortTaskName = taskName.substringAfterLast(":")
             shortTaskName == PublishLibraryLocalTask.TAG ||
+                shortTaskName == PublishTaskNames.local(PublishComponentKind.LIBRARY) ||
+                shortTaskName == PublishTaskNames.local(PublishComponentKind.PLUGIN) ||
                 shortTaskName == "publishToMavenLocal" ||
                 (shortTaskName.startsWith("publish") && shortTaskName.endsWith("PublicationToMavenLocal"))
         }
@@ -263,12 +238,19 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val properties = PublishConfigResolver.loadLocalProperties(project)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        if (mode == PublishConfigResolver.MODE_CENTRAL) {
-            configureCentralRepository(project, publishing, publishInfo, properties)
-        } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
+        val all = project.gradle.startParameter.taskNames.any { it.contains("RemoteAllTask") }
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
+        if (mode == PublishConfigResolver.MODE_CENTRAL || all) {
+            if (!all || repositories?.isCentralEnabled() == true) {
+                configureCentralRepository(project, publishing, publishInfo, properties)
+            }
+        }
+        if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             configureCustomRepository(project, publishing, publishInfo, properties)
-        } else if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
-            configureGitHubPackagesRepository(project, publishing, publishInfo, properties)
+        } else if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES || all) {
+            if (!all || repositories?.isGithubPackagesEnabled() == true) {
+                configureGitHubPackagesRepository(project, publishing, publishInfo, properties)
+            }
         }
     }
 

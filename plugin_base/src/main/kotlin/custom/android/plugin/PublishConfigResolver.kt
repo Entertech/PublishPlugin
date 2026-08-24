@@ -44,7 +44,14 @@ object PublishConfigResolver {
 
     fun loadLocalProperties(project: Project): Properties {
         val properties = Properties()
-        val file = project.rootProject.file("local.properties")
+        if (environment("GITHUB_ACTIONS").equals("true", ignoreCase = true)) return properties
+        val configuredPath = projectProperty(project, "publishLocalConfig")
+        val file = if (configuredPath.isBlank()) {
+            project.rootProject.file(".publish/local.properties")
+        } else {
+            val candidate = File(configuredPath)
+            if (candidate.isAbsolute) candidate else project.rootProject.file(configuredPath)
+        }
         if (file.exists()) {
             file.inputStream().use { properties.load(it) }
         }
@@ -54,7 +61,7 @@ object PublishConfigResolver {
     fun publishConfigFile(project: Project): File {
         val configuredPath = projectProperty(project, "publishConfig")
         if (configuredPath.isBlank()) {
-            return project.rootProject.file("local.properties")
+            return project.rootProject.file(".publish/local.properties")
         }
         val configuredFile = File(configuredPath)
         return if (configuredFile.isAbsolute) configuredFile else project.rootProject.file(configuredPath)
@@ -65,6 +72,8 @@ object PublishConfigResolver {
     }
 
     fun resolveRemotePublishMode(project: Project, @Suppress("UNUSED_PARAMETER") publishInfo: PublishInfo): String {
+        val taskTarget = explicitTaskPublishTarget(project)
+        if (taskTarget.isNotBlank()) return taskTarget
         return firstNotBlank(
             remotePublishModeFromPublishTarget(
                 firstNotBlank(
@@ -190,11 +199,22 @@ object PublishConfigResolver {
         val publishTaskPrefix = "publish${BasePublishTask.MAVEN_PUBLICATION_NAME}PublicationTo"
         return project.gradle.startParameter.taskNames.any { taskName ->
             val publishRepositoryTask = taskName.contains(publishTaskPrefix) && taskName.contains("Repository")
-                taskName.contains(PublishLibraryRemoteTask.TAG) ||
+            taskName.contains(PublishLibraryRemoteTask.TAG) ||
+                taskName.contains("RemoteCentralTask") ||
+                taskName.contains("RemoteAllTask") ||
                 taskName.contains("CentralStagingRepository") ||
                 taskName.contains("CentralSnapshotsRepository") ||
                 publishRepositoryTask ||
                 taskName.contains("sign${BasePublishTask.MAVEN_PUBLICATION_NAME}Publication")
+        }
+    }
+
+    private fun explicitTaskPublishTarget(project: Project): String {
+        val names = project.gradle.startParameter.taskNames.joinToString(" ")
+        return when {
+            names.contains("RemoteCentralTask") -> MODE_CENTRAL
+            names.contains("RemoteGithubPackagesTask") -> MODE_GITHUB_PACKAGES
+            else -> ""
         }
     }
 
@@ -205,6 +225,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "centralRepositoryName"),
             environment("CENTRAL_REPOSITORY_NAME"),
+            project.extensions.findByType(PublishRepositories::class.java)
+                ?.central?.releaseRepositoryName?.orNull,
             explicitPublishInfoValue(publishInfo, "centralRepositoryName", publishInfo.centralRepositoryName),
             loadPublishProperties(project).centralRepositoryName,
             "CentralStaging"
@@ -238,9 +260,11 @@ object PublishConfigResolver {
     }
 
     fun resolveCentralNamespace(project: Project, publishInfo: PublishInfo): String {
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
         return firstNotBlank(
             projectProperty(project, "centralNamespace"),
             environment("CENTRAL_NAMESPACE"),
+            repositories?.central?.namespace?.orNull,
             explicitPublishInfoValue(publishInfo, "centralNamespace", publishInfo.centralNamespace),
             loadPublishProperties(project).centralNamespace,
             publishInfo.centralNamespace
@@ -257,26 +281,30 @@ object PublishConfigResolver {
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun resolveCentralCredentials(
         project: Project,
         publishInfo: PublishInfo,
         localProperties: Properties = loadLocalProperties(project)
     ): CentralCredentials {
+        val runtime = PublishRuntimeConfig(project)
         val username = firstNotBlank(
             projectProperty(project, "centralUsername"),
             environment("CENTRAL_USERNAME"),
             projectProperty(project, "mavenCentralUsername"),
             environment("MAVEN_CENTRAL_USERNAME"),
-            publishInfo.publishUserName,
-            localProperties.getProperty("publishUserName")
+            runtime.value("publish.local.central.username", "centralUsername", "mavenCentralUsername"),
+            localProperties.getProperty("publish.local.central.username"),
+            localProperties.getProperty("mavenCentralUsername")
         )
         val password = firstNotBlank(
             projectProperty(project, "centralPassword"),
             environment("CENTRAL_PASSWORD"),
             projectProperty(project, "mavenCentralPassword"),
             environment("MAVEN_CENTRAL_PASSWORD"),
-            publishInfo.publishPassword,
-            localProperties.getProperty("publishPassword")
+            localProperties.getProperty("publish.local.central.password"),
+            localProperties.getProperty("centralPassword"),
+            localProperties.getProperty("mavenCentralPassword")
         )
         return CentralCredentials(username, password)
     }
@@ -318,9 +346,11 @@ object PublishConfigResolver {
     }
 
     fun resolveGitHubPackagesRepositoryName(project: Project, publishInfo: PublishInfo): String {
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
         return firstNotBlank(
             projectProperty(project, "githubPackagesRepositoryName"),
             environment("GITHUB_PACKAGES_REPOSITORY_NAME"),
+            repositories?.githubPackages?.repositoryName?.orNull,
             publishInfo.githubPackagesRepositoryName,
             DEFAULT_GITHUB_PACKAGES_REPOSITORY_NAME
         )
@@ -332,9 +362,11 @@ object PublishConfigResolver {
         localProperties: Properties = loadLocalProperties(project)
     ): String {
         val publishProperties = loadPublishProperties(project)
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
         return firstNotBlank(
             projectProperty(project, "githubPackagesUrl"),
             environment("GITHUB_PACKAGES_URL"),
+            repositories?.githubPackages?.repositoryUrl?.orNull,
             publishInfo.githubPackagesUrl,
             publishProperties.githubPackagesUrl,
             localProperties.getProperty("githubPackagesUrl"),
@@ -342,21 +374,22 @@ object PublishConfigResolver {
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun resolveGitHubPackagesCredentials(
         project: Project,
         publishInfo: PublishInfo,
         localProperties: Properties = loadLocalProperties(project)
     ): RepositoryCredentials {
+        val runtime = PublishRuntimeConfig(project)
         val username = firstNotBlank(
             projectProperty(project, "githubPackagesUsername"),
             projectProperty(project, "gpr.user"),
             environment("GITHUB_PACKAGES_USER"),
             environment("GITHUB_ACTOR"),
             environment("USERNAME"),
-            publishInfo.githubPackagesUsername,
-            publishInfo.publishUserName,
-            localProperties.getProperty("githubPackagesUsername"),
-            localProperties.getProperty("publishUserName")
+            runtime.value("publish.local.githubPackages.username", "githubPackagesUsername"),
+            localProperties.getProperty("publish.local.githubPackages.username"),
+            localProperties.getProperty("githubPackagesUsername")
         )
         val password = firstNotBlank(
             projectProperty(project, "githubPackagesPassword"),
@@ -364,32 +397,41 @@ object PublishConfigResolver {
             environment("GITHUB_PACKAGES_TOKEN"),
             environment("GITHUB_TOKEN"),
             environment("TOKEN"),
-            publishInfo.githubPackagesPassword,
-            publishInfo.publishPassword,
-            localProperties.getProperty("githubPackagesPassword"),
-            localProperties.getProperty("publishPassword")
+            runtime.value("publish.local.githubPackages.token", "githubPackagesPassword"),
+            localProperties.getProperty("publish.local.githubPackages.token"),
+            localProperties.getProperty("githubPackagesPassword")
         )
         return RepositoryCredentials(username, password)
     }
 
     fun resolveSigningCredentials(project: Project): SigningCredentials {
+        val runtime = PublishRuntimeConfig(project)
+        val keyFile = runtime.value("publish.local.central.signingKeyFile", "signingKeyFile")
+        val keyFromFile = if (keyFile.isBlank()) "" else {
+            val file = File(keyFile).let { if (it.isAbsolute) it else project.rootProject.file(keyFile) }
+            if (file.isFile) file.readText() else ""
+        }
         return SigningCredentials(
             keyId = firstNotBlank(
                 projectProperty(project, "signingInMemoryKeyId"),
                 environment("SIGNING_IN_MEMORY_KEY_ID"),
                 projectProperty(project, "signingKeyId"),
-                environment("SIGNING_KEY_ID")
+                environment("SIGNING_KEY_ID"),
+                runtime.value("publish.local.central.signingKeyId", "signingKeyId")
             ),
             key = firstNotBlank(
                 projectProperty(project, "signingInMemoryKey"),
                 environment("SIGNING_IN_MEMORY_KEY"),
-                environment("GPG_KEY_CONTENTS")
+                environment("GPG_KEY_CONTENTS"),
+                keyFromFile,
+                runtime.value("publish.local.central.signingKey", "signingInMemoryKey", "gpgKeyContents")
             ),
             password = firstNotBlank(
                 projectProperty(project, "signingInMemoryKeyPassword"),
                 environment("SIGNING_IN_MEMORY_KEY_PASSWORD"),
                 projectProperty(project, "signingPassword"),
-                environment("SIGNING_PASSWORD")
+                environment("SIGNING_PASSWORD"),
+                runtime.value("publish.local.central.signingPassword", "signingPassword")
             )
         )
     }
@@ -503,9 +545,11 @@ object PublishConfigResolver {
         val publishProperties = loadPublishProperties(project)
         return normalizeOwnerRepo(
             firstNotBlank(
-                projectProperty(project, "githubPackagesRepository"),
-                environment("GITHUB_PACKAGES_REPOSITORY"),
-                publishInfo.githubPackagesRepository,
+            projectProperty(project, "githubPackagesRepository"),
+            environment("GITHUB_PACKAGES_REPOSITORY"),
+            project.extensions.findByType(PublishRepositories::class.java)
+                ?.githubPackages?.repository?.orNull,
+            publishInfo.githubPackagesRepository,
                 publishProperties.githubPackagesRepository,
                 localProperties.getProperty("githubPackagesRepository"),
                 environment("GITHUB_REPOSITORY"),

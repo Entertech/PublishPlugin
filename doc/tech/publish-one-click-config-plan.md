@@ -1,5 +1,12 @@
 # PublishPlugin 一键发布配置方案
 
+> **已被替代（2026-08）**：本文件记录的是旧版 `local.properties` 与配置
+> task 方案。当前实现以
+> [publish-task-config-redesign-plan.md](publish-task-config-redesign-plan.md)
+> 为准：仅注册四个明确发布 task，使用 `PublishRepositories` DSL、
+> `.publish/local.properties` 和 GitHub Actions inputs/Secrets；旧配置 task
+> 与 `PublishLibraryRemoteTask` 不再注册。
+
 ## 背景
 
 其他 Android Library 或 Gradle Plugin 仓库接入 `cn.entertech.publish` 发布到 Sonatype Central Portal 时，需要同时完成几类配置：

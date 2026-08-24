@@ -25,6 +25,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
     def test_publish_target_input_supports_three_modes(self):
         text = workflow_text()
         validation = step_block("Validate publish inputs")
+        publish = step_block("Publish prepared or project artifacts")
 
         self.assertIn("publish_target:", text)
         self.assertIn('default: "github_packages"', text)
@@ -46,15 +47,19 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("EFFECTIVE_PUBLISH_VERSION", resolve)
         self.assertIn("CENTRAL_RELEASE_TYPE", resolve)
 
-    def test_github_packages_publish_step_is_target_gated(self):
-        publish = step_block("Publish to GitHub Packages")
+    def test_publish_step_uses_allowlisted_component_target_task(self):
+        publish = step_block("Resolve publish task")
 
-        self.assertIn("inputs.publish_target == 'github_packages'", publish)
-        self.assertIn("inputs.publish_target == 'all'", publish)
-        self.assertIn("-PpublishTarget=github_packages", publish)
+        self.assertIn("library:github_packages", publish)
+        self.assertIn("library:central", publish)
+        self.assertIn("library:all", publish)
+        self.assertIn("plugin:github_packages", publish)
+        self.assertIn("PublishPluginRemoteCentralTask", publish)
+        publish = step_block("Publish prepared or project artifacts")
         self.assertIn("-PgithubPackagesRepository=${GITHUB_PACKAGES_REPOSITORY}", publish)
         self.assertIn("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}", publish)
         self.assertIn("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}", publish)
+        self.assertIn("artifactSource=prebuilt", publish)
 
     def test_release_publish_can_sync_readme(self):
         sync = step_block("Sync README for release")
@@ -72,12 +77,9 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("git commit -m \"[codex] Sync README publish config to ${EFFECTIVE_PUBLISH_VERSION} [skip ci]\"", commit)
         self.assertIn("git push", commit)
 
-    def test_central_publish_step_is_target_gated(self):
-        publish = step_block("Publish to Central Portal")
+    def test_central_publish_inputs_are_forwarded(self):
+        publish = step_block("Publish prepared or project artifacts")
 
-        self.assertIn("inputs.publish_target == 'central'", publish)
-        self.assertIn("inputs.publish_target == 'all'", publish)
-        self.assertIn("-PpublishTarget=central", publish)
         self.assertIn("-PcentralReleaseType=${CENTRAL_RELEASE_TYPE}", publish)
         self.assertIn("-PcentralNamespace=${CENTRAL_NAMESPACE}", publish)
         self.assertIn("-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}", publish)
@@ -86,13 +88,14 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
     def test_central_secrets_are_conditionally_required(self):
         text = workflow_text()
         validation = step_block("Validate publish inputs")
+        publish = step_block("Publish prepared or project artifacts")
 
         self.assertIn("MAVEN_CENTRAL_USERNAME:\n        required: false", text)
         self.assertIn("GPG_KEY_CONTENTS:\n        required: false", text)
-        self.assertIn("PUBLISH_TARGET\" == \"central\"", validation)
-        self.assertIn("PUBLISH_TARGET\" == \"all\"", validation)
-        self.assertIn("CENTRAL_USERNAME", validation)
-        self.assertIn("SIGNING_PASSWORD", validation)
+        self.assertIn("PUBLISH_TARGET\" == \"central\"", publish)
+        self.assertIn("PUBLISH_TARGET\" == \"all\"", publish)
+        self.assertIn("CENTRAL_USERNAME", publish)
+        self.assertIn("SIGNING_PASSWORD", publish)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,10 @@ on:
         description: "Gradle module path, for example :library"
         required: true
         type: string
+      component_type:
+        description: "Publish component type: library or plugin"
+        required: true
+        type: string
       publish_target:
         description: "Publish target: central, github_packages, or all"
         required: false
@@ -52,6 +56,21 @@ on:
         required: false
         default: "17"
         type: string
+      artifact_source:
+        description: "Artifact source: project builds artifacts, prebuilt consumes an existing bundle"
+        required: false
+        default: "project"
+        type: string
+      artifact_bundle_path:
+        description: "Project-relative prebuilt artifact bundle directory"
+        required: false
+        default: ""
+        type: string
+      artifact_bundle_artifact:
+        description: "Optional Actions artifact name to download into artifact_bundle_path"
+        required: false
+        default: ""
+        type: string
     secrets:
       MAVEN_CENTRAL_USERNAME:
         required: false
@@ -76,26 +95,17 @@ jobs:
 
     env:
       MODULE_PATH: ${{ inputs.module }}
+      COMPONENT_TYPE: ${{ inputs.component_type }}
       PUBLISH_TARGET: ${{ inputs.publish_target }}
       CENTRAL_NAMESPACE: ${{ inputs.namespace }}
       CENTRAL_PUBLISHING_TYPE: ${{ inputs.publishing_type }}
       PUBLISH_MODE: ${{ inputs.publish_mode }}
       PUBLISH_VERSION: ${{ inputs.version }}
+      ARTIFACT_SOURCE: ${{ inputs.artifact_source }}
+      ARTIFACT_BUNDLE_PATH: ${{ inputs.artifact_bundle_path }}
+      ARTIFACT_BUNDLE_ARTIFACT: ${{ inputs.artifact_bundle_artifact }}
       GITHUB_PACKAGES_REPOSITORY: ${{ inputs.github_packages_repository }}
       GITHUB_PACKAGES_URL: ${{ inputs.github_packages_url }}
-      GITHUB_ACTOR: ${{ github.actor }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN || github.token }}
-      GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN || github.token }}
-      CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-      CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-      GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
-      SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
-      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-      ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}
-      ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
-      ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
 
     steps:
       - name: Checkout caller repository
@@ -110,6 +120,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Download prebuilt artifact bundle
+        if: ${{ inputs.artifact_source == 'prebuilt' && inputs.artifact_bundle_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_bundle_artifact }}
+          path: ${{ inputs.artifact_bundle_path }}
+
       - name: Validate publish inputs
         shell: bash
         run: |
@@ -119,6 +136,47 @@ jobs:
             echo "::error::module must be a Gradle project path like :library or :parent:library"
             exit 1
           fi
+
+          case "$COMPONENT_TYPE" in
+            library|plugin) ;;
+            *)
+              echo "::error::component_type must be library or plugin"
+              exit 1
+              ;;
+          esac
+
+          case "$ARTIFACT_SOURCE" in
+            project)
+              if [[ -n "$ARTIFACT_BUNDLE_PATH" ]]; then
+                echo "::error::artifact_bundle_path is only valid for artifact_source=prebuilt"
+                exit 1
+              fi
+              ;;
+            prebuilt)
+              if [[ -z "$ARTIFACT_BUNDLE_PATH" ]]; then
+                echo "::error::artifact_bundle_path is required for artifact_source=prebuilt"
+                exit 1
+              fi
+              if [[ "$ARTIFACT_BUNDLE_PATH" = /* || "$ARTIFACT_BUNDLE_PATH" == *".."* ]]; then
+                echo "::error::artifact_bundle_path must be a safe project-relative path"
+                exit 1
+              fi
+              workspace_real="$(realpath -m "$GITHUB_WORKSPACE")"
+              bundle_real="$(realpath -m "$GITHUB_WORKSPACE/$ARTIFACT_BUNDLE_PATH")"
+              case "$bundle_real" in
+                "$workspace_real"/*) ;;
+                *) echo "::error::artifact_bundle_path must stay inside the workspace"; exit 1 ;;
+              esac
+              if [[ ! -f "$bundle_real/publish-artifacts.json" ]]; then
+                echo "::error::publish-artifacts.json is missing from $ARTIFACT_BUNDLE_PATH"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::artifact_source must be project or prebuilt"
+              exit 1
+              ;;
+          esac
 
           case "$PUBLISH_TARGET" in
             central|github_packages|all) ;;
@@ -144,28 +202,6 @@ jobs:
           if [[ "$PUBLISH_MODE" == "ci" && "$PUBLISH_TARGET" != "central" ]]; then
             echo "::error::publish_mode=ci only supports publish_target=central"
             exit 1
-          fi
-
-          if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
-            required_central_env=(
-              CENTRAL_USERNAME
-              CENTRAL_PASSWORD
-              GPG_KEY_CONTENTS
-              SIGNING_PASSWORD
-            )
-            for name in "${required_central_env[@]}"; do
-              if [[ -z "${!name:-}" ]]; then
-                echo "::error::$name is required when publish_target is $PUBLISH_TARGET"
-                exit 1
-              fi
-            done
-          fi
-
-          if [[ "$PUBLISH_TARGET" == "github_packages" || "$PUBLISH_TARGET" == "all" ]]; then
-            if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-              echo "::error::GITHUB_TOKEN or GITHUB_PACKAGES_TOKEN is required when publish_target is $PUBLISH_TARGET"
-              exit 1
-            fi
           fi
 
       - name: Resolve publish version
@@ -203,53 +239,59 @@ jobs:
             echo "SYNC_README_EFFECTIVE=${sync_readme_effective}"
           } >> "$GITHUB_ENV"
 
-      - name: Publish to GitHub Packages
-        if: ${{ inputs.publish_target == 'github_packages' || inputs.publish_target == 'all' }}
+      - name: Resolve publish task
         shell: bash
         run: |
           set -euo pipefail
+          case "${COMPONENT_TYPE}:${PUBLISH_TARGET}" in
+            library:github_packages) suffix="PublishLibraryRemoteGithubPackagesTask" ;;
+            library:central) suffix="PublishLibraryRemoteCentralTask" ;;
+            library:all) suffix="PublishLibraryRemoteAllTask" ;;
+            plugin:github_packages) suffix="PublishPluginRemoteGithubPackagesTask" ;;
+            plugin:central) suffix="PublishPluginRemoteCentralTask" ;;
+            plugin:all) suffix="PublishPluginRemoteAllTask" ;;
+            *) echo "::error::unsupported component_type/publish_target combination"; exit 1 ;;
+          esac
+          echo "PUBLISH_TASK=${MODULE_PATH}:${suffix}" >> "$GITHUB_ENV"
 
-          args=(
-            "${MODULE_PATH}:PublishLibraryRemoteTask"
-            "-PpublishTarget=github_packages"
-            "--no-daemon"
-            "--stacktrace"
-          )
-
-          if [[ -n "$GITHUB_PACKAGES_REPOSITORY" ]]; then
-            args+=("-PgithubPackagesRepository=${GITHUB_PACKAGES_REPOSITORY}")
-          fi
-
-          if [[ -n "$GITHUB_PACKAGES_URL" ]]; then
-            args+=("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}")
-          fi
-
-          if [[ -n "$PUBLISH_VERSION" ]]; then
-            args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}")
-          fi
-
-          ./gradlew "${args[@]}"
-
-      - name: Publish to Central Portal
-        if: ${{ inputs.publish_target == 'central' || inputs.publish_target == 'all' }}
+      - name: Publish prepared or project artifacts
         shell: bash
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN || github.token }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN || github.token }}
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           set -euo pipefail
-
-          args=(
-            "${MODULE_PATH}:PublishLibraryRemoteTask"
-            "-PpublishTarget=central"
-            "-PcentralReleaseType=${CENTRAL_RELEASE_TYPE}"
-            "-PcentralNamespace=${CENTRAL_NAMESPACE}"
-            "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}"
-            "--no-daemon"
-            "--stacktrace"
-          )
-
-          if [[ -n "$PUBLISH_VERSION" ]]; then
-            args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}")
+          if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
+            required_central_env=(CENTRAL_USERNAME CENTRAL_PASSWORD GPG_KEY_CONTENTS SIGNING_PASSWORD)
+            for name in "${required_central_env[@]}"; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "::error::$name is required when publish_target is $PUBLISH_TARGET"
+                exit 1
+              fi
+            done
           fi
-
+          if [[ "$PUBLISH_TARGET" == "github_packages" || "$PUBLISH_TARGET" == "all" ]] && [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            echo "::error::GITHUB_TOKEN or GITHUB_PACKAGES_TOKEN is required when publish_target is $PUBLISH_TARGET"
+            exit 1
+          fi
+          args=("${PUBLISH_TASK}" "-PcentralReleaseType=${CENTRAL_RELEASE_TYPE}" "-PcentralNamespace=${CENTRAL_NAMESPACE}" "-PcentralPublishingType=${CENTRAL_PUBLISHING_TYPE}" "--no-daemon" "--stacktrace")
+          if [[ -n "$EFFECTIVE_PUBLISH_VERSION" ]]; then args+=("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}"); fi
+          if [[ -n "$GITHUB_PACKAGES_REPOSITORY" ]]; then args+=("-PgithubPackagesRepository=${GITHUB_PACKAGES_REPOSITORY}"); fi
+          if [[ -n "$GITHUB_PACKAGES_URL" ]]; then args+=("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}"); fi
+          if [[ "$ARTIFACT_SOURCE" == "prebuilt" ]]; then
+            args+=("-PartifactSource=prebuilt" "-PartifactBundlePath=${ARTIFACT_BUNDLE_PATH}")
+          fi
           ./gradlew "${args[@]}"
 
       - name: Sync README for release

@@ -1,0 +1,10 @@
+# Local execution only. Copy to .publish/local.properties and keep it ignored.
+
+publish.local.githubPackages.username=
+publish.local.githubPackages.token=
+
+publish.local.central.username=
+publish.local.central.password=
+publish.local.central.signingKeyFile=
+publish.local.central.signingKeyId=
+publish.local.central.signingPassword=

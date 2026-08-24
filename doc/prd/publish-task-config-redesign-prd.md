@@ -4,7 +4,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 状态 | Draft，待评审 |
+| 状态 | Implemented on redesign branch |
 | 日期 | 2026-08-21 |
 | 基线 | `main` / `e6840a1` |
 | 目标分支 | `codex/publish-task-config-redesign-docs` |
