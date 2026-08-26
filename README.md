@@ -113,6 +113,13 @@ scripts/configure-publish-offline.sh :library \
   --artifact-bundle-path release-artifacts/library --run
 ```
 
+## Codex Skills
+
+仓库提供两个独立入口：`$enter-publish-config` 只配置和校验，
+`$enter-publish-run` 只在明确授权后执行本机或 GitHub Actions 发布。完整的
+选择规则、输入参数和提示词示例见
+[PublishPlugin Codex Skills 使用说明](doc/skills/publish-skills.md)。
+
 ## 示例模块
 
 - [`demo-lib`](demo-lib/build.gradle.kts)：Android Library、多 flavor release variant。

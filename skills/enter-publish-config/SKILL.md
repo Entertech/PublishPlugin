@@ -1,9 +1,9 @@
 ---
-name: enter-one-click-publish-config
+name: enter-publish-config
 description: Configure an Android project to use Enter/Flowtime PublishPlugin for local or GitHub Actions publishing. Edit publishing metadata, repository settings, local credential templates, and workflows, but do not build, publish, upload artifacts, or trigger workflows.
 ---
 
-# Enter One-Click Publish Configuration
+# Enter Publish Config
 
 Configure a project so that a developer or a separate release workflow can
 publish it later. This skill prepares and validates configuration only.
@@ -20,7 +20,7 @@ Never perform the release itself while using this skill:
 
 The user asking to “configure publishing” does not authorize publication. This
 skill stops after configuration and hands execution to
-`$enter-publish-release`, which requires an explicit publish request.
+`$enter-publish-run`, which requires an explicit publish request.
 
 ## Configuration work in scope
 
@@ -37,9 +37,9 @@ skill stops after configuration and hands execution to
 7. Run non-publishing checks, such as inspecting `tasks --all`, parsing YAML,
    checking ignored/untracked files, or running configuration-focused tests.
 8. Report the files changed, missing user-supplied values, and the exact task or
-   workflow that `$enter-publish-release` may execute later.
+   workflow that `$enter-publish-run` may execute later.
 
-Read [references/one-click-publish-workflow.md](references/one-click-publish-workflow.md)
+Read [references/publish-config-workflow.md](references/publish-config-workflow.md)
 when configuring task selection, local credentials, GitHub Actions, or prebuilt
 artifact manifests.
 

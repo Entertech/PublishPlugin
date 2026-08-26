@@ -17,7 +17,7 @@ publishing workflow. GitHub Actions cannot publish to Maven Local.
    printing their values.
 
 If the workflow is absent or its inputs do not match the requested release,
-stop and hand off to `$enter-one-click-publish-config`. Do not patch the
+stop and hand off to `$enter-publish-config`. Do not patch the
 workflow during release execution.
 
 ## Dispatch

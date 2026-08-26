@@ -1,4 +1,4 @@
-# Prebuilt Artifact Release
+# Prebuilt Artifact Publish
 
 Use this reference in addition to the selected execution-mode reference when
 the release consumes an existing artifact bundle.

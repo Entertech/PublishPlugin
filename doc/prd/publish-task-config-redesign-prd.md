@@ -47,8 +47,8 @@
 5. 打包与发布逻辑完全解耦，发布层不依赖 Android/Java 编译过程，并能消费标准化的已有制品集合。
 6. GitHub Actions 支持指定项目内目录，不打包当前工程，直接发布其中的 AAR/JAR 和伴生文件。
 7. Codex Skill 按责任拆成两个独立入口：
-   - `$enter-one-click-publish-config` 只配置、校验和生成模板/workflow，不执行发布；
-   - `$enter-publish-release` 只消费既有配置，在本机执行发布或触发 GitHub Actions 发布。
+   - `$enter-publish-config` 只配置、校验和生成模板/workflow，不执行发布；
+   - `$enter-publish-run` 只消费既有配置，在本机执行发布或触发 GitHub Actions 发布。
 8. 本机运行配置和 GitHub Actions 配置完全分离，不再把发布字段写入 Android 根目录 `local.properties`。
 9. 组件元数据、非敏感仓库配置和敏感凭据各自只有清晰的归属位置。
 10. 删除重复别名和误导性的历史任务名，降低 IDE 任务列表和文档认知成本。
@@ -101,7 +101,7 @@ Gradle Plugin 模块使用 `PublishPlugin*` 任务：
 
 ### 使用配置 skill 准备本机发布
 
-用户指定模块、执行环境 `local` 和目标。`$enter-one-click-publish-config` 完成：
+用户指定模块、执行环境 `local` 和目标。`$enter-publish-config` 完成：
 
 1. 识别模块组件类型。
 2. 校验 `PublishInfo` 与非敏感仓库配置。
@@ -109,12 +109,12 @@ Gradle Plugin 模块使用 `PublishPlugin*` 任务：
 4. 校验配置文件未被 Git 跟踪且已被 ignore。
 5. 输出准确的发布任务作为交接信息，但不执行该任务。
 
-用户明确要求实际发布时，改由 `$enter-publish-release` 校验既有配置，
+用户明确要求实际发布时，改由 `$enter-publish-run` 校验既有配置，
 在本机执行对应任务并报告结果。配置请求本身不构成发布授权。
 
 ### 使用配置 skill 准备 GitHub Actions 发布
 
-用户指定模块、执行环境 `github_actions` 和目标。`$enter-one-click-publish-config` 完成：
+用户指定模块、执行环境 `github_actions` 和目标。`$enter-publish-config` 完成：
 
 1. 识别模块组件类型并校验目标。
 2. 生成或更新模块对应的 GitHub Actions workflow。
@@ -122,7 +122,7 @@ Gradle Plugin 模块使用 `PublishPlugin*` 任务：
 4. workflow 调用与组件类型、目标匹配的唯一任务。
 5. 输出 caller workflow 与所需输入作为交接信息，但不触发 workflow。
 
-用户明确要求发布后，`$enter-publish-release` 才能触发 caller workflow 并
+用户明确要求发布后，`$enter-publish-run` 才能触发 caller workflow 并
 跟踪结果。GitHub Actions 流程不读取本机发布配置文件。
 
 ### GitHub Actions 直接发布已有制品
@@ -403,8 +403,8 @@ module + execution(local|github_actions) + target(local|github_packages|central|
 
 行为要求：
 
-1. `skills/publishplugin-one-click-publish/` 对外名为 `$enter-one-click-publish-config`，只负责配置、校验、模板/workflow/manifest 生成和配置回退，禁止执行发布任务、上传制品或触发 workflow。
-2. `skills/enter-publish-release/` 对外名为 `$enter-publish-release`，只在用户明确要求发布时消费已有配置；不得顺便创建、修复或改写发布配置。
+1. `skills/enter-publish-config/` 对外名为 `$enter-publish-config`，只负责配置、校验、模板/workflow/manifest 生成和配置回退，禁止执行发布任务、上传制品或触发 workflow。
+2. `skills/enter-publish-run/` 对外名为 `$enter-publish-run`，只在用户明确要求发布时消费已有配置；不得顺便创建、修复或改写发布配置。
 3. `execution=local,target=local`：发布 Skill 校验后调用组件对应的 `LocalTask`。
 4. `execution=local,target=<remote>`：发布 Skill 读取环境变量或 `.publish/local.properties`，调用对应远程任务。
 5. `execution=github_actions,target=<remote>`：配置 Skill 生成/更新 caller workflow、检查 secrets 并映射任务；发布 Skill 只负责触发该 caller workflow 和报告结果。
@@ -412,7 +412,7 @@ module + execution(local|github_actions) + target(local|github_packages|central|
 7. `artifactSource=prebuilt`：配置 Skill 要求 bundle path 并准备/校验 manifest；发布 Skill 在网络请求前再次校验 manifest，并明确报告跳过工程打包。
 8. GitHub secret 值通过 stdin 传给 `gh`，不得出现在命令行参数和日志中。
 9. 发布 Skill 一次请求只尝试一次；远程失败不得自动重试，`all` 必须报告部分成功状态。
-10. 旧 `$publishplugin-local-release` 由 `$enter-publish-release` 完全替代，不再作为活动 runtime Skill 保留。
+10. 旧 `$publishplugin-local-release` 由 `$enter-publish-run` 完全替代，不再作为活动 runtime Skill 保留。
 11. Skill 和离线脚本不得为了配置或发布重新注册公开 Gradle task。
 
 ### FR-11：配置优先级
@@ -507,9 +507,11 @@ workflow allowlist 映射到明确 Remote task
 | `PublishLibraryRemoteTask -PpublishTarget=all` | `PublishLibraryRemoteAllTask` |
 | Plugin 模块的 `PublishLibraryLocalTask` | `PublishPluginLocalTask` |
 | Plugin 模块的 `PublishLibraryRemoteTask` | 根据目标改为 `PublishPluginRemote*Task` |
-| `generatePublishConfig` / `configurePublish` | 使用 `$enter-one-click-publish-config` 或离线脚本的配置命令 |
-| `rollbackPublishSecrets` | 使用 `$enter-one-click-publish-config` 或离线脚本的回退命令 |
-| `$publishplugin-local-release` | 使用 `$enter-publish-release`，同时支持本机和 GitHub Actions 发布 |
+| `generatePublishConfig` / `configurePublish` | 使用 `$enter-publish-config` 或离线脚本的配置命令 |
+| `rollbackPublishSecrets` | 使用 `$enter-publish-config` 或离线脚本的回退命令 |
+| `$enter-one-click-publish-config` | `$enter-publish-config` |
+| `$enter-publish-release` | `$enter-publish-run` |
+| `$publishplugin-local-release` | 使用 `$enter-publish-run`，同时支持本机和 GitHub Actions 发布 |
 | 根目录 `local.properties` 中的发布字段 | 非敏感共享字段迁入 DSL；本机凭据迁入 `.publish/local.properties`；CI 凭据迁入 GitHub Secrets |
 
 迁移版本必须：
@@ -532,7 +534,7 @@ workflow allowlist 映射到明确 Remote task
 9. 根目录 `local.properties` 不再被模板写入器修改，也不参与新发布解析。
 10. 本机远程发布可通过环境变量或 `.publish/local.properties` 获取凭据。
 11. GitHub Actions 发布只通过 workflow inputs 和 GitHub Secrets 获取配置，不读取本机配置文件。
-12. `$enter-one-click-publish-config` 的配置/校验请求不会执行 Gradle 发布任务或触发 workflow；`$enter-publish-release` 仅在明确发布请求下分别完成本机或 GitHub Actions 发布。
+12. `$enter-publish-config` 的配置/校验请求不会执行 Gradle 发布任务或触发 workflow；`$enter-publish-run` 仅在明确发布请求下分别完成本机或 GitHub Actions 发布。
 13. 新增远程 provider 时，核心 All 任务无需增加新的 `when(providerId)` 分支。
 14. 所有日志和测试夹具均不泄露 token、密码和私钥。
 15. 工程模式先生成标准化 `ArtifactBundle`，随后由发布层消费；发布层代码不依赖 Android/Java 编译 API。

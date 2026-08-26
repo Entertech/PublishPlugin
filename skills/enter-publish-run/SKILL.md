@@ -1,13 +1,13 @@
 ---
-name: enter-publish-release
+name: enter-publish-run
 description: Execute an already-configured Enter/Flowtime PublishPlugin release when the user explicitly asks to publish, upload, or trigger a publishing workflow. Supports Library and Plugin modules, local or GitHub Actions execution, and project or prebuilt artifacts; does not configure the project.
 ---
 
-# Enter Publish Release
+# Enter Publish Run
 
 Execute a publication only after the user explicitly asks for the release
 operation. This skill consumes configuration prepared by
-`$enter-one-click-publish-config`; it does not create or repair that
+`$enter-publish-config`; it does not create or repair that
 configuration.
 
 ## Authorization boundary
@@ -38,7 +38,7 @@ Before any upload or workflow dispatch:
 6. Never print credentials, tokens, signing keys, or passwords.
 
 If configuration is missing or inconsistent, do not edit it. Report the exact
-problem and hand off to `$enter-one-click-publish-config`.
+problem and hand off to `$enter-publish-config`.
 
 ## Execution routing
 

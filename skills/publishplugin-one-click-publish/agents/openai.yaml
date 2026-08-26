@@ -1,4 +1,0 @@
-interface:
-  display_name: "Enter Publish Configuration"
-  short_description: "Configure publishing without triggering a release"
-  default_prompt: "Use $enter-one-click-publish-config to configure this project for publishing without building, uploading, or triggering a release."

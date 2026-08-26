@@ -1,4 +1,4 @@
-# Local Execution
+# Local Publish Execution
 
 Use this mode when Gradle runs on the current machine. The destination may be
 Maven Local, GitHub Packages, Central, or all enabled remote providers.

@@ -26,7 +26,7 @@ handoff task; they do not cause that task to run.
 | Plugin | `PublishPluginLocalTask` | `PublishPluginRemoteGithubPackagesTask` | `PublishPluginRemoteCentralTask` | `PublishPluginRemoteAllTask` |
 
 At completion, report the applicable task name as handoff information for
-`$enter-publish-release`. Do not execute it, even for Maven Local.
+`$enter-publish-run`. Do not execute it, even for Maven Local.
 
 ## Module configuration
 

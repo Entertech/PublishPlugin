@@ -719,10 +719,10 @@ artifact_bundle_path: <project-relative path, required for prebuilt>
 动作按 Skill 强制拆分：
 
 ```text
-$enter-one-click-publish-config:
+$enter-publish-config:
   action: configure | validate | rollback_config
 
-$enter-publish-release:
+$enter-publish-run:
   action: publish
 ```
 
@@ -736,9 +736,11 @@ $enter-publish-release:
 - 发布 Skill 仅消费配置，发现缺失时停止并交回配置 Skill，不在发布过程中修复配置；
 - 只有发布 Skill 收到用户明确发布请求时才执行真实上传；
 - `rollback_config` 只处理配置 Skill/脚本创建的 workflow 或 GitHub secrets，不注册 Gradle task；
-- 旧 `$publishplugin-local-release` 从 runtime 目录退役，由 `$enter-publish-release` 直接替代。
+- 旧 `$enter-one-click-publish-config`、`$enter-publish-release` 和
+  `$publishplugin-local-release` 从 runtime 目录退役，分别由
+  `$enter-publish-config`、`$enter-publish-run` 替代。
 
-### 本机配置流程（`$enter-one-click-publish-config`）
+### 本机配置流程（`$enter-publish-config`）
 
 ```text
 inspect module
@@ -750,7 +752,7 @@ inspect module
   -> report handoff without executing Gradle publication
 ```
 
-### GitHub Actions 配置流程（`$enter-one-click-publish-config`）
+### GitHub Actions 配置流程（`$enter-publish-config`）
 
 ```text
 inspect module
@@ -763,7 +765,7 @@ inspect module
   -> report caller workflow handoff without dispatch
 ```
 
-### 发布执行流程（`$enter-publish-release`）
+### 发布执行流程（`$enter-publish-run`）
 
 ```text
 consume existing handoff
@@ -875,9 +877,10 @@ ArtifactBundleResolver
 | `.github/workflows/publish.yml` | 增加 component allowlist、project/prebuilt 模式、bundle path 和可选 Actions artifact 下载。 |
 | 业务示例 workflow | 增加 `component_type` 并更新 task 语义。 |
 | `scripts/configure-publish-offline.sh` | 改为直接配置 local 或 GitHub Actions。 |
-| `skills/publishplugin-one-click-publish/**` | 只保留配置、校验、模板/workflow/manifest 与配置回退；发布任务名只作为交接信息。 |
-| `skills/enter-publish-release/**` | 新增专用发布 Skill，执行本机精确任务或触发 GitHub Actions caller workflow。 |
-| `scripts/install-codex-skill.sh` | 同时安装/检查两个仓库 Skill，并将旧 `publishplugin-local-release` runtime Skill 移出活动目录。 |
+| `skills/enter-publish-config/**` | 只保留配置、校验、模板/workflow/manifest 与配置回退；发布任务名只作为交接信息。 |
+| `skills/enter-publish-run/**` | 新增专用发布 Skill，执行本机精确任务或触发 GitHub Actions caller workflow。 |
+| `scripts/install-codex-skill.sh` | 同时安装/检查两个仓库 Skill，并将三个旧名称对应的 runtime Skill 移出活动目录。 |
+| `doc/skills/publish-skills.md` | 说明两个 Skill 的选择规则、输入、调用示例和交接边界。 |
 | skill reference | 删除 `local.properties` 混合模板与配置 Gradle tasks，按配置/发布职责拆分执行说明。 |
 | `README.md` | 更新任务、配置位置、迁移和示例。 |
 
@@ -945,9 +948,9 @@ ArtifactBundleResolver
 3. 增加 `artifact_source`、`artifact_bundle_path` 和可选 Actions artifact 下载。
 4. 验证 prebuilt workflow 不运行打包任务。
 5. 重写离线脚本，不再调用配置类 Gradle task。
-6. 将仓库内 `$enter-one-click-publish-config` 收紧为只配置，并更新 reference。
-7. 新增 `$enter-publish-release` 及本机、GitHub Actions、prebuilt 执行 reference。
-8. 更新安装脚本，用新发布 Skill 替代旧 `publishplugin-local-release` runtime Skill。
+6. 将仓库内 `$enter-publish-config` 收紧为只配置，并更新 reference。
+7. 新增 `$enter-publish-run` 及本机、GitHub Actions、prebuilt 执行 reference。
+8. 更新安装脚本，用两个新名称替代旧配置/发布 runtime Skill。
 9. 执行 `./scripts/install-codex-skill.sh` 安装/验证两个仓库 source-of-truth symlink。
 
 ### Phase 7：文档与迁移

@@ -2,10 +2,14 @@
 set -euo pipefail
 
 skill_names=(
+  "enter-publish-config"
+  "enter-publish-run"
+)
+legacy_skill_names=(
   "publishplugin-one-click-publish"
   "enter-publish-release"
+  "publishplugin-local-release"
 )
-legacy_skill_name="publishplugin-local-release"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
@@ -21,14 +25,14 @@ usage() {
 Usage: $0 [--check] [--force]
 
 Installs these repository skills as runtime symlinks:
-  publishplugin-one-click-publish
-  enter-publish-release
+  enter-publish-config
+  enter-publish-run
 
-The legacy publishplugin-local-release runtime skill is retired after the new
-release skill is installed.
+Legacy configuration/release skill names are retired after the new skills are
+installed.
 
 Options:
-  --check   Verify both symlinks and confirm the legacy skill is inactive.
+  --check   Verify both symlinks and confirm legacy skills are inactive.
   --force   Back up a differing existing target before linking.
 EOF
 }
@@ -65,10 +69,12 @@ if [ "$mode" = "check" ]; then
     [ "$link_target" = "$source_dir" ] || die "$target_dir is not linked to $source_dir"
     printf 'OK: %s -> %s\n' "$target_dir" "$source_dir"
   done
-  legacy_target="$runtime_skills_dir/$legacy_skill_name"
-  [ ! -e "$legacy_target" ] && [ ! -L "$legacy_target" ] || \
-    die "legacy runtime skill is still active: $legacy_target"
-  printf 'OK: legacy runtime skill is inactive: %s\n' "$legacy_target"
+  for legacy_skill_name in "${legacy_skill_names[@]}"; do
+    legacy_target="$runtime_skills_dir/$legacy_skill_name"
+    [ ! -e "$legacy_target" ] && [ ! -L "$legacy_target" ] || \
+      die "legacy runtime skill is still active: $legacy_target"
+    printf 'OK: legacy runtime skill is inactive: %s\n' "$legacy_target"
+  done
   exit 0
 fi
 
@@ -103,12 +109,14 @@ for skill_name in "${skill_names[@]}"; do
   printf 'Linked: %s -> %s\n' "$target_dir" "$source_dir"
 done
 
-legacy_target="$runtime_skills_dir/$legacy_skill_name"
-if [ -e "$legacy_target" ] || [ -L "$legacy_target" ]; then
-  mkdir -p "$backup_root"
-  legacy_backup="$backup_root/$legacy_skill_name-$(date +%Y%m%d%H%M%S)"
-  mv "$legacy_target" "$legacy_backup"
-  printf 'Retired legacy skill to %s\n' "$legacy_backup"
-else
-  printf 'Legacy skill already inactive: %s\n' "$legacy_target"
-fi
+for legacy_skill_name in "${legacy_skill_names[@]}"; do
+  legacy_target="$runtime_skills_dir/$legacy_skill_name"
+  if [ -e "$legacy_target" ] || [ -L "$legacy_target" ]; then
+    mkdir -p "$backup_root"
+    legacy_backup="$backup_root/$legacy_skill_name-$(date +%Y%m%d%H%M%S)"
+    mv "$legacy_target" "$legacy_backup"
+    printf 'Retired legacy skill to %s\n' "$legacy_backup"
+  else
+    printf 'Legacy skill already inactive: %s\n' "$legacy_target"
+  fi
+done
