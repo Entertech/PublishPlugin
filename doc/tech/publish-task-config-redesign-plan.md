@@ -702,11 +702,11 @@ workflow 不接受任意 `publish_task` 输入，而是在 shell 中进行固定
 
 此时 workflow 映射到组件对应的 `RemoteCentralTask`，通过 `publishMode=ci` 选择 Central snapshot repository，而不是选择另一个公开 task。
 
-## 一键发布 skill 与脚本改造
+## 配置 Skill、发布 Skill 与脚本改造
 
-### Skill 输入模型
+### 共享交接模型
 
-skill 的内部意图模型：
+两个 Skill 共享发布意图的只读交接字段：
 
 ```text
 module: :library
@@ -714,33 +714,43 @@ execution: local | github_actions
 target: local | github_packages | central | all
 artifact_source: project | prebuilt
 artifact_bundle_path: <project-relative path, required for prebuilt>
-action: configure | dry_run | publish | rollback
 ```
 
-约束：
+动作按 Skill 强制拆分：
+
+```text
+$enter-one-click-publish-config:
+  action: configure | validate | rollback_config
+
+$enter-publish-release:
+  action: publish
+```
+
+共同约束：
 
 - `github_actions + local` 非法；
 - `local + local` 不要求远程配置文件；
 - `target=all` 要求至少两个或一个显式启用 provider；
 - `artifact_source=prebuilt` 要求 manifest 和项目内相对目录，并明确跳过打包；
-- `action=publish` 才执行真实上传；
-- `rollback` 只处理 skill/脚本创建的 workflow 或 GitHub secrets，不注册 Gradle task。
+- 配置 Skill 永远不执行 Gradle 发布任务、上传或 workflow dispatch；
+- 发布 Skill 仅消费配置，发现缺失时停止并交回配置 Skill，不在发布过程中修复配置；
+- 只有发布 Skill 收到用户明确发布请求时才执行真实上传；
+- `rollback_config` 只处理配置 Skill/脚本创建的 workflow 或 GitHub secrets，不注册 Gradle task；
+- 旧 `$publishplugin-local-release` 从 runtime 目录退役，由 `$enter-publish-release` 直接替代。
 
-### 本机流程
+### 本机配置流程（`$enter-one-click-publish-config`）
 
 ```text
 inspect module
   -> detect component kind
   -> validate PublishInfo / PublishRepositories
-  -> choose project or prebuilt producer
   -> optionally create .publish/local.properties
-  -> validate ArtifactBundle before network
   -> verify ignored/untracked
   -> resolve exact task name
-  -> dry run or execute Gradle
+  -> report handoff without executing Gradle publication
 ```
 
-### GitHub Actions 流程
+### GitHub Actions 配置流程（`$enter-one-click-publish-config`）
 
 ```text
 inspect module
@@ -750,8 +760,24 @@ inspect module
   -> configure project/prebuilt artifact inputs
   -> gh auth/repository checks
   -> list/write missing secrets via stdin
-  -> dry run or gh workflow run
+  -> report caller workflow handoff without dispatch
 ```
+
+### 发布执行流程（`$enter-publish-release`）
+
+```text
+consume existing handoff
+  -> validate module / component / destination / effective version
+  -> validate configured provider and credential availability
+  -> validate prebuilt manifest when selected
+  -> local: execute one exact Gradle publication task
+  -> github_actions: dispatch configured caller workflow and monitor run
+  -> report coordinate/provider results, including partial RemoteAll success
+```
+
+发布执行不得修改 `PublishInfo`、`PublishRepositories`、本机凭据文件、
+manifest、workflow、源码或版本文件。用户临时指定版本时，只能通过
+`-PpublishVersion` 传入。远程失败不得自动重试。
 
 ### 离线脚本
 
@@ -849,8 +875,10 @@ ArtifactBundleResolver
 | `.github/workflows/publish.yml` | 增加 component allowlist、project/prebuilt 模式、bundle path 和可选 Actions artifact 下载。 |
 | 业务示例 workflow | 增加 `component_type` 并更新 task 语义。 |
 | `scripts/configure-publish-offline.sh` | 改为直接配置 local 或 GitHub Actions。 |
-| `skills/publishplugin-one-click-publish/SKILL.md` | 改为 execution × target × artifact source 三维流程。 |
-| skill reference | 删除 `local.properties` 混合模板与配置 Gradle tasks。 |
+| `skills/publishplugin-one-click-publish/**` | 只保留配置、校验、模板/workflow/manifest 与配置回退；发布任务名只作为交接信息。 |
+| `skills/enter-publish-release/**` | 新增专用发布 Skill，执行本机精确任务或触发 GitHub Actions caller workflow。 |
+| `scripts/install-codex-skill.sh` | 同时安装/检查两个仓库 Skill，并将旧 `publishplugin-local-release` runtime Skill 移出活动目录。 |
+| skill reference | 删除 `local.properties` 混合模板与配置 Gradle tasks，按配置/发布职责拆分执行说明。 |
 | `README.md` | 更新任务、配置位置、迁移和示例。 |
 
 ### 删除
@@ -917,8 +945,10 @@ ArtifactBundleResolver
 3. 增加 `artifact_source`、`artifact_bundle_path` 和可选 Actions artifact 下载。
 4. 验证 prebuilt workflow 不运行打包任务。
 5. 重写离线脚本，不再调用配置类 Gradle task。
-6. 更新仓库内一键发布 skill 及 reference。
-7. 执行 `./scripts/install-codex-skill.sh` 安装/验证仓库 source-of-truth symlink。
+6. 将仓库内 `$enter-one-click-publish-config` 收紧为只配置，并更新 reference。
+7. 新增 `$enter-publish-release` 及本机、GitHub Actions、prebuilt 执行 reference。
+8. 更新安装脚本，用新发布 Skill 替代旧 `publishplugin-local-release` runtime Skill。
+9. 执行 `./scripts/install-codex-skill.sh` 安装/验证两个仓库 source-of-truth symlink。
 
 ### Phase 7：文档与迁移
 
@@ -1057,7 +1087,7 @@ skill 变更后：
 3. **nested Gradle 凭据传递**：如果继续使用子进程，必须确保敏感值不进入参数和日志。
 4. **All 部分成功**：无法跨远程仓库回滚，必须输出可操作的结果摘要。
 5. **旧 customRepository 使用方**：在编码前应通过代码搜索或发布日志确认是否仍有真实调用；若有，按 provider 模型补需求。
-6. **旧 skill 约束冲突**：当前 skill 把 `local.properties` 作为固定边界。实现本方案时必须同步更新仓库 skill、reference、README 和旧技术文档，不能只改插件代码。
+6. **Skill 边界回退**：如果配置 Skill 继续承担发布，配置请求可能意外上传；如果发布 Skill 自动修复配置，则发布操作会产生隐式代码变更。实现和文档必须同时维持两个 Skill 的单向交接边界。
 7. **预制文件可信度**：已有 AAR/JAR 可能被替换或与 POM 坐标不一致。manifest、SHA-256、路径和坐标必须在网络请求前验证。
 8. **CI job 文件隔离**：上游 job 生成的目录不会自动出现在发布 job。workflow 必须显式下载 Actions artifact，不能把路径存在性当成跨 job 保证。
 9. **伴生文件差异**：GitHub Packages 可接受的 bundle 可能不满足 Central。requirements validator 必须按目标校验，不能由 publisher 临时构建缺失文件。
@@ -1069,7 +1099,7 @@ skill 变更后：
 3. GitHub Packages、Central、All 在 Library 与 Plugin 模块均有端到端覆盖。
 4. 根目录 `local.properties` 与 PublishPlugin 完全解耦。
 5. 本机和 GitHub Actions 配置、凭据来源与文档完全分离。
-6. README、离线脚本、reusable workflow、skill 和 skill reference 与新契约一致。
+6. README、离线脚本、reusable workflow、两个 Skill 和各自 reference 与新契约一致，旧发布 Skill 不再处于 runtime 活动目录。
 7. 全量测试通过，试点仓库本机与 CI 发布成功。
 8. project 和 prebuilt 两种产物来源都先形成相同的 `PreparedArtifactBundle`，所有 publisher 只消费该契约。
 9. GitHub Actions 能从当前项目指定目录直接发布 AAR/JAR 及伴生文件，且没有执行工程打包任务。

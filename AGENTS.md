@@ -1,19 +1,23 @@
 # Repository Instructions
 
-## PublishPlugin Codex Skill
+## PublishPlugin Codex Skills
 
-The repository copy is the source of truth for the local Codex skill:
+The repository copies are the source of truth for the local Codex skills:
 
 - `skills/publishplugin-one-click-publish/`
+- `skills/enter-publish-release/`
 
-The local runtime skill should be a symlink from:
+The local runtime skills should be symlinks from:
 
 - `${CODEX_HOME:-$HOME/.codex}/skills/publishplugin-one-click-publish`
+- `${CODEX_HOME:-$HOME/.codex}/skills/enter-publish-release`
 
-to the repository directory above.
+to the corresponding repository directories above. The legacy runtime skill
+`${CODEX_HOME:-$HOME/.codex}/skills/publishplugin-local-release` must remain
+inactive after migration.
 
-When editing `skills/publishplugin-one-click-publish/**`, do not edit the local
-Codex copy directly. Run this after changes to install or verify the symlink:
+When editing either repository skill, do not edit the local Codex copy directly.
+Run this after changes to install or verify both symlinks:
 
 ```bash
 ./scripts/install-codex-skill.sh

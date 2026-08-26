@@ -25,8 +25,8 @@ handoff task; they do not cause that task to run.
 | Library | `PublishLibraryLocalTask` | `PublishLibraryRemoteGithubPackagesTask` | `PublishLibraryRemoteCentralTask` | `PublishLibraryRemoteAllTask` |
 | Plugin | `PublishPluginLocalTask` | `PublishPluginRemoteGithubPackagesTask` | `PublishPluginRemoteCentralTask` | `PublishPluginRemoteAllTask` |
 
-At completion, report the applicable task name as a command the user may run
-later. Do not execute it, even for Maven Local.
+At completion, report the applicable task name as handoff information for
+`$enter-publish-release`. Do not execute it, even for Maven Local.
 
 ## Module configuration
 

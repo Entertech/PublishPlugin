@@ -1,0 +1,4 @@
+interface:
+  display_name: "Enter Publish Release"
+  short_description: "Execute configured local or remote publishing"
+  default_prompt: "Use $enter-publish-release to execute the already-configured publication for this module and report the result."

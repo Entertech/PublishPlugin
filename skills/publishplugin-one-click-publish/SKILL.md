@@ -18,10 +18,9 @@ Never perform the release itself while using this skill:
 - Do not upload AAR/JAR files or call repository publishing APIs.
 - Do not run or dispatch a GitHub Actions workflow, including `gh workflow run`.
 
-The user asking to “configure publishing” does not authorize publication. If
-they also ask to publish, finish the configuration, provide the exact handoff
-command or workflow name, and state that actual publication requires a separate
-explicitly authorized release operation.
+The user asking to “configure publishing” does not authorize publication. This
+skill stops after configuration and hands execution to
+`$enter-publish-release`, which requires an explicit publish request.
 
 ## Configuration work in scope
 
@@ -38,7 +37,7 @@ explicitly authorized release operation.
 7. Run non-publishing checks, such as inspecting `tasks --all`, parsing YAML,
    checking ignored/untracked files, or running configuration-focused tests.
 8. Report the files changed, missing user-supplied values, and the exact task or
-   workflow the user may run later.
+   workflow that `$enter-publish-release` may execute later.
 
 Read [references/one-click-publish-workflow.md](references/one-click-publish-workflow.md)
 when configuring task selection, local credentials, GitHub Actions, or prebuilt
