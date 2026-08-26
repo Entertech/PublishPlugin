@@ -1,57 +1,129 @@
-# One-Click Publish Workflow Reference
+# One-Click Publish Configuration Reference
 
-## Task contract
+This reference describes configuration outputs and handoff information. It does
+not authorize or instruct the skill to execute a publication.
 
-Each module exposes only four PublishPlugin tasks. Choose the component name
-from the applied Gradle plugins and choose the target explicitly:
+## Configuration intent
+
+Resolve these values before editing the project:
+
+| Field | Values |
+| --- | --- |
+| Module | Gradle path such as `:library` |
+| Component | `library` or `plugin` |
+| Execution environment | `local` or `github_actions` |
+| Destination | `local`, `github_packages`, `central`, or `all` |
+| Artifact source | `project` or `prebuilt` |
+
+`github_actions + local` is invalid. These values select configuration and the
+handoff task; they do not cause that task to run.
+
+## Task handoff mapping
 
 | Component | Local | GitHub Packages | Central | All |
 | --- | --- | --- | --- | --- |
 | Library | `PublishLibraryLocalTask` | `PublishLibraryRemoteGithubPackagesTask` | `PublishLibraryRemoteCentralTask` | `PublishLibraryRemoteAllTask` |
 | Plugin | `PublishPluginLocalTask` | `PublishPluginRemoteGithubPackagesTask` | `PublishPluginRemoteCentralTask` | `PublishPluginRemoteAllTask` |
 
-There is no generic remote task and no Gradle configuration/rollback task.
+At completion, report the applicable task name as a command the user may run
+later. Do not execute it, even for Maven Local.
 
-## Configuration placement
+## Module configuration
 
-Coordinates, component metadata, POM metadata, and variant rules stay in the
-module `PublishInfo` DSL. Non-sensitive provider selection stays in the tracked
-`PublishRepositories` DSL. Local credentials use ignored
-`.publish/local.properties` with `publish.local.*` keys. Gradle properties and
-environment variables override those local values. Root `local.properties` is
-not a publishing configuration file.
+Keep coordinates and component metadata in `PublishInfo`:
 
-GitHub Actions receives non-sensitive values as reusable-workflow inputs and
-credentials as repository Secrets. It does not read `.publish/local.properties`
-or root `local.properties`.
-
-## Artifact source
-
-`artifact_source=project` uses the current project's standard publication
-preparation. `artifact_source=prebuilt` requires a project-relative directory
-and `publish-artifacts.json` manifest. The manifest declares every publication,
-coordinate, packaging, role, relative path, size, and SHA-256. Roles are
-`main`, `pom`, `gradle_module`, `sources`, `javadoc`, `signature`, `checksum`,
-and `plugin_marker`.
-
-The validator checks all files before any upload. Central release requires main,
-POM, sources, javadoc, and all declared signature files. A prebuilt task never
-adds compile, assemble, bundle, jar, or other packaging tasks to the execution
-graph and never uploads files not declared by the manifest.
-
-## Reusable workflow inputs
-
-```yaml
-with:
-  module: ":library"
-  component_type: "library"
-  publish_target: "central"
-  artifact_source: "prebuilt"
-  artifact_bundle_path: "release-artifacts/library"
-  artifact_bundle_artifact: ""
+```kotlin
+PublishInfo {
+    groupId = "cn.entertech.android"
+    artifactId = "demo-lib"
+    version = "2.0.0"
+}
 ```
 
-`artifact_bundle_artifact` optionally downloads an Actions artifact into the
-bundle path before validation. The workflow uses a fixed component/target
-allowlist and invokes one exact task. GitHub Actions never supports Maven Local
-as a release destination.
+Gradle Plugin modules additionally require `pluginId` and
+`implementationClass`. Preserve existing POM and variant configuration.
+
+Keep non-sensitive provider selection in tracked DSL:
+
+```kotlin
+PublishRepositories {
+    githubPackages {
+        enabled = true
+        repository = "Entertech/demo-lib"
+    }
+    central {
+        enabled = true
+        namespace = "cn.entertech"
+        publishingType = "user_managed"
+    }
+}
+```
+
+A dedicated remote task requires its provider to be enabled. `all` requires at
+least one enabled provider.
+
+## Local execution configuration
+
+Use ignored `.publish/local.properties` only:
+
+```properties
+publish.local.githubPackages.username=
+publish.local.githubPackages.token=
+publish.local.central.username=
+publish.local.central.password=
+publish.local.central.signingKeyFile=
+publish.local.central.signingKeyId=
+publish.local.central.signingPassword=
+```
+
+Ensure `/.publish/local.properties` is ignored and untracked. Never read or
+write publishing fields in root Android `local.properties`. Do not populate
+secret values unless the user explicitly supplies them and asks for that local
+configuration write; never print their values.
+
+## GitHub Actions configuration
+
+Generate a tracked caller workflow using:
+
+```yaml
+jobs:
+  publish:
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
+    secrets: inherit
+    with:
+      module: ":library"
+      component_type: "library"
+      publish_target: "central"
+      artifact_source: "project"
+      publish_mode: "release"
+      version: "2.0.0"
+```
+
+Identify the repository Secrets required by the selected provider. Secret
+creation is a separate configuration mutation and requires explicit user
+authorization. Generating the workflow does not authorize dispatching it.
+
+## Prebuilt artifact configuration
+
+For `artifact_source=prebuilt`, configure a project-relative
+`artifact_bundle_path` and optional `artifact_bundle_artifact`. The directory
+must contain `publish-artifacts.json`, which declares publication coordinates,
+packaging, file roles, relative paths, sizes, and SHA-256 values.
+
+Allowed roles are `main`, `pom`, `gradle_module`, `sources`, `javadoc`,
+`signature`, `checksum`, and `plugin_marker`. Validate schema, paths, files,
+sizes, checksums, and target requirements without uploading anything. Do not
+infer coordinates from filenames.
+
+## Safe validation
+
+Allowed checks include:
+
+- inspecting `:module:tasks --all` to verify the four task names;
+- parsing generated YAML;
+- verifying `.publish/local.properties` is ignored and untracked;
+- validating a prebuilt manifest and its local files without network access;
+- running configuration-focused unit or functional tests.
+
+Do not use a publish-task dry run as a substitute for this boundary. The skill
+must not invoke a publish task at all.

@@ -1,110 +1,75 @@
 ---
 name: enter-one-click-publish-config
-description: Use when the user explicitly mentions Enter's one-click publishing configuration or the Enter Publish / Flowtime Publish plugin and asks to configure publishing information or workflow settings.
+description: Configure an Android project to use Enter/Flowtime PublishPlugin for local or GitHub Actions publishing. Edit publishing metadata, repository settings, local credential templates, and workflows, but do not build, publish, upload artifacts, or trigger workflows.
 ---
 
 # Enter One-Click Publish Configuration
 
-Use this skill only for PublishPlugin one-click publishing configuration. The
-current contract separates component metadata, repository DSL, local runtime
-credentials, and GitHub Actions inputs/secrets.
+Configure a project so that a developer or a separate release workflow can
+publish it later. This skill prepares and validates configuration only.
 
-## Public tasks
+## Hard boundary
 
-After applying `cn.entertech.publish`, exactly four PublishPlugin tasks are
-registered per module:
+Never perform the release itself while using this skill:
 
-- Library: `PublishLibraryLocalTask`, `PublishLibraryRemoteAllTask`, `PublishLibraryRemoteGithubPackagesTask`, `PublishLibraryRemoteCentralTask`.
-- Gradle Plugin: the same four names with `Library` replaced by `Plugin`.
+- Do not execute any `PublishLibrary*Task` or `PublishPlugin*Task`.
+- Do not execute `publishToMavenLocal` or any Gradle `publish*Publication*` task.
+- Do not build artifacts for the purpose of publishing them.
+- Do not upload AAR/JAR files or call repository publishing APIs.
+- Do not run or dispatch a GitHub Actions workflow, including `gh workflow run`.
 
-The old `generatePublishConfig`, `configurePublish`, rollback tasks, aliases,
-and generic `PublishLibraryRemoteTask` are removed. Do not recreate them.
+The user asking to “configure publishing” does not authorize publication. If
+they also ask to publish, finish the configuration, provide the exact handoff
+command or workflow name, and state that actual publication requires a separate
+explicitly authorized release operation.
 
-`LocalTask` publishes to Maven Local. Explicit remote tasks publish only to
-their named provider. `RemoteAllTask` uses providers enabled in the
-`PublishRepositories` DSL and fails if none are enabled. Execution environment
-(local computer or GitHub Actions) does not change task names.
+## Configuration work in scope
 
-## Configuration boundaries
+1. Detect whether the target module is an Android Library or Gradle Plugin.
+2. Apply or verify `cn.entertech.publish` and configure module `PublishInfo`.
+3. Configure non-sensitive provider settings in `PublishRepositories`.
+4. Create or update an ignored `.publish/local.properties` template for local
+   execution. Never put publishing fields in root Android `local.properties`.
+5. Generate or update a GitHub Actions caller workflow and identify required
+   repository Secrets. Write Secrets only when the user explicitly requests
+   that configuration write; never trigger the workflow afterward.
+6. Configure `project` or `prebuilt` artifact-source inputs. For `prebuilt`,
+   create or validate `publish-artifacts.json` without uploading its files.
+7. Run non-publishing checks, such as inspecting `tasks --all`, parsing YAML,
+   checking ignored/untracked files, or running configuration-focused tests.
+8. Report the files changed, missing user-supplied values, and the exact task or
+   workflow the user may run later.
 
-Keep coordinates and component metadata in module `PublishInfo`:
+Read [references/one-click-publish-workflow.md](references/one-click-publish-workflow.md)
+when configuring task selection, local credentials, GitHub Actions, or prebuilt
+artifact manifests.
 
-```kotlin
-PublishInfo {
-    groupId = "cn.entertech.android"
-    artifactId = "demo-lib"
-    version = "2.0.0"
-}
-```
+## Public task contract
 
-Keep non-sensitive repository selection in tracked Gradle DSL:
+Configuration must target exactly four PublishPlugin tasks per module:
 
-```kotlin
-PublishRepositories {
-    githubPackages {
-        enabled = true
-        repository = "Entertech/demo-lib"
-    }
-    central {
-        enabled = true
-        namespace = "cn.entertech"
-        publishingType = "user_managed"
-    }
-}
-```
+- Library: `PublishLibraryLocalTask`, `PublishLibraryRemoteAllTask`,
+  `PublishLibraryRemoteGithubPackagesTask`, `PublishLibraryRemoteCentralTask`.
+- Gradle Plugin: the same names with `Library` replaced by `Plugin`.
 
-Local-only credentials belong in ignored `.publish/local.properties`:
+The old configuration tasks, rollback aliases, and generic
+`PublishLibraryRemoteTask` must not be restored. These task names are handoff
+information only; this skill must not execute them.
 
-```properties
-publish.local.githubPackages.username=
-publish.local.githubPackages.token=
-publish.local.central.username=
-publish.local.central.password=
-publish.local.central.signingKeyFile=
-publish.local.central.signingKeyId=
-publish.local.central.signingPassword=
-```
+## Configuration placement
 
-Runtime resolution is Gradle property, then environment variable, then the
-`.publish/local.properties` value. The root Android `local.properties` is never
-used for publishing credentials or workflow settings. GitHub Actions uses
-workflow inputs and repository Secrets and must not read either local file.
+- Component identity, POM metadata, and variant rules: module `PublishInfo`.
+- Non-sensitive repository selection: tracked `PublishRepositories` DSL.
+- Local-only credentials: ignored `.publish/local.properties`.
+- GitHub Actions settings: tracked workflow inputs.
+- CI credentials: GitHub repository Secrets.
 
-## Artifact source
+Resolution order is Gradle property, environment variable, then
+`.publish/local.properties`. GitHub Actions must not read local configuration
+files.
 
-Publishing and packaging are separate. `artifactSource=project` may invoke the
-standard project publication tasks. `artifactSource=prebuilt` requires a
-project-relative `artifactBundlePath` containing `publish-artifacts.json` and
-the declared AAR/JAR, POM, module metadata, sources, javadoc, signatures, and
-checksums. The manifest supplies coordinates and file roles; never infer them
-from filenames. Prebuilt mode must not execute compile, assemble, bundle, jar,
-or other project packaging tasks.
-
-Local examples:
-
-```bash
-./gradlew :library:PublishLibraryLocalTask
-./gradlew :library:PublishLibraryRemoteCentralTask \
-  -PartifactSource=prebuilt \
-  -PartifactBundlePath=release-artifacts/library
-```
-
-GitHub Actions uses reusable workflow inputs `component_type`, `publish_target`,
-`artifact_source`, `artifact_bundle_path`, and optional
-`artifact_bundle_artifact`; it maps the allowlisted combination to one exact
-task name. Central release requires sources, javadoc, and complete signature
-files. `all` validates the bundle once and publishes the immutable bundle to
-each enabled provider.
-
-## Workflow and safety
-
-Generated workflows pass `component_type` and use
-`Entertech/PublishPlugin/.github/workflows/publish.yml@main`. Secrets are
-provided only at the publish step. Validate module paths, target combinations,
-and prebuilt paths before invoking Gradle.
-
-Use `scripts/configure-publish-offline.sh` to select or run an exact task; it
-does not accept secret values as arguments. When editing this skill, run:
+After changing this repository skill, install and validate its source-of-truth
+symlink:
 
 ```bash
 ./scripts/install-codex-skill.sh
