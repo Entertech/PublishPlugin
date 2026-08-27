@@ -15,7 +15,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class OneClickPublishTaskFunctionalTest {
-    private static final String TEST_GRADLE_VERSION = "8.7";
+    private static final String TEST_GRADLE_VERSION = System.getProperty("testGradleVersion", "8.7");
 
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();

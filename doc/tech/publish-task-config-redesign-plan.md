@@ -1106,3 +1106,8 @@ skill 变更后：
 7. 全量测试通过，试点仓库本机与 CI 发布成功。
 8. project 和 prebuilt 两种产物来源都先形成相同的 `PreparedArtifactBundle`，所有 publisher 只消费该契约。
 9. GitHub Actions 能从当前项目指定目录直接发布 AAR/JAR 及伴生文件，且没有执行工程打包任务。
+# 实施记录与历史方案
+
+本文包含 PR #18 前后的设计讨论。旧的配置 task 和通用远程 task 示例仅用于理解
+迁移原因，不代表当前公开 API；请使用 `skills/enter-publish-config/`、
+`skills/enter-publish-run/` 以及 `doc/plan.md` 的当前契约。

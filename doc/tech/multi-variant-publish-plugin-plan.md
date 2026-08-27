@@ -525,3 +525,8 @@ android {
 3. 不推荐把 `project` / `authentication` 命名规则写死进插件，其他业务项目可能有完全不同的 flavor 维度。
 4. 不推荐只用 POM 生成任务做验收，必须跑真实 `publishToMavenLocal`。
 5. 不推荐只在 publication 创建阶段过滤，而不在 `singleVariant` 注册前过滤；这样会让 AGP 暴露无用 component 和任务。
+# 历史设计说明
+
+本文保留早期 variant 设计中的背景和迁移信息。文中的通用
+`PublishLibraryRemoteTask` 不再是可执行入口；当前任务按组件和目标显式命名，
+请参阅 `README.md` 的公开任务 API。

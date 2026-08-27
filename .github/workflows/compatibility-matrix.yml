@@ -1,0 +1,37 @@
+name: PublishPlugin Compatibility Matrix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: JDK ${{ matrix.java }} / Gradle ${{ matrix.gradle }} / AGP ${{ matrix.agp }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["17", "21"]
+        gradle: ["8.7", "8.10"]
+        agp: ["8.1.3", "8.5.2"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: ${{ matrix.java }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run TestKit compatibility checks
+        run: |
+          ./gradlew :plugin_base:test \
+            -DtestGradleVersion="${{ matrix.gradle }}" \
+            -DtestAgpVersion="${{ matrix.agp }}" \
+            --stacktrace

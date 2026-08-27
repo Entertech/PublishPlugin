@@ -27,6 +27,13 @@ internal open class ConfigurePublishTask : DefaultTask() {
         if (GitSafetyChecker.isTracked(project.rootDir, configFile)) {
             throw GradleException("${configFile.name} is tracked by git. Run: git rm --cached ${configFile.name}")
         }
+        val trackedSecretHits = GitSafetyChecker.findTrackedSensitiveKeys(project.rootDir)
+        if (trackedSecretHits.isNotEmpty()) {
+            throw GradleException(
+                "Tracked files contain publishing secret fields; rotate affected secrets before continuing:\n" +
+                    trackedSecretHits.joinToString("\n") { "- $it" }
+            )
+        }
         if (config.dryRunEnabled) {
             PluginLogUtil.printlnInfoInScreen("Dry run: would ensure ${configFile.name} is ignored by git.")
         } else {
@@ -152,6 +159,7 @@ internal open class ConfigurePublishTask : DefaultTask() {
         if (repo.isBlank()) {
             throw GradleException("publish.githubRepo is required when it cannot be inferred")
         }
+        PluginLogUtil.printlnInfoInScreen("GitHub CLI authenticated; target repository: $repo")
         val existingSecrets = gh.listSecretNames(repo)
         val overwrite = config.overwriteGithubSecretsEnabled
         setSecretIfNeeded(gh, repo, config.effectiveMavenCentralUsernameSecret, config.mavenCentralUsername, existingSecrets, overwrite)

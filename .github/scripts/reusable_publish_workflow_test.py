@@ -31,6 +31,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn('default: "github_packages"', text)
         self.assertIn("publish_mode:", text)
         self.assertIn("sync_readme:", text)
+        self.assertIn("check_only:", text)
         self.assertIn("contents: write", text)
         self.assertIn("central|github_packages|all", validation)
         self.assertIn("publish_target must be central, github_packages, or all", validation)
@@ -60,6 +61,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("-PgithubPackagesUrl=${GITHUB_PACKAGES_URL}", publish)
         self.assertIn("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}", publish)
         self.assertIn("artifactSource=prebuilt", publish)
+        self.assertIn('"${{ inputs.check_only }}" == "true"', publish)
 
     def test_release_publish_can_sync_readme(self):
         text = workflow_text()
@@ -111,6 +113,8 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("secrets.GPG_KEY_CONTENTS || ''", publish)
         self.assertIn("secrets.SIGNING_PASSWORD || ''", publish)
         self.assertIn("permissions:\n      contents: write", text)
+        self.assertIn("Upload publish manifest", text)
+        self.assertIn('if-no-files-found: ignore', text)
 
 
 if __name__ == "__main__":

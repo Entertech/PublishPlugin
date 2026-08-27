@@ -71,6 +71,11 @@ on:
         required: false
         default: ""
         type: string
+      check_only:
+        description: "Validate publication configuration without uploading artifacts"
+        required: false
+        default: false
+        type: boolean
     secrets:
       MAVEN_CENTRAL_USERNAME:
         required: false
@@ -257,21 +262,25 @@ jobs:
       - name: Publish prepared or project artifacts
         shell: bash
         env:
-          GITHUB_ACTOR: ${{ (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && github.actor || '' }}
-          GITHUB_TOKEN: ${{ (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && (secrets.GITHUB_PACKAGES_TOKEN || github.token) || '' }}
-          GITHUB_PACKAGES_TOKEN: ${{ (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && (secrets.GITHUB_PACKAGES_TOKEN || github.token) || '' }}
-          CENTRAL_USERNAME: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_USERNAME || '' }}
-          CENTRAL_PASSWORD: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
-          MAVEN_CENTRAL_USERNAME: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_USERNAME || '' }}
-          MAVEN_CENTRAL_PASSWORD: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
-          GPG_KEY_CONTENTS: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
-          SIGNING_KEY_ID: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
-          SIGNING_PASSWORD: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
+          GITHUB_ACTOR: ${{ !inputs.check_only && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && github.actor || '' }}
+          GITHUB_TOKEN: ${{ !inputs.check_only && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && (secrets.GITHUB_PACKAGES_TOKEN || github.token) || '' }}
+          GITHUB_PACKAGES_TOKEN: ${{ !inputs.check_only && (inputs.publish_target == 'github_packages' || inputs.publish_target == 'all') && (secrets.GITHUB_PACKAGES_TOKEN || github.token) || '' }}
+          CENTRAL_USERNAME: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_USERNAME || '' }}
+          CENTRAL_PASSWORD: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
+          MAVEN_CENTRAL_USERNAME: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_USERNAME || '' }}
+          MAVEN_CENTRAL_PASSWORD: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
+          GPG_KEY_CONTENTS: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
+          SIGNING_KEY_ID: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
+          SIGNING_PASSWORD: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
         run: |
           set -euo pipefail
+          if [[ "${{ inputs.check_only }}" == "true" ]]; then
+            ./gradlew "${MODULE_PATH}:checkPublish" "-PcheckPublishTarget=${PUBLISH_TARGET}" "-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}" --no-daemon --stacktrace
+            exit 0
+          fi
           if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
             required_central_env=(CENTRAL_USERNAME CENTRAL_PASSWORD GPG_KEY_CONTENTS SIGNING_PASSWORD)
             for name in "${required_central_env[@]}"; do
@@ -293,6 +302,14 @@ jobs:
             args+=("-PartifactSource=prebuilt" "-PartifactBundlePath=${ARTIFACT_BUNDLE_PATH}")
           fi
           ./gradlew "${args[@]}"
+
+      - name: Upload publish manifest
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-manifest
+          path: "**/build/reports/publish/publish-manifest.*"
+          if-no-files-found: ignore
 
   sync_readme:
     needs: publish

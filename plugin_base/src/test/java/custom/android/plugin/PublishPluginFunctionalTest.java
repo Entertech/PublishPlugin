@@ -22,7 +22,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class PublishPluginFunctionalTest {
-    private static final String TEST_GRADLE_VERSION = "8.7";
+    private static final String TEST_GRADLE_VERSION = System.getProperty("testGradleVersion", "8.7");
+    private static final String TEST_AGP_VERSION = System.getProperty("testAgpVersion", "8.1.3");
 
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -204,6 +205,48 @@ public class PublishPluginFunctionalTest {
                 .build();
 
         assertPomContainsVersion(projectDir.toPath(), "EnterPublish", "1.2.4");
+    }
+
+    @Test
+    public void checkPublishWritesDryRunManifestWithoutUploading() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(":fixture:checkPublish", "--stacktrace")
+                .build()
+                .getOutput();
+
+        Path manifest = projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json");
+        Path markdown = projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.md");
+        assertTrue(Files.exists(manifest));
+        assertTrue(Files.exists(markdown));
+        String content = read(manifest);
+        assertTrue(content.contains("\"modulePath\": \":fixture\""));
+        assertTrue(content.contains("\"dryRun\": true"));
+        assertTrue(content.contains("\"groupId\": \"com.example\""));
+        assertTrue(content.contains("\"artifactId\": \"fixture\""));
+        assertTrue(content.contains("\"version\": \"1.0.0\""));
+        assertFalse(content.contains("token"));
+        assertFalse(content.contains("password"));
+        assertTrue(output.contains("no artifacts were uploaded"));
+    }
+
+    @Test
+    public void checkPublishFailsWhenRequestedRemoteProviderIsNotConfigured() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:checkPublish",
+                        "-PpublishTarget=github_packages",
+                        "--stacktrace"
+                )
+                .buildAndFail()
+                .getOutput();
+
+        assertTrue(output.contains("GitHub Packages is not enabled"));
+        assertTrue(output.contains("发布配置校验失败"));
+        assertFalse(Files.exists(projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json")));
     }
 
     @Test
@@ -783,7 +826,7 @@ public class PublishPluginFunctionalTest {
                         + "    public String value() { return \"fixture\"; }\n"
                         + "}\n");
         write(fixtureDir.resolve("build.gradle"), "plugins {\n"
-                + "    id 'com.android.library' version '8.1.3'\n"
+                + "    id 'com.android.library' version '" + TEST_AGP_VERSION + "'\n"
                 + "    id 'cn.entertech.publish'\n"
                 + "}\n"
                 + "android {\n"

@@ -126,6 +126,12 @@ jobs:
           python3 .github/scripts/normalize_signing_key_id_test.py
           python3 .github/scripts/reusable_publish_workflow_test.py
           python3 .github/scripts/sync_readme_publish_version_test.py
+          python3 .github/scripts/verify_publishplugin_docs.py
+          if [ -d "${CODEX_HOME:-$HOME/.codex}/skills" ]; then
+            ./scripts/install-codex-skill.sh --check
+          else
+            echo "Codex runtime skills directory is unavailable; skipping local symlink check."
+          fi
 
       - name: Run required Gradle tasks
         run: |

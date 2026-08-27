@@ -39,6 +39,11 @@ skill stops after configuration and hands execution to
 8. Report the files changed, missing user-supplied values, and the exact task or
    workflow that `$enter-publish-run` may execute later.
 
+The offline helper supports `--check-only`, which runs `:module:checkPublish`
+without generating files, changing secrets, or publishing. The helper supports
+macOS and Linux with Bash, Java, and the Gradle wrapper; on Windows use Git Bash
+or WSL, or run the equivalent Gradle check manually.
+
 Read [references/publish-config-workflow.md](references/publish-config-workflow.md)
 when configuring task selection, local credentials, GitHub Actions, or prebuilt
 artifact manifests.

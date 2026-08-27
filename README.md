@@ -109,6 +109,16 @@ Library 和 Gradle Plugin 使用不同的任务名：
 工程模式下，本地发布版本会追加 `-local`，例如：
 `cn.example.android:example-library:2.0.0-local`。
 
+发布前可运行只读检查，不会上传制品：
+
+```bash
+./gradlew :library:checkPublish
+./gradlew :library:checkPublish -PcheckPublishTarget=central
+```
+
+检查成功后会在模块的 `build/reports/publish/publish-manifest.json` 和
+`build/reports/publish/publish-manifest.md` 生成不含凭据的发布摘要。
+
 ## 公开任务 API
 
 每个应用 `cn.entertech.publish` 的模块只注册以下四个 `customPlugin` 任务：
@@ -142,15 +152,15 @@ Gradle、Android Gradle Plugin、`maven-publish` 和 `signing` 自身生成的�
 ```kotlin
 PublishRepositories {
     githubPackages {
-        enabled = true
-        repository = "OWNER/example-library"
+        enabled.set(true)
+        repository.set("OWNER/example-library")
         // 也可以显式指定 repositoryUrl / repositoryName。
     }
 
     central {
-        enabled = true
-        namespace = "cn.example"
-        publishingType = "user_managed"
+        enabled.set(true)
+        namespace.set("cn.example")
+        publishingType.set("user_managed")
     }
 }
 ```
@@ -158,6 +168,17 @@ PublishRepositories {
 启用专用远程任务前，必须启用对应 provider；`RemoteAllTask` 至少需要一个已启用
 的远程 provider。Central 的 `groupId`（以及预制 manifest 中的 publication）
 必须位于配置的 namespace 下。
+
+Android Library 默认只发布 `release` build type。需要发布其他 build type 或按
+variant 过滤时，可在 `PublishInfo` 中配置：
+
+```kotlin
+PublishInfo {
+    publishBuildTypes("release", "staging")
+    publishVariantIf { variant -> variant.flavor("channel") != "internal" }
+    artifactIdPattern = "{artifactId}-{flavor.channel}-{buildType}"
+}
+```
 
 ### 本机凭据
 
@@ -347,6 +368,17 @@ jobs:
 workflow 会校验组件类型、目标、版本和产物路径，并只映射到上表中的明确任务。
 `publish_mode=ci` 仅支持 Central，并会为非 snapshot 版本自动追加 `-SNAPSHOT`；
 `publish_mode=release` 拒绝 `-SNAPSHOT` 版本。
+
+也可以在本机通过 `-PremotePublishMode=centralSnapshot` 使用 Central Snapshot；
+未显式指定目标且版本已经以 `-SNAPSHOT` 结尾时，会自动选择该模式。Snapshot
+发布不会调用 release deployment 的 manual upload endpoint。
+
+调用 reusable workflow 时设置 `check_only: true` 可只运行 `checkPublish`；发布和
+检查产生的 `publish-manifest` 都会作为 Actions artifact 上传（没有文件时忽略）。
+
+兼容性矩阵可通过手动 workflow
+`.github/workflows/compatibility-matrix.yml` 运行，覆盖 JDK 17/21、Gradle 8.7/8.10
+和 AGP 8.1.3/8.5.2。
 
 完整的分支、PR、预发布和 Central 发布流程见
 [分支与发布工作流](doc/workflow.md)。

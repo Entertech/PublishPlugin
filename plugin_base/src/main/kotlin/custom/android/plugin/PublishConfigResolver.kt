@@ -17,6 +17,7 @@ object PublishConfigResolver {
     const val CENTRAL_MANUAL_UPLOAD_BASE_URL =
         "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository"
     const val MODE_CENTRAL = "central"
+    const val MODE_CENTRAL_SNAPSHOT = "centralSnapshot"
     const val MODE_CUSTOM_REPOSITORY = "customRepository"
     const val MODE_GITHUB_PACKAGES = "githubPackages"
     const val WORKFLOW_TARGET_CENTRAL = "central"
@@ -74,19 +75,26 @@ object PublishConfigResolver {
     fun resolveRemotePublishMode(project: Project, @Suppress("UNUSED_PARAMETER") publishInfo: PublishInfo): String {
         val taskTarget = explicitTaskPublishTarget(project)
         if (taskTarget.isNotBlank()) return taskTarget
+        val explicitMode = firstNotBlank(
+            projectProperty(project, "remotePublishMode"),
+            environment("REMOTE_PUBLISH_MODE")
+        )
+        if (explicitMode.isNotBlank()) return normalizeLegacyRemotePublishMode(explicitMode)
+        val configuredTarget = firstNotBlank(
+            projectProperty(project, "publishTarget"),
+            environment("PUBLISH_TARGET")
+        )
+        if (configuredTarget.isNotBlank()) {
+            return remotePublishModeFromPublishTarget(configuredTarget).ifBlank {
+                normalizeLegacyRemotePublishMode(configuredTarget)
+            }
+        }
+        if (publishInfo.version.endsWith("-SNAPSHOT", ignoreCase = true) ||
+            environment("PUBLISH_VERSION").endsWith("-SNAPSHOT", ignoreCase = true)
+        ) {
+            return MODE_CENTRAL_SNAPSHOT
+        }
         return firstNotBlank(
-            remotePublishModeFromPublishTarget(
-                firstNotBlank(
-                    projectProperty(project, "publishTarget"),
-                    environment("PUBLISH_TARGET")
-                )
-            ),
-            normalizeLegacyRemotePublishMode(
-                firstNotBlank(
-                    projectProperty(project, "remotePublishMode"),
-                    environment("REMOTE_PUBLISH_MODE")
-                )
-            ),
             remotePublishModeFromPublishTarget(loadPublishProperties(project).publishTarget),
             MODE_GITHUB_PACKAGES
         ).ifBlank { MODE_GITHUB_PACKAGES }
@@ -177,6 +185,7 @@ object PublishConfigResolver {
         return when (normalizeWorkflowPublishTarget(publishTarget)) {
             WORKFLOW_TARGET_CENTRAL -> MODE_CENTRAL
             WORKFLOW_TARGET_GITHUB_PACKAGES -> MODE_GITHUB_PACKAGES
+            MODE_CENTRAL_SNAPSHOT -> MODE_CENTRAL_SNAPSHOT
             else -> ""
         }
     }
@@ -184,13 +193,14 @@ object PublishConfigResolver {
     private fun normalizeLegacyRemotePublishMode(mode: String): String {
         return when (mode.trim()) {
             WORKFLOW_TARGET_GITHUB_PACKAGES -> MODE_GITHUB_PACKAGES
+            MODE_CENTRAL_SNAPSHOT -> MODE_CENTRAL_SNAPSHOT
             else -> mode.trim()
         }
     }
 
     fun isCentralPublish(project: Project, publishInfo: PublishInfo): Boolean {
         val mode = resolveRemotePublishMode(project, publishInfo)
-        if (mode != MODE_CENTRAL) {
+        if (mode != MODE_CENTRAL && mode != MODE_CENTRAL_SNAPSHOT) {
             return false
         }
         if (projectProperty(project, "centralPublish").toBooleanLenient()) {
@@ -219,7 +229,7 @@ object PublishConfigResolver {
     }
 
     fun resolveCentralRepositoryName(project: Project, publishInfo: PublishInfo): String {
-        if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
+        if (resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
             return firstNotBlank(
                 projectProperty(project, "centralRepositoryName"),
                 environment("CENTRAL_REPOSITORY_NAME"),
@@ -239,19 +249,36 @@ object PublishConfigResolver {
         )
     }
 
-    fun resolveCentralRepositoryUrl(project: Project): String {
-        return if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
+    fun resolveCentralRepositoryUrl(project: Project, publishInfo: PublishInfo?): String {
+        return if (resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
             CENTRAL_SNAPSHOT_URL
         } else {
             CENTRAL_STAGING_URL
         }
     }
 
-    fun resolveCentralReleaseType(project: Project): String {
-        val value = firstNotBlank(
+    fun resolveCentralRepositoryUrl(project: Project): String = resolveCentralRepositoryUrl(project, null)
+
+    fun resolveCentralReleaseType(project: Project, publishInfo: PublishInfo? = null): String {
+        val explicitValue = firstNotBlank(
             projectProperty(project, "centralReleaseType"),
             environment("CENTRAL_RELEASE_TYPE")
-        ).ifBlank { CENTRAL_RELEASE_TYPE_RELEASE }
+        )
+        val value = explicitValue.ifBlank {
+            val requestedVersion = firstNotBlank(
+                projectProperty(project, "publishVersion"),
+                environment("PUBLISH_VERSION"),
+                projectProperty(project, "version"),
+                publishInfo?.version
+            )
+            if (requestedVersion.endsWith("-SNAPSHOT", ignoreCase = true) ||
+                resolveRemotePublishMode(project, PublishInfo()) == MODE_CENTRAL_SNAPSHOT
+            ) {
+                CENTRAL_RELEASE_TYPE_SNAPSHOT
+            } else {
+                CENTRAL_RELEASE_TYPE_RELEASE
+            }
+        }
         return when (value.trim().lowercase()) {
             CENTRAL_RELEASE_TYPE_RELEASE -> CENTRAL_RELEASE_TYPE_RELEASE
             CENTRAL_RELEASE_TYPE_SNAPSHOT -> CENTRAL_RELEASE_TYPE_SNAPSHOT
@@ -261,8 +288,30 @@ object PublishConfigResolver {
         }
     }
 
-    fun isCentralSnapshotPublish(project: Project): Boolean {
-        return resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT
+    fun resolveCentralUploadMode(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "centralUploadMode"),
+            environment("CENTRAL_UPLOAD_MODE"),
+            explicitPublishInfoValue(publishInfo, "centralUploadMode", publishInfo.centralUploadMode),
+            loadPublishProperties(project).centralUploadMode,
+            "stagingApi"
+        ).also {
+            if (it != "stagingApi" && it != "portalApi") {
+                throw IllegalArgumentException("centralUploadMode only supports stagingApi or portalApi, but was $it")
+            }
+        }
+    }
+
+    fun resolveCentralPortalApiBaseUrl(project: Project): String {
+        return firstNotBlank(
+            projectProperty(project, "centralPortalApiBaseUrl"),
+            environment("CENTRAL_PORTAL_API_BASE_URL"),
+            "https://central.sonatype.com/api/v1/publisher"
+        ).trimEnd('/')
+    }
+
+    fun isCentralSnapshotPublish(project: Project, publishInfo: PublishInfo? = null): Boolean {
+        return resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT
     }
 
     fun resolveCentralNamespace(project: Project, publishInfo: PublishInfo): String {

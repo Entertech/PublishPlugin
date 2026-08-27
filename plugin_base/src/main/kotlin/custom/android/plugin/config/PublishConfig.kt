@@ -8,6 +8,7 @@ data class PublishConfig(
     val githubPackagesUrl: String = "",
     val centralNamespace: String = "",
     val centralPublishingType: String = "",
+    val centralUploadMode: String = "",
     val centralRepositoryName: String = "",
     val pomInceptionYear: String = "",
     val licenseName: String = "",
@@ -67,6 +68,7 @@ data class PublishConfig(
             "centralNamespace" -> centralNamespace
             "centralPublishingType" -> centralPublishingType
             "centralRepositoryName" -> centralRepositoryName
+            "centralUploadMode" -> centralUploadMode
             "githubPackagesRepository" -> githubPackagesRepository
             "githubPackagesUrl" -> githubPackagesUrl
             "pomInceptionYear" -> pomInceptionYear

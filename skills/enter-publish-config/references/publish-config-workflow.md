@@ -48,19 +48,29 @@ Keep non-sensitive provider selection in tracked DSL:
 ```kotlin
 PublishRepositories {
     githubPackages {
-        enabled = true
-        repository = "Entertech/demo-lib"
+        enabled.set(true)
+        repository.set("Entertech/demo-lib")
     }
     central {
-        enabled = true
-        namespace = "cn.entertech"
-        publishingType = "user_managed"
+        enabled.set(true)
+        namespace.set("cn.entertech")
+        publishingType.set("user_managed")
     }
 }
 ```
 
 A dedicated remote task requires its provider to be enabled. `all` requires at
 least one enabled provider.
+
+For a local read-only preflight, run:
+
+```bash
+scripts/configure-publish-offline.sh :library \
+  --component-type library --publish-target central --check-only --run
+```
+
+The helper supports macOS and Linux with Bash/Java/Gradle; Windows users should
+use Git Bash or WSL, or run `:module:checkPublish` directly.
 
 ## Legacy-field migration
 

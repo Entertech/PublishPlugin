@@ -35,107 +35,18 @@ open class ExplicitPublishTask : DefaultTask() {
         val publishInfo = project.extensions.findByType(PublishInfo::class.java)
             ?: throw GradleException("PublishInfo is required for ${componentKind.taskNamePart} publishing")
         val version = PublishConfigResolver.resolveVersion(project, publishInfo)
-        validateTargetConfiguration(publishInfo, source, version)
+        val validation = PublishValidation.validateRemote(project, publishInfo, target, source)
+        validation.warnings.forEach { PluginLogUtil.printlnInfoInScreen("WARNING: $it") }
+        if (!validation.valid) {
+            validation.errors.forEach { PluginLogUtil.printlnErrorInScreen(it) }
+            throw GradleException("发布配置校验失败")
+        }
         if (source == ArtifactSource.PREBUILT) {
             publishPrebuilt(publishInfo, version)
         } else {
             publishProject(publishInfo)
         }
-    }
-
-    private fun validateTargetConfiguration(
-        publishInfo: PublishInfo,
-        source: ArtifactSource,
-        version: String
-    ) {
-        if (target == ExplicitPublishTarget.LOCAL) return
-        val repositories = project.extensions.findByType(PublishRepositories::class.java)
-            ?: throw GradleException("PublishRepositories configuration is required for remote publishing")
-        val enabled = repositories.enabledRemoteProviderIds()
-        when (target) {
-            ExplicitPublishTarget.GITHUB_PACKAGES -> if (PublishConfigResolver.MODE_GITHUB_PACKAGES !in enabled) {
-                throw GradleException("GitHub Packages is not enabled. Configure PublishRepositories.githubPackages { enabled = true }")
-            }
-            ExplicitPublishTarget.CENTRAL -> if (PublishConfigResolver.MODE_CENTRAL !in enabled) {
-                throw GradleException("Central is not enabled. Configure PublishRepositories.central { enabled = true }")
-            }
-            ExplicitPublishTarget.ALL -> if (enabled.isEmpty()) {
-                throw GradleException("RemoteAllTask requires at least one enabled remote repository provider")
-            }
-            ExplicitPublishTarget.LOCAL -> Unit
-        }
-
-        if (version.isBlank()) {
-            throw GradleException("PublishInfo.version or publishVersion is required for remote publishing")
-        }
-        if (version.contains("debug", ignoreCase = true)) {
-            throw GradleException("Remote publishing refuses debug version: $version")
-        }
-        if (source == ArtifactSource.PROJECT) {
-            if (publishInfo.groupId.isBlank()) throw GradleException("PublishInfo.groupId is required")
-            if (publishInfo.artifactId.isBlank()) throw GradleException("PublishInfo.artifactId is required")
-        }
-
-        when (target) {
-            ExplicitPublishTarget.GITHUB_PACKAGES -> validateGithubPackages(publishInfo)
-            ExplicitPublishTarget.CENTRAL -> validateCentral(publishInfo, source)
-            ExplicitPublishTarget.ALL -> {
-                if (repositories.isGithubPackagesEnabled()) validateGithubPackages(publishInfo)
-                if (repositories.isCentralEnabled()) validateCentral(publishInfo, source)
-            }
-            ExplicitPublishTarget.LOCAL -> Unit
-        }
-    }
-
-    private fun validateGithubPackages(publishInfo: PublishInfo) {
-        val config = PublishRuntimeConfig(project)
-        val url = PublishConfigResolver.resolveGitHubPackagesUrl(project, publishInfo, config.properties)
-        if (url.isBlank()) {
-            throw GradleException("GitHub Packages requires githubPackagesRepository or githubPackagesUrl")
-        }
-        val credentials = PublishConfigResolver.resolveGitHubPackagesCredentials(project, publishInfo, config.properties)
-        if (credentials.username.isBlank() || credentials.password.isBlank()) {
-            throw GradleException("GitHub Packages requires package credentials")
-        }
-    }
-
-    private fun validateCentral(publishInfo: PublishInfo, source: ArtifactSource) {
-        val namespace = PublishConfigResolver.resolveCentralNamespace(project, publishInfo)
-        if (namespace.isBlank()) throw GradleException("Central requires centralNamespace")
-        val publishingType = PublishConfigResolver.resolveCentralPublishingType(project, publishInfo)
-        if (publishingType != "user_managed" && publishingType != "automatic") {
-            throw GradleException("centralPublishingType only supports user_managed or automatic")
-        }
-        if (source == ArtifactSource.PROJECT) {
-            if (publishInfo.groupId != namespace && !publishInfo.groupId.startsWith("$namespace.")) {
-                throw GradleException("PublishInfo.groupId(${publishInfo.groupId}) must be under centralNamespace($namespace)")
-            }
-            val requiredPomFields = mapOf(
-                "pomDescription" to PublishConfigResolver.resolvePomDescription(project, publishInfo),
-                "pomUrl" to PublishConfigResolver.resolvePomUrl(project, publishInfo),
-                "developerId" to PublishConfigResolver.resolvePublishInfoText(project, "developerId", publishInfo, publishInfo.developerId),
-                "developerName" to PublishConfigResolver.resolvePublishInfoText(project, "developerName", publishInfo, publishInfo.developerName),
-                "developerEmail" to PublishConfigResolver.resolvePublishInfoText(project, "developerEmail", publishInfo, publishInfo.developerEmail),
-                "developerOrganization" to PublishConfigResolver.resolvePublishInfoText(project, "developerOrganization", publishInfo, publishInfo.developerOrganization),
-                "developerOrganizationUrl" to PublishConfigResolver.resolvePublishInfoText(project, "developerOrganizationUrl", publishInfo, publishInfo.developerOrganizationUrl),
-                "scmUrl" to PublishConfigResolver.resolveScmUrl(project, publishInfo),
-                "scmConnection" to PublishConfigResolver.resolveScmConnection(project, publishInfo),
-                "scmDeveloperConnection" to PublishConfigResolver.resolveScmDeveloperConnection(project, publishInfo)
-            )
-            val missing = requiredPomFields.filterValues { it.isBlank() }.keys
-            if (missing.isNotEmpty()) {
-                throw GradleException("Central publish missing POM fields: ${missing.joinToString()}")
-            }
-            val signing = PublishConfigResolver.resolveSigningCredentials(project)
-            if (signing.key.isBlank() || signing.password.isBlank()) {
-                throw GradleException("Central project publishing requires signing credentials")
-            }
-        }
-        val config = PublishRuntimeConfig(project)
-        val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, config.properties)
-        if (credentials.username.isBlank() || credentials.password.isBlank()) {
-            throw GradleException("Central publishing requires Central credentials")
-        }
+        PublishReport.write(project, validation, dryRun = false)
     }
 
     private fun publishPrebuilt(publishInfo: PublishInfo, version: String) {
@@ -202,14 +113,23 @@ open class ExplicitPublishTask : DefaultTask() {
         if (credentials.username.isBlank() || credentials.password.isBlank()) {
             throw GradleException("Central prebuilt publishing requires Central credentials")
         }
-        ArtifactBundlePublisher.publishToRemote(
-            project,
-            bundle,
-            PublishConfigResolver.resolveCentralRepositoryUrl(project),
-            credentials.username,
-            credentials.password
-        )
-        finalizeCentralPublication(publishInfo)
+        if (PublishConfigResolver.resolveCentralUploadMode(project, publishInfo) == "portalApi") {
+            val zip = CentralPortalBundle.create(bundle, File(project.buildDir, "reports/publish/central-bundle.zip"))
+            val deploymentId = CentralPortalClient.uploadBundle(project, zip, publishInfo)
+            CentralPortalClient.waitForDeployment(project, publishInfo, deploymentId)
+            if (PublishConfigResolver.resolveCentralPublishingType(project, publishInfo) == "automatic") {
+                CentralPortalClient.publishDeployment(project, publishInfo, deploymentId)
+            }
+        } else {
+            ArtifactBundlePublisher.publishToRemote(
+                project,
+                bundle,
+                PublishConfigResolver.resolveCentralRepositoryUrl(project, publishInfo),
+                credentials.username,
+                credentials.password
+            )
+            finalizeCentralPublication(publishInfo)
+        }
     }
 
     private fun publishProject(publishInfo: PublishInfo) {
@@ -254,7 +174,7 @@ open class ExplicitPublishTask : DefaultTask() {
     }
 
     private fun finalizeCentralPublication(publishInfo: PublishInfo) {
-        if (!PublishConfigResolver.isCentralSnapshotPublish(project)) {
+        if (!PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)) {
             CentralPortalClient.manualUpload(project, publishInfo)
         }
     }

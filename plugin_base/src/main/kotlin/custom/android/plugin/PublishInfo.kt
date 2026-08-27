@@ -120,6 +120,11 @@ open class PublishInfo {
     var centralRepositoryName: String = "CentralStaging"
         set(value) {
             markExplicit("centralRepositoryName")
+        field = value
+    }
+    var centralUploadMode: String = "stagingApi"
+        set(value) {
+            markExplicit("centralUploadMode")
             field = value
         }
 
@@ -211,7 +216,26 @@ open class PublishInfo {
     private var groupIdForVariantAction: ((PublishVariantInfo) -> String)? = null
     private var versionForVariantAction: ((PublishVariantInfo) -> String)? = null
     private val skipVariantActions = mutableListOf<(PublishVariantInfo) -> Boolean>()
+    private val publishVariantActions = mutableListOf<(PublishVariantInfo) -> Boolean>()
     private val explicitFields = mutableSetOf<String>()
+    private val publishBuildTypeNames = linkedSetOf<String>()
+
+    /** Build types to publish; release remains the default when this is not configured. */
+    var artifactIdPattern: String = ""
+
+    fun publishBuildTypes(vararg names: String) {
+        publishBuildTypeNames += names.map { it.trim() }.filter { it.isNotBlank() }
+    }
+
+    fun publishVariantIf(action: (PublishVariantInfo) -> Boolean) {
+        publishVariantActions += action
+    }
+
+    fun publishVariantIf(action: Closure<*>) {
+        publishVariantActions += { variant -> action.call(variant) == true }
+    }
+
+    internal fun publishBuildTypes(): Set<String> = publishBuildTypeNames.ifEmpty { setOf("release") }
 
     internal fun isExplicit(fieldName: String): Boolean {
         return fieldName in explicitFields
@@ -274,10 +298,16 @@ open class PublishInfo {
 
     internal fun resolveArtifactId(variant: PublishVariantInfo?): String {
         val action = artifactIdForVariantAction
-        if (variant == null || action == null) {
+        if (variant == null) {
             return artifactId
         }
-        return action(variant).ifBlank { artifactId }
+        if (action != null) return action(variant).ifBlank { artifactId }
+        if (artifactIdPattern.isBlank()) return artifactId
+        return artifactIdPattern
+            .replace("{artifactId}", artifactId)
+            .replace("{variant}", variant.name)
+            .replace("{buildType}", variant.buildType)
+            .replace(Regex("\\{flavor\\.([^}]+)\\}")) { match -> variant.flavor(match.groupValues[1]) }
     }
 
     internal fun resolveGroupId(variant: PublishVariantInfo?): String {
@@ -297,7 +327,8 @@ open class PublishInfo {
     }
 
     internal fun shouldPublishVariant(variant: PublishVariantInfo): Boolean {
-        return skipVariantActions.none { action -> action(variant) }
+        return publishVariantActions.all { action -> action(variant) } &&
+            skipVariantActions.none { action -> action(variant) }
     }
 }
 

@@ -859,3 +859,9 @@ https://central.sonatype.com/publishing/deployments
 - 默认 `user_managed`，先人工在 Portal 发布。
 
 这样能最小化对现有项目的影响，同时满足 Central Portal 的发布规则。
+# 历史设计说明
+
+本文记录 PR #18 之前的 Central Portal 设计。文中的
+`PublishLibraryRemoteTask` 仅代表历史入口，不再由插件注册；实际使用请改为
+`PublishLibraryRemoteCentralTask` 或 `PublishPluginRemoteCentralTask`，并以
+`README.md` 和 `doc/plan.md` 的当前任务契约为准。

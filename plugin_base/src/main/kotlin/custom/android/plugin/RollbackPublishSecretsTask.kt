@@ -20,20 +20,28 @@ internal open class RollbackPublishSecretsTask : DefaultTask() {
     @TaskAction
     fun rollback() {
         val configFile = PublishConfigResolver.publishConfigFile(project)
-        GitSafetyChecker.ensureIgnored(project.rootDir, configFile)
         val config = PublishConfigResolver.loadPublishProperties(project)
-        val gh = GitHubSecretClient(project.findProperty("ghExecutable")?.toString().orEmpty().ifBlank { "gh" })
-        val repo = config.githubRepo.ifBlank { inferGithubRepo(gh) }
-        if (repo.isBlank()) {
-            throw GradleException("publish.githubRepo is required when it cannot be inferred")
-        }
-        listOf(
+        val dryRun = project.findProperty("dryRun")?.toString()?.toBooleanLenientLocal() == true
+        val secretNames = listOf(
             config.effectiveMavenCentralUsernameSecret,
             config.effectiveMavenCentralPasswordSecret,
             config.effectiveGpgKeySecret,
             config.effectiveSigningPasswordSecret,
             config.effectiveSigningKeyIdSecret
-        ).forEach { secretName -> gh.deleteSecret(repo, secretName) }
+        )
+        val paths = workflowPathsToRemove(config.workflowPath)
+        if (dryRun) {
+            PluginLogUtil.printlnInfoInScreen("Dry run: would delete repository secrets: ${secretNames.joinToString()}")
+            PluginLogUtil.printlnInfoInScreen("Dry run: would inspect generated workflow paths: ${paths.joinToString()}")
+            return
+        }
+        GitSafetyChecker.ensureIgnored(project.rootDir, configFile)
+        val gh = GitHubSecretClient(project.findProperty("ghExecutable")?.toString().orEmpty().ifBlank { "gh" })
+        val repo = config.githubRepo.ifBlank { inferGithubRepo(gh) }
+        if (repo.isBlank()) {
+            throw GradleException("publish.githubRepo is required when it cannot be inferred")
+        }
+        secretNames.forEach { secretName -> gh.deleteSecret(repo, secretName) }
         if (project.findProperty("removeGeneratedWorkflow")?.toString()?.toBooleanLenientLocal() == true) {
             workflowPathsToRemove(config.workflowPath).forEach { removeGeneratedWorkflow(it) }
         }

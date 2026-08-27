@@ -42,6 +42,23 @@ public class PublishConfigResolverTest {
     }
 
     @Test
+    public void snapshotVersionAutomaticallyUsesCentralSnapshotMode() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        publishInfo.setVersion("1.0.0-SNAPSHOT");
+        project.getExtensions().getExtraProperties().set("publishVersion", "1.0.0-SNAPSHOT");
+
+        assertEquals(
+                PublishConfigResolver.MODE_CENTRAL_SNAPSHOT,
+                PublishConfigResolver.INSTANCE.resolveRemotePublishMode(project, publishInfo)
+        );
+        assertEquals(
+                PublishConfigResolver.CENTRAL_SNAPSHOT_URL,
+                PublishConfigResolver.INSTANCE.resolveCentralRepositoryUrl(project)
+        );
+    }
+
+    @Test
     public void centralPublishingTypeUsesRepositoryDslValue() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();

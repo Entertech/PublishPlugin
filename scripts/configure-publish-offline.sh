@@ -18,6 +18,7 @@ Options:
   --publish-target <target>       local, github_packages, central, or all.
   --artifact-source <source>      project or prebuilt (default: project).
   --artifact-bundle-path <path>   Project-relative path for prebuilt bundles.
+  --check-only                    Validate configuration without publishing or writing files.
   --run                           Execute the selected task (otherwise print it).
   -h, --help                      Show this help.
 
@@ -35,6 +36,7 @@ publish_target="local"
 artifact_source="project"
 artifact_bundle_path=""
 run_task="false"
+check_only="false"
 extra_gradle_args=()
 
 while [ "$#" -gt 0 ]; do
@@ -45,6 +47,7 @@ while [ "$#" -gt 0 ]; do
     --publish-target) [ "$#" -ge 2 ] || die "--publish-target requires a value"; publish_target="$2"; shift 2 ;;
     --artifact-source) [ "$#" -ge 2 ] || die "--artifact-source requires project or prebuilt"; artifact_source="$2"; shift 2 ;;
     --artifact-bundle-path) [ "$#" -ge 2 ] || die "--artifact-bundle-path requires a value"; artifact_bundle_path="$2"; shift 2 ;;
+    --check-only) check_only="true"; shift ;;
     --run) run_task="true"; shift ;;
     --) shift; extra_gradle_args=("$@"); break ;;
     -h|--help) usage; exit 0 ;;
@@ -70,26 +73,39 @@ if [[ "$execution" == github_actions ]]; then
   if [[ "$run_task" == true ]]; then
     die "execution=github_actions cannot run a local Gradle task; use the configured caller workflow"
   fi
-  printf 'GitHub Actions execution selected; configure or dispatch the caller workflow for %s.\n' "$module_path"
+  if [[ "$check_only" == true ]]; then
+    printf 'GitHub Actions check-only selected; dispatch the caller workflow with check_only=true for %s.\n' "$module_path"
+  else
+    printf 'GitHub Actions execution selected; configure or dispatch the caller workflow for %s.\n' "$module_path"
+  fi
   exit 0
 fi
 
 component_name="Library"
 [[ "$component_type" == plugin ]] && component_name="Plugin"
-case "$publish_target" in
-  local) task="Publish${component_name}LocalTask" ;;
-  github_packages) task="Publish${component_name}RemoteGithubPackagesTask" ;;
-  central) task="Publish${component_name}RemoteCentralTask" ;;
-  all) task="Publish${component_name}RemoteAllTask" ;;
-esac
+if [[ "$check_only" == true ]]; then
+  task="checkPublish"
+else
+  case "$publish_target" in
+    local) task="Publish${component_name}LocalTask" ;;
+    github_packages) task="Publish${component_name}RemoteGithubPackagesTask" ;;
+    central) task="Publish${component_name}RemoteCentralTask" ;;
+    all) task="Publish${component_name}RemoteAllTask" ;;
+  esac
+fi
 
 gradle_args=("${module_path}:${task}" "--no-daemon")
+if [[ "$check_only" == true && "$publish_target" != local ]]; then
+  gradle_args+=("-PcheckPublishTarget=${publish_target}")
+fi
 if [[ "$artifact_source" == prebuilt ]]; then
   gradle_args=("${gradle_args[@]}" "-PartifactSource=prebuilt" "-PartifactBundlePath=${artifact_bundle_path}")
 fi
 if [ "${#extra_gradle_args[@]}" -gt 0 ]; then
   gradle_args=("${gradle_args[@]}" "${extra_gradle_args[@]}")
 fi
+printf 'Publish configuration: module=%s component=%s target=%s source=%s check_only=%s\n' \
+  "$module_path" "$component_type" "$publish_target" "$artifact_source" "$check_only"
 printf '%q ' ./gradlew "${gradle_args[@]}"
 printf '\n'
 if [[ "$run_task" == true ]]; then

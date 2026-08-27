@@ -139,6 +139,16 @@ open class PublishPlugin : Plugin<Project> {
         }
         project.afterEvaluate {
             val kind = PublishComponentKind.detect(project.plugins)
+            if (project.tasks.findByName("PublishCheckTask") == null) {
+                project.tasks.register("PublishCheckTask", PublishCheckTask::class.java).configure { task ->
+                    task.target = ExplicitPublishTarget.LOCAL
+                    task.description = "Validate publish configuration without uploading artifacts."
+                }
+                project.tasks.register("checkPublish", PublishCheckTask::class.java).configure { task ->
+                    task.target = ExplicitPublishTarget.LOCAL
+                    task.description = "Validate publish configuration without uploading artifacts."
+                }
+            }
             val local = PublishTaskNames.local(kind)
             val all = PublishTaskNames.remoteAll(kind)
             val github = PublishTaskNames.remoteGithubPackages(kind)
@@ -239,7 +249,7 @@ open class PublishPlugin : Plugin<Project> {
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
         val all = project.gradle.startParameter.taskNames.any { it.contains("RemoteAllTask") }
         val repositories = project.extensions.findByType(PublishRepositories::class.java)
-        if (mode == PublishConfigResolver.MODE_CENTRAL || all) {
+        if (mode == PublishConfigResolver.MODE_CENTRAL || mode == PublishConfigResolver.MODE_CENTRAL_SNAPSHOT || all) {
             if (!all || repositories?.isCentralEnabled() == true) {
                 configureCentralRepository(project, publishing, publishInfo, properties)
             }
@@ -267,8 +277,8 @@ open class PublishPlugin : Plugin<Project> {
 
         finalizeDslMethod.invoke(androidComponents, Action<Any> { androidDsl ->
             val publishInfo = project.extensions.getByType(PublishInfo::class.java)
-            val candidates = createAndroidReleaseVariantInfos(project)
-            val publishableVariants = selectAndroidPublishVariants(candidates, publishInfo)
+            val candidates = createAndroidVariantInfos(project, publishInfo.publishBuildTypes())
+            val publishableVariants = selectAndroidPublishVariants(candidates, publishInfo, singleByDefault = true)
             publishableVariants.forEach { variant ->
                 registerSingleVariant(androidDsl, variant.name)
             }
@@ -286,17 +296,12 @@ open class PublishPlugin : Plugin<Project> {
         PluginLogUtil.printlnDebugInScreen("$TAG register android singleVariant $variantName")
     }
 
-    private fun createAndroidReleaseVariantInfos(project: Project): List<PublishVariantInfo> {
-        val buildTypeName = "release"
+    private fun createAndroidVariantInfos(project: Project, buildTypes: Set<String>): List<PublishVariantInfo> {
         val flavorSpecs = readAndroidFlavorSpecs(project)
         if (flavorSpecs.isEmpty()) {
-            return listOf(
-                PublishVariantInfo(
-                    name = buildTypeName,
-                    buildType = buildTypeName,
-                    flavors = emptyMap()
-                )
-            )
+            return buildTypes.map { buildTypeName ->
+                PublishVariantInfo(buildTypeName, buildTypeName, emptyMap())
+            }
         }
 
         val dimensions = readAndroidFlavorDimensions(project)
@@ -313,15 +318,17 @@ open class PublishPlugin : Plugin<Project> {
             return emptyList()
         }
 
-        return cartesianFlavorSpecs(flavorsByDimension.map { it.second }).map { flavors ->
-            val flavorName = flavors.mapIndexed { index, flavor ->
-                if (index == 0) flavor.name else flavor.name.capitalizeAscii()
-            }.joinToString("")
-            PublishVariantInfo(
-                name = "$flavorName${buildTypeName.capitalizeAscii()}",
-                buildType = buildTypeName,
-                flavors = flavors.associate { it.dimension to it.name }
-            )
+        return buildTypes.flatMap { buildTypeName ->
+            cartesianFlavorSpecs(flavorsByDimension.map { it.second }).map { flavors ->
+                val flavorName = flavors.mapIndexed { index, flavor ->
+                    if (index == 0) flavor.name else flavor.name.capitalizeAscii()
+                }.joinToString("")
+                PublishVariantInfo(
+                    name = "$flavorName${buildTypeName.capitalizeAscii()}",
+                    buildType = buildTypeName,
+                    flavors = flavors.associate { it.dimension to it.name }
+                )
+            }
         }
     }
 
@@ -338,16 +345,24 @@ open class PublishPlugin : Plugin<Project> {
         components: List<SoftwareComponent>,
         publishInfo: PublishInfo
     ): List<PublishTarget> {
-        val buildTypeName = "release"
-        val buildTypeComponents = components.filter { isBuildTypeComponent(it.name, buildTypeName) }
+        val buildTypes = publishInfo.publishBuildTypes()
+        val buildTypeComponents = components.filter { component ->
+            buildTypes.any { buildType -> isBuildTypeComponent(component.name, buildType) }
+        }
         val singleReleaseComponent =
-            buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals(buildTypeName, ignoreCase = true)
-        val useBasePublicationName = singleReleaseComponent || !publishInfo.hasVariantCoordinateResolvers()
+            buildTypes.size == 1 && buildTypes.first().equals("release", ignoreCase = true) &&
+                buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals("release", ignoreCase = true)
+        val useBasePublicationName = singleReleaseComponent ||
+            (!publishInfo.hasVariantCoordinateResolvers() && buildTypeComponents.size == 1)
 
         val publishableVariantNames = if (singleReleaseComponent) {
             null
         } else {
-            selectAndroidPublishVariants(createAndroidReleaseVariantInfos(project), publishInfo)
+            selectAndroidPublishVariants(
+                createAndroidVariantInfos(project, buildTypes),
+                publishInfo,
+                singleByDefault = buildTypes.size == 1 && buildTypes.first().equals("release", ignoreCase = true)
+            )
                 .map { it.name }
                 .toSet()
         }
@@ -366,7 +381,7 @@ open class PublishPlugin : Plugin<Project> {
             val variantInfo = if (useBasePublicationName) {
                 null
             } else {
-                createAndroidVariantInfo(project, component.name, buildTypeName)
+                createAndroidVariantInfo(project, component.name, buildTypes.firstOrNull { isBuildTypeComponent(component.name, it) } ?: "release")
             }
             val artifactId = publishInfo.resolveArtifactId(variantInfo)
             val groupId = publishInfo.resolveGroupId(variantInfo)
@@ -377,7 +392,8 @@ open class PublishPlugin : Plugin<Project> {
 
     private fun selectAndroidPublishVariants(
         candidates: List<PublishVariantInfo>,
-        publishInfo: PublishInfo
+        publishInfo: PublishInfo,
+        singleByDefault: Boolean
     ): List<PublishVariantInfo> {
         val filtered = candidates.filter { publishInfo.shouldPublishVariant(it) }
         if (candidates.isNotEmpty() && filtered.isEmpty()) {
@@ -385,7 +401,7 @@ open class PublishPlugin : Plugin<Project> {
                 "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
             )
         }
-        if (publishInfo.hasVariantCoordinateResolvers()) {
+        if (!singleByDefault || publishInfo.hasVariantCoordinateResolvers()) {
             return filtered
         }
         return filtered.take(1)
@@ -619,7 +635,7 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, properties)
         val repositoryName = PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
-        val repositoryUrl = PublishConfigResolver.resolveCentralRepositoryUrl(project)
+        val repositoryUrl = PublishConfigResolver.resolveCentralRepositoryUrl(project, publishInfo)
         publishing.repositories { artifactRepositories ->
             artifactRepositories.maven { repository ->
                 repository.name = repositoryName
