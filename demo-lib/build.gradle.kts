@@ -53,6 +53,13 @@ PublishInfo {
     pomUrl = "https://github.com/Entertech/PublishPlugin"
 }
 
+PublishRepositories {
+    githubPackages {
+        enabled.set(true)
+        repository.set("Entertech/PublishPlugin")
+    }
+}
+
 dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
