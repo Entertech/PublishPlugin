@@ -161,7 +161,13 @@ PublishRepositories {
 
 ### 本机凭据
 
-本机持久化配置使用 ignored 的
+本机持久化配置文件是项目根目录下的
+`.publish/local.properties`。这里的 `publish.local.*` 是配置键命名空间：
+`publish` 表示由 PublishPlugin 使用，`local` 表示只在本机发布时读取；它不是
+Android 的根目录 `local.properties`，也不会被 GitHub Actions 读取。键名后面的
+`githubPackages` / `central` 表示 provider，最后一段表示具体字段。
+
+使用已被 `.gitignore` 忽略的
 [`.publish/local.properties.example`](.publish/local.properties.example) 作为模板：
 
 ```properties
@@ -179,6 +185,36 @@ publish.local.central.signingPassword=
 ```bash
 cp .publish/local.properties.example .publish/local.properties
 ```
+
+字段含义和格式：
+
+| 配置键 | 值的格式 |
+| --- | --- |
+| `publish.local.githubPackages.username` | GitHub 用户名；不是 token。 |
+| `publish.local.githubPackages.token` | GitHub Packages token，按明文 property 值填写，不要提交文件。 |
+| `publish.local.central.username` | Sonatype Central token 用户名。 |
+| `publish.local.central.password` | Sonatype Central token 密码。 |
+| `publish.local.central.signingKeyFile` | **文件路径**：相对路径按项目根目录解析，也可填写绝对路径。文件内容应是 ASCII-armored OpenPGP 私钥文本；这里不是文件名，也不是 Base64 字符串。 |
+| `publish.local.central.signingKeyId` | 可选的 GPG key ID，例如 `00B5050F` 或 `0x00B5050F`。 |
+| `publish.local.central.signingPassword` | 私钥口令（passphrase）。 |
+
+例如，以下两种写法都表示“读取一个私钥文件”，不是把文件名或编码后的内容填进
+配置：
+
+```properties
+# 相对项目根目录
+publish.local.central.signingKeyFile=.secrets/central-signing-key.asc
+
+# 或使用绝对路径
+# publish.local.central.signingKeyFile=/Users/me/.keys/central-signing-key.asc
+```
+
+如果不想使用文件路径，也可以通过 `GPG_KEY_CONTENTS` 或
+`-PsigningInMemoryKey=...` 直接提供 ASCII-armored 私钥内容；GitHub Actions 应使用
+Secrets 注入该内容，而不是生成 `.publish/local.properties`。
+
+本机配置文件路径默认为 `.publish/local.properties`，也可以使用
+`-PpublishLocalConfig=/absolute/or/root-relative/path` 指定其他路径。
 
 推荐优先使用环境变量；本机文件只用于本机执行，必须保持未跟踪且被
 `.gitignore` 忽略。根目录 Android `local.properties` 不参与新的发布解析，也不会
