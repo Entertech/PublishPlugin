@@ -220,7 +220,13 @@ object PublishConfigResolver {
 
     fun resolveCentralRepositoryName(project: Project, publishInfo: PublishInfo): String {
         if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
-            return "CentralSnapshots"
+            return firstNotBlank(
+                projectProperty(project, "centralRepositoryName"),
+                environment("CENTRAL_REPOSITORY_NAME"),
+                project.extensions.findByType(PublishRepositories::class.java)
+                    ?.central?.snapshotRepositoryName?.orNull,
+                "CentralSnapshots"
+            )
         }
         return firstNotBlank(
             projectProperty(project, "centralRepositoryName"),
@@ -275,6 +281,8 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "centralPublishingType"),
             environment("CENTRAL_PUBLISHING_TYPE"),
+            project.extensions.findByType(PublishRepositories::class.java)
+                ?.central?.publishingType?.orNull,
             explicitPublishInfoValue(publishInfo, "centralPublishingType", publishInfo.centralPublishingType),
             loadPublishProperties(project).centralPublishingType,
             "user_managed"

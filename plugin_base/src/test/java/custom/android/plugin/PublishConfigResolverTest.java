@@ -42,6 +42,21 @@ public class PublishConfigResolverTest {
     }
 
     @Test
+    public void centralPublishingTypeUsesRepositoryDslValue() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        PublishRepositories repositories = project.getExtensions().create(
+                "PublishRepositories", PublishRepositories.class
+        );
+        repositories.getCentral().getPublishingType().set("automatic");
+
+        assertEquals(
+                "automatic",
+                PublishConfigResolver.INSTANCE.resolveCentralPublishingType(project, publishInfo)
+        );
+    }
+
+    @Test
     public void scmConnectionsCanBeDerivedFromSshRemoteStyleUrl() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();

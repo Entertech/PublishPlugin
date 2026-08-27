@@ -8,7 +8,8 @@ Usage:
 
 Select and optionally run one of PublishPlugin's four public publish tasks.
 Local credentials are read from .publish/local.properties or runtime
-properties/environment variables; GitHub Actions uses workflow inputs/secrets.
+properties/environment variables. GitHub Actions mode only prints a handoff;
+use the configured caller workflow for the actual CI run.
 
 Options:
   --module <path>                 Target Gradle module path, for example :library.
@@ -58,12 +59,19 @@ case "$execution" in local|github_actions) ;; *) die "execution must be local or
 case "$component_type" in library|plugin) ;; *) die "component type must be library or plugin" ;; esac
 case "$publish_target" in local|github_packages|central|all) ;; *) die "unsupported publish target" ;; esac
 case "$artifact_source" in
-  project) [ -z "$artifact_bundle_path" ] || die "artifact bundle path is only valid for project" ;;
+  project) [ -z "$artifact_bundle_path" ] || die "artifact bundle path is only valid for prebuilt" ;;
   prebuilt) [ -n "$artifact_bundle_path" ] || die "artifact bundle path is required for prebuilt"; [[ "$artifact_bundle_path" != /* && "$artifact_bundle_path" != *..* ]] || die "artifact bundle path must stay inside the workspace" ;;
   *) die "artifact source must be project or prebuilt" ;;
 esac
 if [[ "$execution" == github_actions && "$publish_target" == local ]]; then
   die "GitHub Actions does not publish to Maven Local; choose github_packages, central, or all"
+fi
+if [[ "$execution" == github_actions ]]; then
+  if [[ "$run_task" == true ]]; then
+    die "execution=github_actions cannot run a local Gradle task; use the configured caller workflow"
+  fi
+  printf 'GitHub Actions execution selected; configure or dispatch the caller workflow for %s.\n' "$module_path"
+  exit 0
 fi
 
 component_name="Library"
@@ -79,7 +87,9 @@ gradle_args=("${module_path}:${task}" "--no-daemon")
 if [[ "$artifact_source" == prebuilt ]]; then
   gradle_args=("${gradle_args[@]}" "-PartifactSource=prebuilt" "-PartifactBundlePath=${artifact_bundle_path}")
 fi
-gradle_args=("${gradle_args[@]}" "${extra_gradle_args[@]}")
+if [ "${#extra_gradle_args[@]}" -gt 0 ]; then
+  gradle_args=("${gradle_args[@]}" "${extra_gradle_args[@]}")
+fi
 printf '%q ' ./gradlew "${gradle_args[@]}"
 printf '\n'
 if [[ "$run_task" == true ]]; then
