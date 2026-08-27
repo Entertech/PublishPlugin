@@ -1,5 +1,6 @@
 import org.gradle.api.publish.maven.MavenPublication
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.io.File
 
 plugins {
     groovy
@@ -17,7 +18,16 @@ java {
 }
 
 group = "cn.entertech.android"
-version = "1.2.4"
+val baseVersion = "1.2.4"
+val localPublishRequested = gradle.startParameter.taskNames.any { taskName ->
+    val shortTaskName = taskName.substringAfterLast(":")
+    shortTaskName == "publishToMavenLocal" || shortTaskName.endsWith("PublicationToMavenLocal")
+}
+version = if (localPublishRequested && !baseVersion.endsWith("-local")) {
+    "$baseVersion-local"
+} else {
+    baseVersion
+}
 
 base {
     archivesName.set("publish")
@@ -144,6 +154,29 @@ publishing {
 afterEvaluate {
     publishing.publications.withType<MavenPublication>().configureEach {
         configureCentralPomMetadata()
+    }
+}
+
+tasks.matching {
+    it.name == "publishToMavenLocal" || it.name.endsWith("PublicationToMavenLocal")
+}.configureEach {
+    doLast {
+        val repository = File(
+            System.getProperty("maven.repo.local")
+                ?: File(System.getProperty("user.home"), ".m2/repository").path
+        ).canonicalFile
+        println("Maven Local repository: ${repository.toURI()}")
+        publishing.publications.withType<MavenPublication>().forEach { publication ->
+            val directory = File(
+                repository,
+                "${publication.groupId.replace('.', File.separatorChar)}${File.separator}" +
+                    "${publication.artifactId}${File.separator}${publication.version}"
+            ).toURI()
+            println(
+                "Maven Local publication: ${publication.groupId}:${publication.artifactId}:${publication.version}"
+            )
+            println("Maven Local address: $directory")
+        }
     }
 }
 

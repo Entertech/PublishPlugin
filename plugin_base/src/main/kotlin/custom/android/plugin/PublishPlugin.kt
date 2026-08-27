@@ -65,6 +65,11 @@ open class PublishPlugin : Plugin<Project> {
             return
         }
         container.apply(MavenPublishPlugin::class.java)
+        project.tasks.matching {
+            it.name == "publishToMavenLocal" || it.name.endsWith("PublicationToMavenLocal")
+        }.configureEach { task ->
+            task.doLast { LocalPublishReporter.print(project) }
+        }
         project.extensions.create(
             PublishInfo.EXTENSION_PUBLISH_INFO_NAME, PublishInfo::class.java,
         )

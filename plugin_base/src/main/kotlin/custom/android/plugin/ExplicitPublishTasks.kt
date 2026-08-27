@@ -93,6 +93,9 @@ open class ExplicitPublishTask : DefaultTask() {
             })
         }
         PublishReport.write(project, validation.copy(providerResults = providerResults.toList()), dryRun = false)
+        if (target == ExplicitPublishTarget.LOCAL) {
+            LocalPublishReporter.print(validation.publications)
+        }
         if (source == ArtifactSource.PROJECT &&
             project.findProperty("cleanupPreparedBundle")?.toString().toBoolean() &&
             bundle?.rootDirectory?.name == "project-bundle"

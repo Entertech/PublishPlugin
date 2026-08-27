@@ -115,6 +115,16 @@ Library 和 Gradle Plugin 使用不同的任务名：
 
 工程模式下，本地发布版本会追加 `-local`，例如：
 `cn.example.android:example-library:2.0.0-local`。
+执行 `PublishLibraryLocalTask` 或 `PublishPluginLocalTask` 后，终端会输出 Maven Local
+仓库根地址、publication 坐标和对应版本目录地址，并附带可直接复制的 Gradle/Maven
+依赖片段。
+
+本仓库的 `plugin_base` 是插件实现模块，使用标准任务发布到本地时同样会自动追加
+`-local` 并输出地址：
+
+```bash
+./gradlew :plugin_base:publishToMavenLocal
+```
 
 发布前可运行只读检查，不会上传制品：
 

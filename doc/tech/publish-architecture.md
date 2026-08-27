@@ -113,7 +113,7 @@ All 任务按 provider 原子写入 `not_started`、`running`、`succeeded`、`f
 
 | Provider | Project | Prebuilt | 备注 |
 | --- | --- | --- | --- |
-| Maven Local | 标准 `publishToMavenLocal` | 写入 Maven layout | 普通 project 版本自动追加 `-local` |
+| Maven Local | 标准 `publishToMavenLocal` 或显式 `Publish*LocalTask` | 写入 Maven layout，并在成功后输出仓库根地址与 publication 版本目录 | 工程 publication 的本地请求自动追加 `-local`（已带后缀时保持不变） |
 | GitHub Packages | project bundle HTTP PUT | Maven HTTP PUT | URL 可从 `owner/repo` 推导 |
 | Central staging | project bundle HTTP PUT | Maven HTTP PUT | release 后调用 manual upload；snapshot 不调用 |
 | Central portal API | project staging bundle upload | bundle upload | 支持 status polling、publish/drop |

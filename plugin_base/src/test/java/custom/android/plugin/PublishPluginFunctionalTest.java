@@ -94,33 +94,41 @@ public class PublishPluginFunctionalTest {
         File projectDir = createGradlePluginProject("1.0.0", false);
         File mavenLocal = temporaryFolder.newFolder("local-suffix-maven-local");
 
-        gradleRunner(projectDir)
+        String output = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:publishToMavenLocal",
                         "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
                         "--stacktrace"
                 )
-                .build();
+                .build()
+                .getOutput();
 
         Path localVersionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
         assertTrue(Files.exists(localVersionDir.resolve("fixture-1.0.0-local.jar")));
         assertFalse(Files.exists(mavenLocal.toPath().resolve("com/example/fixture/1.0.0")));
+        assertTrue(output.contains("Maven Local repository:"));
+        assertTrue(output.contains("Maven Local publication: com.example:fixture:1.0.0-local"));
+        assertTrue(output.contains("Maven Local address:"));
     }
 
     @Test
-    @Ignore("Library task name is not registered for Gradle Plugin modules")
-    public void publishLibraryLocalTaskPrintsCompleteDependencyBlocksWithLocalVersion() throws IOException {
+    public void publishPluginLocalTaskPrintsLocalAddressAndLocalVersion() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeSuccessfulGradlew(projectDir);
+        File mavenLocal = temporaryFolder.newFolder("explicit-local-maven-local");
 
         String output = gradleRunner(projectDir)
                 .withArguments(
-                        ":fixture:PublishLibraryLocalTask",
+                        ":fixture:PublishPluginLocalTask",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
                         "--stacktrace"
                 )
                 .build()
                 .getOutput();
 
+        assertTrue(output.contains("Maven Local repository:"));
+        assertTrue(output.contains("Maven Local publication: com.example:fixture:1.0.0-local"));
+        assertTrue(output.contains("Maven Local address:"));
         assertTrue(output.contains("dependencies {\n    implementation 'com.example:fixture:1.0.0-local'\n}"));
         assertTrue(output.contains("dependencies {\n    implementation(\"com.example:fixture:1.0.0-local\")\n}"));
     }
