@@ -61,7 +61,14 @@ open class ExplicitPublishTask : DefaultTask() {
                     PublishValidationPublication(it.name, it.groupId, it.artifactId, it.version)
                 })
             }
-            val preflight = PublishPreflight.run(project, publishInfo, target, validation.publications)
+            val resumeProviders = resumableProviders(validation.publications, bundle)
+            val preflight = PublishPreflight.run(
+                project,
+                publishInfo,
+                target,
+                validation.publications,
+                skipProviders = resumeProviders
+            )
             validation = validation.copy(preflightResults = preflight)
             preflight.filter { it.status == "failed" }.takeIf { it.isNotEmpty() }?.let { failures ->
                 throw GradleException("Publish preflight failed: ${failures.joinToString { "${it.provider}: ${it.message}" }}")
@@ -188,6 +195,24 @@ open class ExplicitPublishTask : DefaultTask() {
 
     private fun shouldPrepareProjectBundle(): Boolean {
         return target != ExplicitPublishTarget.LOCAL
+    }
+
+    private fun resumableProviders(
+        publications: List<PublishValidationPublication>,
+        bundle: PreparedArtifactBundle?
+    ): Set<String> {
+        if (target != ExplicitPublishTarget.ALL ||
+            bundle == null ||
+            project.findProperty("resumePublish")?.toString().toBoolean().not()
+        ) {
+            return emptySet()
+        }
+        val fingerprint = PublishExecutionStateStore.fingerprint(publications, bundle)
+        return PublishExecutionStateStore(project).read().values
+            .filter { state ->
+                state.fingerprint == fingerprint && state.status in setOf("succeeded", "skipped")
+            }
+            .mapTo(linkedSetOf()) { it.provider }
     }
 
     private fun publishAll(bundle: PreparedArtifactBundle, publishInfo: PublishInfo, projectSource: Boolean) {

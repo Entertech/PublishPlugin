@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Year;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Enumeration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -264,7 +266,18 @@ public class PublishPluginFunctionalTest {
                 java.nio.file.StandardOpenOption.APPEND
         );
 
+        Map<String, String> environment = new HashMap<>(System.getenv());
+        environment.keySet().removeAll(java.util.Arrays.asList(
+                "GITHUB_PACKAGES_USER",
+                "GITHUB_ACTOR",
+                "USERNAME",
+                "GITHUB_PACKAGES_TOKEN",
+                "GITHUB_TOKEN",
+                "TOKEN"
+        ));
+
         gradleRunner(projectDir)
+                .withEnvironment(environment)
                 .withArguments(
                         ":fixture:checkPublish",
                         "-PpublishTarget=github_packages",

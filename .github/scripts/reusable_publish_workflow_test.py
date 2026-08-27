@@ -4,6 +4,8 @@ from pathlib import Path
 
 
 WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "publish.yml"
+PR_WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "publish-plugin-pr-check.yml"
+MATRIX_WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "compatibility-matrix.yml"
 
 
 def workflow_text():
@@ -22,6 +24,17 @@ def step_block(name):
 
 
 class ReusablePublishWorkflowTest(unittest.TestCase):
+    def test_compatibility_jobs_use_matrix_gradle_for_outer_build(self):
+        for workflow in (PR_WORKFLOW, MATRIX_WORKFLOW):
+            text = workflow.read_text(encoding="utf-8")
+            self.assertIn("gradle-version: ${{ matrix.gradle }}", text)
+            self.assertIn("gradle :plugin_base:test", text)
+            self.assertNotIn(
+                "./gradlew :plugin_base:test \\\n"
+                "            -DtestGradleVersion=\"${{ matrix.gradle }}\"",
+                text,
+            )
+
     def test_publish_target_input_supports_three_modes(self):
         text = workflow_text()
         validation = step_block("Validate publish inputs")

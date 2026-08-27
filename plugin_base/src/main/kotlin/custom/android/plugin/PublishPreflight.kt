@@ -11,7 +11,8 @@ object PublishPreflight {
         project: Project,
         publishInfo: PublishInfo,
         target: ExplicitPublishTarget,
-        publications: List<PublishValidationPublication>
+        publications: List<PublishValidationPublication>,
+        skipProviders: Set<String> = emptySet()
     ): List<PublishPreflightResult> {
         val enabled = project.findProperty("publishPreflight")?.toString()?.ifBlank { "true" }?.toBoolean() ?: true
         if (!enabled) {
@@ -20,7 +21,13 @@ object PublishPreflight {
         val allowExisting = project.findProperty("allowExistingVersion").toString().toBoolean()
         val config = PublishRuntimeConfig(project)
         return providers(project, target).map { provider ->
-            if (provider == "central" &&
+            if (provider in skipProviders) {
+                PublishPreflightResult(
+                    provider,
+                    "skipped",
+                    "provider already succeeded for identical bundle"
+                )
+            } else if (provider == "central" &&
                 PublishConfigResolver.resolveCentralUploadMode(project, publishInfo) == "portalApi" &&
                 !PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)
             ) {

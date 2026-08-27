@@ -65,6 +65,22 @@ class PublishInfrastructureTest {
     }
 
     @Test
+    fun `preflight skips provider already completed by resume`() {
+        val project = ProjectBuilder.builder().withProjectDir(temporaryFolder.newFolder("resume-project")).build()
+        val results = PublishPreflight.run(
+            project,
+            PublishInfo(),
+            ExplicitPublishTarget.GITHUB_PACKAGES,
+            listOf(PublishValidationPublication("main", "com.example", "lib", "1.0")),
+            skipProviders = setOf("github_packages")
+        )
+
+        assertEquals(1, results.size)
+        assertEquals("github_packages", results.single().provider)
+        assertEquals("skipped", results.single().status)
+    }
+
+    @Test
     fun `project scanner classifies Maven layout and supply chain writes evidence`() {
         val projectDir = temporaryFolder.newFolder("bundle-project")
         val project = ProjectBuilder.builder().withProjectDir(projectDir).build()
