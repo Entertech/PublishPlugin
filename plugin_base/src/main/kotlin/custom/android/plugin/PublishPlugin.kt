@@ -223,8 +223,7 @@ open class PublishPlugin : Plugin<Project> {
     private fun isLocalPublishRequested(project: Project): Boolean {
         return project.gradle.startParameter.taskNames.any { taskName ->
             val shortTaskName = taskName.substringAfterLast(":")
-            shortTaskName == PublishLibraryLocalTask.TAG ||
-                shortTaskName == PublishTaskNames.local(PublishComponentKind.LIBRARY) ||
+            shortTaskName == PublishTaskNames.local(PublishComponentKind.LIBRARY) ||
                 shortTaskName == PublishTaskNames.local(PublishComponentKind.PLUGIN) ||
                 shortTaskName == "publishToMavenLocal" ||
                 (shortTaskName.startsWith("publish") && shortTaskName.endsWith("PublicationToMavenLocal"))

@@ -199,7 +199,7 @@ object PublishConfigResolver {
         val publishTaskPrefix = "publish${BasePublishTask.MAVEN_PUBLICATION_NAME}PublicationTo"
         return project.gradle.startParameter.taskNames.any { taskName ->
             val publishRepositoryTask = taskName.contains(publishTaskPrefix) && taskName.contains("Repository")
-            taskName.contains(PublishLibraryRemoteTask.TAG) ||
+            taskName.contains("PublishLibraryRemoteTask") ||
                 taskName.contains("RemoteCentralTask") ||
                 taskName.contains("RemoteAllTask") ||
                 taskName.contains("CentralStagingRepository") ||

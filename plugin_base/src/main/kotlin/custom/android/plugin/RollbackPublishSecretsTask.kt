@@ -9,7 +9,9 @@ import org.gradle.api.tasks.TaskAction
 import java.io.File
 import java.net.URI
 
-open class RollbackPublishSecretsTask : DefaultTask() {
+/** Legacy rollback task kept only for source migration; never registered. */
+@Deprecated("Rollback task was removed from the public task API; use enter-publish-config")
+internal open class RollbackPublishSecretsTask : DefaultTask() {
     init {
         group = "customPlugin"
         description = "Delete configured publishing repository secrets and optionally remove generated workflow."

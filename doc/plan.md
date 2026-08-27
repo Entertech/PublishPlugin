@@ -1,10 +1,10 @@
 # PublishPlugin 后续规划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `release-engineering` plus `superpowers:subagent-driven-development` or `superpowers:executing-plans` when implementing this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Steps use checkbox (`- [ ]`) syntax for tracking. 已在 PR #18 落地的能力只保留在“当前功能基线”，不重复列为待办。
 
-**Goal:** 基于当前已落地的 GitHub Packages 默认发布、一键发布配置、Central 兼容发布、多 variant publication 和 demo 能力，继续补齐发布前统一校验、发布证据、Snapshot、Central Portal 原生 API、variant DSL、CI 兼容性矩阵和技能生命周期。
+**Goal:** 基于当前已落地的显式发布任务、GitHub Packages/Central 发布、预制产物、Snapshot CI、配置分层和拆分后的 Skill，继续补齐发布前统一校验、发布证据、Central Portal 原生 API、variant DSL、CI 兼容性矩阵和文档生命周期。
 
-**Architecture:** `PublishInfo` 继续作为组件级发布入口，`local.properties` 的 `publish.*` 继续作为仓库级配置入口，`PublishLibraryLocalTask` / `PublishLibraryRemoteTask` 继续保持兼容。新能力优先拆到 resolver、校验、报告、workflow、配置 task 和上传 client 中，不把发布目标、secrets、workflow、variant 规则混进单个大任务。
+**Architecture:** `PublishInfo` 作为组件级发布入口，`PublishRepositories` 作为可提交的 provider 配置，`.publish/local.properties` 只承载本机凭据，workflow/Secrets 承载 CI 配置。公开发布任务按组件和目标显式命名；不再注册旧的通用远程任务和配置类任务。新能力优先拆到 resolver、校验、报告、workflow、配置和上传 client 中，不把发布目标、secrets、workflow、variant 规则混进单个大任务。
 
 **Tech Stack:** Gradle Plugin、Kotlin JVM、Android Gradle Plugin、Gradle Maven Publish、Gradle Signing、Gradle TestKit、GitHub Actions、GitHub CLI、GPG、Codex Skill。
 
@@ -19,6 +19,9 @@
 - Android Library 支持单 release publication 和多 flavor release publication，publication 名为 `EnterPublish` 或 `<VariantName>EnterPublish`。
 - Gradle Plugin 模块支持 `java-gradle-plugin`，使用 `pluginId` 和 `implementationClass` 创建 plugin marker。
 - `PublishInfo` 支持 `artifactIdForVariant`、`groupIdForVariant`、`versionForVariant` 和 `skipVariantIf`。
+- 每个发布模块注册四个显式任务：`*LocalTask`、`*RemoteGithubPackagesTask`、`*RemoteCentralTask`、`*RemoteAllTask`；Library 与 Gradle Plugin 使用各自前缀。
+- `PublishRepositories` DSL 已支持 provider 启用、GitHub Packages 仓库信息和 Central namespace/publishing type。
+- `artifactSource=project|prebuilt` 已落地；预制 bundle 支持 `publish-artifacts.json`、路径越界校验、SHA-256/尺寸校验、Maven Local/远程 PUT 发布和 Central namespace 校验。
 - 本地 Maven 发布会执行 `publishToMavenLocal`，普通版本自动追加 `-local` 后缀，已带 `-local` 的版本不重复追加。
 - `PublishConfigResolver.resolveVersion(...)` 已支持 `-PpublishVersion`、`PUBLISH_VERSION` 和显式命令行 `-Pversion` 覆盖。
 - 默认远程发布模式是 `githubPackages`；显式 `remotePublishMode=central` 使用 Sonatype Central；`customRepository` 保留旧私服兼容。
@@ -26,15 +29,16 @@
 - Central 兼容路径使用 OSSRH Staging API repository 上传，再调用 manual upload endpoint 创建 Portal deployment。
 - Central 发布强制校验 namespace、publishing type、POM/SCM 元数据、Central token、GPG signing。
 - POM 元数据支持默认 Entertech developer/license、当前年份、SCM URL 推导，以及 `publish.*` 仓库级 fallback。
-- `local.properties` 的 `publish.*` 配置由 `PublishConfigLoader` 读取；旧 `centralPublish.*` 仍兼容。
-- `generatePublishConfig` / `configurePublish` / `rollbackPublishSecrets` 已落地，并保留 `Central` 旧任务别名。
-- `configurePublish` 支持 dry-run、GitHub repository secrets 写入、GPG key 生成、workflow 生成、workflow overwrite 保护。
-- `scripts/configure-publish-offline.sh` 已提供不依赖 Codex 的本地入口。
+- `.publish/local.properties` 的本机配置由 `PublishRuntimeConfig`/resolver 读取；运行时不再读取根目录 `local.properties`，旧 `centralPublish.*` 只由配置 Skill 迁移，不作为发布运行时兼容层。
+- `generatePublishConfig` / `configurePublish` / `rollbackPublishSecrets` 及其大小写/Central 别名已从插件公开任务 API 中移除；配置工作改由 `enter-publish-config` Skill 和离线脚本完成。
+- `scripts/configure-publish-offline.sh` 已改为显式选择组件、执行环境、目标和产物来源，并支持 GitHub Actions handoff。
 - `.github/workflows/publish.yml` 是新的业务仓库 reusable workflow，支持 `github_packages`、`central`、`all` 三种目标。
 - `.github/workflows/publish-plugin-pr-check.yml` 和 `publish-plugin-central.yml` 继续负责本插件自身的版本、Central 发布、tag 和 main 合并流程。
 - `demo-lib` 已作为 Android Library 多 flavor 发布样例，`demo-plugin` 已作为 Gradle Plugin 发布样例。
 - `skills/enter-publish-config/` 与 `skills/enter-publish-run/` 是仓库内
   Codex Skill 源文件，运行时 Skill 应通过 `scripts/install-codex-skill.sh` 链接。
+- `scripts/install-codex-skill.sh` 已安装两个新 Skill 并停用三个 legacy runtime skill。
+- 旧配置/通用远程 task 实现已标记为 `internal`/`@Deprecated`，且不再由 `PublishPlugin` 注册；后续只需清理历史技术文档中的旧入口。
 
 相关设计文档：
 
@@ -44,16 +48,17 @@
 
 ## 当前缺口
 
-1. 远程发布校验逻辑仍散落在 `PublishLibraryRemoteTask` 和 `ConfigurePublishTask`，缺少一个可复用的 validation model。
-2. 还没有独立的 `PublishLibraryCheckTask` / publish doctor；用户无法在不上传 artifact 的情况下验证当前 publication、仓库模式、凭据来源和 POM 状态。
+1. 远程发布校验逻辑仍散落在 `ExplicitPublishTask` 与保留的旧实现类中，缺少一个可复用的 validation model。
+2. 还没有独立的 `PublishCheckTask` / publish doctor；用户无法在不上传 artifact 的情况下验证当前 publication、仓库模式、凭据来源和 POM 状态。
 3. 发布成功只输出人类可读日志，没有机器可读的 manifest，CI 无法保存本次发布证据。
-4. `.github/workflows/publish.yml` 已支持多个目标，但没有 check-only 模式，也没有上传 manifest；Central secrets 仍在 job 级环境中暴露给所有步骤。
-5. 还不支持 `-SNAPSHOT` 到 Central Snapshot repository 的发布路径。
+4. `.github/workflows/publish.yml` 已支持多个目标和 CI Snapshot；仍没有 check-only 模式和 manifest。Central/GPG secrets 已按 target 条件注入，GitHub-only 运行时为空；主发布 job 使用 `contents: read`，README 同步单独使用写权限。
+5. Snapshot 目前只通过 workflow 的 `publish_mode=ci` + `centralReleaseType=snapshot` 路径可用；本机显式模式、自动按版本推导和独立任务语义仍未完成。
 6. Central Portal 仍走 staging API 兼容层，缺少原生 Publisher API bundle 上传、状态轮询、publish/drop 能力。
 7. Android variant 仍固定 release build type；没有 `publishBuildTypes`、显式 include、artifactId 模板。
 8. 一键配置已有 macOS/bash 离线入口，但缺少 Linux/Windows 支持策略和更完整的自校验输出。
 9. TestKit 主要固定 Gradle 8.7 / AGP 8.1.3，缺少 Gradle / AGP / JDK 兼容性矩阵。
 10. Codex skill 已落地，但 README、skill、tech 文档、`doc/plan.md` 之间还没有自动一致性检查。
+11. `doc/tech/` 中仍有历史文档把已移除的 task 当作正式入口，需要统一迁移说明。
 
 ## 优先级路线
 
@@ -70,13 +75,31 @@
 | P3 | 发布安全与回退增强 | 增强 secret 泄露防护和发布后修复路径 | 中 |
 | P3 | Skill 与文档一致性 | 让一键发布技能跟代码、README 同步演进 | 低 |
 
+## 额外头脑风暴（候选能力）
+
+这些不是 PR #18 已完成项，建议在 P0/P1 任务稳定后择优进入路线：
+
+| 优先级 | 候选能力 | 主要收益 |
+| --- | --- | --- |
+| P0 | 远程发布幂等预检（版本已存在、目标仓库可写、凭据权限、Central namespace） | 在上传前阻断最常见的不可逆失败 |
+| P0 | 目标级 secrets 隔离与最小权限 workflow | 避免 GitHub Packages job 接触 GPG/Central 凭据，降低泄露面 |
+| P0 | 发布 provenance/SBOM/checksum 报告 | 支持审计、供应链追踪和下游安全扫描 |
+| P1 | `RemoteAllTask` 的可恢复状态与 provider 级结果文件 | 失败后可从未完成 provider 继续，避免重复上传 |
+| P1 | 版本策略与 release channel（release、snapshot、rc、nightly） | 统一版本命名、仓库路由和消费方约束 |
+| P1 | API/ABI 与依赖兼容性门禁 | 发布前发现破坏性 API、Gradle/AGP/JDK 不兼容 |
+| P1 | 变更日志、Git tag、GitHub Release 自动关联 | 让产物、源码提交和发布说明可追溯 |
+| P2 | Central deployment 状态轮询、publish/drop、超时恢复 | 完整覆盖 Portal deployment 生命周期 |
+| P2 | 预制 bundle 的签名验证与可信来源白名单 | 防止被篡改或来自未授权构建链的产物进入仓库 |
+| P2 | 多模块发布编排（依赖拓扑、并发上限、失败策略） | 支持 SDK/组件套件的一致版本发布 |
+| P3 | 发布指标与通知（耗时、失败率、仓库响应、Slack/飞书） | 便于运营和持续改进发布可靠性 |
+
 ## Task 1: 统一发布校验与 Check Task
 
 **Files:**
 
 - Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishValidation.kt`
-- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryCheckTask.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryRemoteTask.kt`
+- Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishCheckTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ExplicitPublishTask.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ConfigurePublishTask.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
@@ -118,7 +141,7 @@ data class PublishValidationPublication(
 
 - [ ] **Step 3: 复用校验**
 
-`PublishLibraryRemoteTask.checkPublishInfo(...)` 不再维护一套单独校验逻辑，改为调用 `PublishValidation.validateRemote(...)` 并逐条打印 error/warning。
+`ExplicitPublishTask` 和兼容保留的远程实现不再维护重复校验逻辑，统一调用 `PublishValidation.validateRemote(...)` 并逐条打印 error/warning。
 
 `ConfigurePublishTask.validatePublishInfo(...)` 保留配置阶段特有逻辑，但坐标、version、Gradle Plugin module 字段校验复用 `PublishValidation` 中的公共函数。
 
@@ -127,8 +150,8 @@ data class PublishValidationPublication(
 注册：
 
 ```kotlin
-project.tasks.register("PublishLibraryCheckTask", PublishLibraryCheckTask::class.java)
-project.tasks.register("checkPublish", PublishLibraryCheckTask::class.java)
+project.tasks.register("PublishCheckTask", PublishCheckTask::class.java)
+project.tasks.register("checkPublish", PublishCheckTask::class.java)
 ```
 
 行为：
@@ -160,7 +183,7 @@ Run:
 
 - Create: `plugin_base/src/main/kotlin/custom/android/plugin/PublishReport.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/BasePublishTask.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryCheckTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishCheckTask.kt`
 - Modify: `.github/workflows/publish.yml`
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
 - Test: `.github/scripts/reusable_publish_workflow_test.py`
@@ -201,7 +224,7 @@ Run:
 
 `BasePublishTask` 在远程或本地发布成功后调用 `PublishReport.write(...)`。
 
-`PublishLibraryCheckTask` 在校验通过后写入 dry-run manifest。
+`PublishCheckTask` 在校验通过后写入 dry-run manifest。
 
 - [ ] **Step 4: workflow 上传 artifact**
 
@@ -218,7 +241,7 @@ Run:
 
 - [ ] **Step 5: 测试**
 
-TestKit 执行 `:fixture:checkPublish` 和 `:fixture:PublishLibraryRemoteTask`，断言 manifest 存在、坐标正确、没有 token/password/key 字样。
+TestKit 执行 `:fixture:checkPublish` 与对应的显式远程任务，断言 manifest 存在、坐标正确、没有 token/password/key 字样。
 
 ## Task 3: Reusable Workflow 加固
 
@@ -246,19 +269,19 @@ check_only:
 ./gradlew "${MODULE_PATH}:checkPublish" --no-daemon --stacktrace
 ```
 
-- [ ] **Step 2: 收窄 secrets 暴露**
+- [x] **Step 2: 收窄 secrets 暴露**
 
-不要把 Central token、GPG private key、signing password 放在 job 级 `env`。只在 `Publish to Central Portal` 步骤注入：
+不要把 Central token、GPG private key、signing password 放在 job 级 `env`。发布 step 仅在目标为 `central`/`all` 时注入，GitHub Packages-only 运行时为空；README 同步使用独立的 `contents: write` job。
 
 ```yaml
 env:
-  CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-  CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-  GPG_KEY_CONTENTS: ${{ secrets.GPG_KEY_CONTENTS }}
-  SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+  CENTRAL_USERNAME: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_USERNAME || '' }}
+  CENTRAL_PASSWORD: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
+  GPG_KEY_CONTENTS: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
+  SIGNING_PASSWORD: ${{ (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
 ```
 
-GitHub Packages 步骤只注入 GitHub Packages 需要的 token。
+发布步骤仅在目标包含 GitHub Packages 时注入其 token；Central-only 运行时不会设置 GitHub Packages 凭据。
 
 - [ ] **Step 3: 生成 workflow 支持 check-only**
 
@@ -273,25 +296,26 @@ GitHub Packages 步骤只注入 GitHub Packages 需要的 token。
 - 断言 manifest artifact 上传步骤存在。
 - 断言 GitHub Packages 步骤不接收 GPG secrets。
 
-## Task 4: Snapshot 发布模式
+## Task 4: 完善 Snapshot 发布模式（已有 CI 基础）
 
 **Files:**
 
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishInfo.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishConfigResolver.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishPlugin.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryRemoteTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ExplicitPublishTask.kt`
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
 - Docs: `README.md`
 
-- [ ] **Step 1: 增加模式常量**
+- 已完成：`CENTRAL_SNAPSHOT_URL`、`centralReleaseType=snapshot`、`CentralSnapshots` repository，以及 workflow `publish_mode=ci` 自动追加 `-SNAPSHOT`。
+
+- [ ] **Step 1: 增加独立模式与解析规则**
 
 ```kotlin
 const val MODE_CENTRAL_SNAPSHOT = "centralSnapshot"
-const val CENTRAL_SNAPSHOT_URL = "https://central.sonatype.com/repository/maven-snapshots/"
 ```
 
-- [ ] **Step 2: 模式解析**
+- [ ] **Step 2: 补齐本机任务与校验**
 
 规则：
 
@@ -300,13 +324,11 @@ const val CENTRAL_SNAPSHOT_URL = "https://central.sonatype.com/repository/maven-
 - 未显式设置 mode，且版本以 `-SNAPSHOT` 结尾时，默认使用 `centralSnapshot`。
 - release 版本继续默认 `githubPackages`，保持当前兼容行为。
 
-- [ ] **Step 3: repository 配置**
+- [ ] **Step 3: 保持 workflow 与本机行为一致**
 
-新增 `configureCentralSnapshotRepository(...)`，repository name 使用 `CentralSnapshot`。
+Snapshot 模式需要 Central token，但不调用 `CentralPortalClient.manualUpload(...)`；统一 repository name、版本校验和任务命名，避免 workflow-only 行为。
 
-Snapshot 模式需要 Central token，但不调用 `CentralPortalClient.manualUpload(...)`。
-
-- [ ] **Step 4: 任务选择**
+- [ ] **Step 4: 测试失败路径**
 
 单 publication：
 
@@ -320,22 +342,13 @@ publishEnterPublishPublicationToCentralSnapshotRepository
 publishAllPublicationsToCentralSnapshotRepository
 ```
 
-- [ ] **Step 5: 测试**
-
-覆盖：
-
-- `1.2.3-SNAPSHOT` 生成 CentralSnapshot repository task。
-- `remotePublishMode=centralSnapshot` + release version 失败。
-- Snapshot 成功路径不调用 manual upload。
+覆盖：release 版本误用 snapshot 模式、snapshot 误路由 GitHub Packages、Central credentials 缺失和不调用 manual upload。
 
 ## Task 5: 一键配置体验增强
 
 **Files:**
 
 - Modify: `scripts/configure-publish-offline.sh`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ConfigurePublishTask.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/config/PublishConfig.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/config/PublishConfigTemplateWriter.kt`
 - Modify: `skills/enter-publish-config/SKILL.md`
 - Modify: `skills/enter-publish-config/references/publish-config-workflow.md`
 - Test: `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
@@ -343,7 +356,7 @@ publishAllPublicationsToCentralSnapshotRepository
 
 - [ ] **Step 1: 增加配置摘要输出**
 
-`configurePublish` 成功后输出：
+离线配置入口和 `enter-publish-config` Skill 完成后输出：
 
 - module path。
 - publish target。
@@ -366,7 +379,7 @@ publishAllPublicationsToCentralSnapshotRepository
 
 - [ ] **Step 3: 明确 Linux 支持策略**
 
-当前脚本是 bash 实现，Linux 理论可运行。需要在脚本和 README 中明确：
+当前脚本是 bash 实现，Linux 理论可运行。需要在脚本、README 和 Skill 中明确：
 
 - macOS: supported。
 - Linux: supported when bash, Java, Gradle wrapper, gh, gpg are available。
@@ -394,7 +407,7 @@ publishAllPublicationsToCentralSnapshotRepository
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishConfigResolver.kt`
 - Create: `plugin_base/src/main/kotlin/custom/android/plugin/CentralPortalBundle.kt`
 - Modify: `plugin_base/src/main/kotlin/custom/android/plugin/CentralPortalClient.kt`
-- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryRemoteTask.kt`
+- Modify: `plugin_base/src/main/kotlin/custom/android/plugin/ExplicitPublishTask.kt`
 - Test: `plugin_base/src/test/java/custom/android/plugin/PublishPluginFunctionalTest.java`
 - Docs: `README.md`
 
@@ -594,7 +607,7 @@ strategy:
 删除 workflow 前必须确认包含生成标记：
 
 ```text
-# Generated by PublishPlugin configurePublish
+# Generated by PublishPlugin one-click publish
 ```
 
 缺少标记时输出 warning，不删除。
@@ -606,7 +619,7 @@ strategy:
 - Modify: `skills/enter-publish-config/SKILL.md`
 - Modify: `skills/enter-publish-config/references/publish-config-workflow.md`
 - Modify: `skills/enter-publish-run/SKILL.md`
-- Create: `doc/skills/publish-skills.md`
+- Modify: `doc/skills/publish-skills.md`（该文件已由 PR #18 创建）
 - Modify: `README.md`
 - Modify: `doc/tech/publish-one-click-config-plan.md`
 - Modify: `doc/plan.md`
@@ -619,7 +632,7 @@ strategy:
 
 - 默认 remote publish mode 是 `githubPackages`。
 - reusable workflow 是 `.github/workflows/publish.yml`。
-- 默认 generated workflow marker 是 `# Generated by PublishPlugin configurePublish`。
+- 默认 generated workflow marker 是 `# Generated by PublishPlugin one-click publish`。
 - 一键配置字段前缀是 `publish.*`。
 - Skill 目录必须是 `skills/enter-publish-config/` 与 `skills/enter-publish-run/`。
 
@@ -643,6 +656,21 @@ python3 .github/scripts/verify_publishplugin_docs.py
 - skill reference 的行为清单。
 - 本计划的当前基线。
 
+## Task 11: 清理或隔离 legacy 实现
+
+**Files:**
+
+- `plugin_base/src/main/kotlin/custom/android/plugin/PublishLibraryRemoteTask.kt`
+- `plugin_base/src/main/kotlin/custom/android/plugin/GeneratePublishConfigTask.kt`
+- `plugin_base/src/main/kotlin/custom/android/plugin/ConfigurePublishTask.kt`
+- `plugin_base/src/main/kotlin/custom/android/plugin/RollbackPublishSecretsTask.kt`
+- `plugin_base/src/test/java/custom/android/plugin/OneClickPublishTaskFunctionalTest.java`
+- 相关 tech 文档中的旧任务示例
+
+- [x] 确认这些类仍需短期保留以支持源码迁移，因此标记为 `internal`/`@Deprecated`，禁止重新注册为公开 task。
+- [x] 补充“不会参与发布运行时”的实现约束；公开 task 仍只由 `PublishPlugin` 注册。
+- [ ] 清理 `doc/tech/` 与 README 中仍把旧 task 当作正式入口的示例，保留一份集中迁移说明。
+
 ## 验收命令
 
 每个功能任务完成后至少运行：
@@ -659,7 +687,7 @@ python3 .github/scripts/reusable_publish_workflow_test.py
 
 ```bash
 ./gradlew :plugin_base:test --tests custom.android.plugin.OneClickPublishTaskFunctionalTest --stacktrace
-scripts/configure-publish-offline.sh :demo-lib --generate-only -- --stacktrace
+scripts/configure-publish-offline.sh :demo-lib --component-type library --publish-target local
 ```
 
 涉及 workflow 时追加：
@@ -687,7 +715,7 @@ python3 .github/scripts/reusable_publish_workflow_test.py
 ## 风险控制
 
 - 不删除或重命名现有 `PublishInfo` 字段。
-- 不改变 `PublishLibraryLocalTask` / `PublishLibraryRemoteTask` 任务名。
+- 显式任务 API 的移除属于 PR #18 已确认的破坏性变更；后续只维护迁移文档，不恢复 `PublishLibraryRemoteTask` 或旧配置任务别名。
 - `githubPackages` 继续作为默认远程发布模式；Central 必须显式选择。
 - 新字段必须有默认值；远程必需项只在 remote publish、check task 或 configure task 中校验。
 - `local.properties` 只承载仓库级配置和一次性 secret 输入，不承载组件坐标。
@@ -709,4 +737,5 @@ python3 .github/scripts/reusable_publish_workflow_test.py
 7. Task 7: Variant DSL 增强。
 8. Task 9: 发布安全与回退增强。
 9. Task 10: Skill 与文档一致性。
-10. Task 6: Central Portal 原生 Publisher API。
+10. Task 11: 清理或隔离 legacy 实现。
+11. Task 6: Central Portal 原生 Publisher API。

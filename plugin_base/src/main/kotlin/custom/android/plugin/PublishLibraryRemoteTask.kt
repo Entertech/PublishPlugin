@@ -6,7 +6,13 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.process.ExecSpec
 
 
-open class PublishLibraryRemoteTask : BasePublishTask() {
+/**
+ * Legacy implementation retained only so older compiled callers can be migrated
+ * without reintroducing the task. It is intentionally not registered by
+ * [PublishPlugin].
+ */
+@Deprecated("Removed from the public task API; use PublishLibraryRemoteGithubPackagesTask or PublishLibraryRemoteCentralTask")
+internal open class PublishLibraryRemoteTask : BasePublishTask() {
 
     companion object {
         const val TAG = "PublishLibraryRemoteTask"

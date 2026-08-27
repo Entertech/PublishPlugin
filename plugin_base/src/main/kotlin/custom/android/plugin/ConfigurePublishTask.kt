@@ -7,7 +7,9 @@ import org.gradle.api.GradleException
 import org.gradle.api.tasks.TaskAction
 import java.io.File
 
-open class ConfigurePublishTask : DefaultTask() {
+/** Legacy configuration task kept only for source migration; never registered. */
+@Deprecated("Configuration tasks were removed from the public task API; use enter-publish-config")
+internal open class ConfigurePublishTask : DefaultTask() {
     init {
         group = "customPlugin"
         description = "Validate PublishInfo and configure GitHub secrets/workflow for publishing."

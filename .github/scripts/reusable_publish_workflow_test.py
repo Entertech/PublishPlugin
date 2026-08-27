@@ -62,19 +62,21 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("artifactSource=prebuilt", publish)
 
     def test_release_publish_can_sync_readme(self):
+        text = workflow_text()
         sync = step_block("Sync README for release")
         commit = step_block("Commit README sync")
 
-        self.assertIn("inputs.sync_readme", sync)
-        self.assertIn("inputs.publish_mode == 'release'", sync)
-        self.assertIn("inputs.version != ''", sync)
+        self.assertIn("needs.publish.result == 'success'", text)
+        self.assertIn("inputs.sync_readme", text)
+        self.assertIn("inputs.publish_mode == 'release'", text)
+        self.assertIn("inputs.version != ''", text)
         self.assertIn("README_GITHUB_PACKAGES_URL", sync)
         self.assertIn("maven.pkg.github.com", sync)
         self.assertIn("cn.entertech.android:publish:{version}", sync)
         self.assertIn("buildscript", sync)
         self.assertIn("mavenCentral", sync)
         self.assertIn("mavenLocal", sync)
-        self.assertIn("git commit -m \"[codex] Sync README publish config to ${EFFECTIVE_PUBLISH_VERSION} [skip ci]\"", commit)
+        self.assertIn("git commit -m \"[codex] Sync README publish config to ${PUBLISH_VERSION} [skip ci]\"", commit)
         self.assertIn("git push", commit)
 
     def test_central_publish_inputs_are_forwarded(self):
@@ -96,6 +98,19 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("PUBLISH_TARGET\" == \"all\"", publish)
         self.assertIn("CENTRAL_USERNAME", publish)
         self.assertIn("SIGNING_PASSWORD", publish)
+
+    def test_publish_permissions_and_secret_scope_are_minimal(self):
+        text = workflow_text()
+        publish = step_block("Publish prepared or project artifacts")
+
+        self.assertIn("permissions:\n  contents: read\n  packages: write", text)
+        self.assertIn("inputs.publish_target == 'central'", publish)
+        self.assertIn("inputs.publish_target == 'all'", publish)
+        self.assertIn("inputs.publish_target == 'github_packages'", publish)
+        self.assertIn("secrets.GITHUB_PACKAGES_TOKEN || github.token", publish)
+        self.assertIn("secrets.GPG_KEY_CONTENTS || ''", publish)
+        self.assertIn("secrets.SIGNING_PASSWORD || ''", publish)
+        self.assertIn("permissions:\n      contents: write", text)
 
 
 if __name__ == "__main__":
