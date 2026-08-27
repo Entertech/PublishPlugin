@@ -18,7 +18,7 @@ java {
 }
 
 group = "cn.entertech.android"
-val baseVersion = "1.2.4"
+val baseVersion = "2.0.0"
 val requestedTaskNames = generateSequence(gradle) { currentGradle -> currentGradle.parent }
     .flatMap { currentGradle -> currentGradle.startParameter.taskNames.asSequence() }
 val localPublishRequested = requestedTaskNames.any { taskName ->
