@@ -67,7 +67,7 @@ internal open class PublishLibraryRemoteTask : BasePublishTask() {
         val publishInfo = project.extensions.getByType(PublishInfo::class.java)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
         if (mode == PublishConfigResolver.MODE_CENTRAL || mode == PublishConfigResolver.MODE_CENTRAL_SNAPSHOT) {
-            return PublishConfigResolver.resolveCentralRepositoryUrl(project)
+            return PublishConfigResolver.resolveCentralRepositoryUrl(project, publishInfo)
         }
         val repositoryName = if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
             PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)

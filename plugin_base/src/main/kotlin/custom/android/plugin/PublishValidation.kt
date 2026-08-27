@@ -33,7 +33,16 @@ object PublishValidation {
         val publications = publications(project)
         val version = PublishConfigResolver.resolveVersion(project, publishInfo)
         val repositories = project.extensions.findByType(PublishRepositories::class.java)
-        val mode = target.modeName()
+        val mode = when (target) {
+            ExplicitPublishTarget.CENTRAL -> {
+                if (PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)) {
+                    PublishConfigResolver.MODE_CENTRAL_SNAPSHOT
+                } else {
+                    target.modeName()
+                }
+            }
+            else -> target.modeName()
+        }
 
         if (version.isBlank()) errors += "PublishInfo.version or publishVersion is required for remote publishing"
         if (target != ExplicitPublishTarget.LOCAL && version.contains("debug", ignoreCase = true)) {
