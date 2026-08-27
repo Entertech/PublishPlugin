@@ -37,6 +37,7 @@ jobs:
       - name: Run TestKit compatibility checks
         run: |
           gradle :plugin_base:test \
+            -PpluginBaseOnly=true \
             -DtestGradleVersion="${{ matrix.gradle }}" \
             -DtestAgpVersion="${{ matrix.agp }}" \
             --stacktrace

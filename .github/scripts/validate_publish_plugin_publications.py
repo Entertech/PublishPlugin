@@ -92,7 +92,13 @@ def main() -> None:
     plugin_pom = load_pom(publications / "pluginMaven/pom-default.xml")
     marker_pom = load_pom(publications / "publishPluginMarkerMaven/pom-default.xml")
 
-    version = assert_coordinates(plugin_pom, GROUP_ID, ARTIFACT_ID, r"\d+\.\d+\.\d+", "pluginMaven")
+    version = assert_coordinates(
+        plugin_pom,
+        GROUP_ID,
+        ARTIFACT_ID,
+        r"\d+\.\d+\.\d+(?:-local)?",
+        "pluginMaven",
+    )
     assert_central_metadata(plugin_pom, "pluginMaven")
 
     assert_coordinates(

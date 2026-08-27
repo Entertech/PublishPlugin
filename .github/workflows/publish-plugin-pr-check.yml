@@ -135,8 +135,8 @@ jobs:
 
       - name: Run required Gradle tasks
         run: |
-          ./gradlew :plugin_base:build --stacktrace
-          ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+          ./gradlew :plugin_base:build -PpluginBaseOnly=true --stacktrace
+          ./gradlew :plugin_base:publishToMavenLocal -PpluginBaseOnly=true --stacktrace
           python3 .github/scripts/validate_publish_plugin_publications.py
           python3 .github/scripts/sync_readme_publish_version.py --check
 
@@ -167,6 +167,7 @@ jobs:
       - name: Run supported compatibility tests
         run: |
           gradle :plugin_base:test \
+            -PpluginBaseOnly=true \
             -DtestGradleVersion="${{ matrix.gradle }}" \
             -DtestAgpVersion="${{ matrix.agp }}" \
             --stacktrace

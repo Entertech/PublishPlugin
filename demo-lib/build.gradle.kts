@@ -46,7 +46,7 @@ android {
 PublishInfo {
     groupId = "cn.entertech.android"
     artifactId = baseArtifactId
-    version = "1.0.2"
+    version = "1.0.3"
 
     pomName = "Entertech Publish Demo Library"
     pomDescription = "Android Library demo for cn.entertech.publish with multiple release variants."

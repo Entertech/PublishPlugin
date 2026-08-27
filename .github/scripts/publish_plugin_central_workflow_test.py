@@ -129,6 +129,11 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         self.assertNotIn("sync_readme_publish_version.py", snapshot)
         self.assertNotIn("git tag", snapshot)
 
+    def test_plugin_build_steps_isolate_unpublished_demo_consumers(self):
+        text = workflow_text()
+
+        self.assertIn("-PpluginBaseOnly=true", text)
+
 
 class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
     def test_version_bump_only_runs_when_plugin_base_changed(self):

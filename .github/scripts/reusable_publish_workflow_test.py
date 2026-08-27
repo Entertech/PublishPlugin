@@ -29,6 +29,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
             text = workflow.read_text(encoding="utf-8")
             self.assertIn("gradle-version: ${{ matrix.gradle }}", text)
             self.assertIn("gradle :plugin_base:test", text)
+            self.assertIn("-PpluginBaseOnly=true", text)
             self.assertNotIn(
                 "./gradlew :plugin_base:test \\\n"
                 "            -DtestGradleVersion=\"${{ matrix.gradle }}\"",

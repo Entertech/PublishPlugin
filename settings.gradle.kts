@@ -16,7 +16,13 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "EnterTechPlugin"
-include(":app")
 include(":plugin_base")
-include(":demo-lib")
-include(":demo-plugin")
+
+// Plugin-only CI must not configure demos that consume APIs from the plugin
+// version currently being built but not published yet.
+val pluginBaseOnly = providers.gradleProperty("pluginBaseOnly").orNull?.toBoolean() ?: false
+if (!pluginBaseOnly) {
+    include(":app")
+    include(":demo-lib")
+    include(":demo-plugin")
+}
