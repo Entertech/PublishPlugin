@@ -62,6 +62,30 @@ PublishRepositories {
 A dedicated remote task requires its provider to be enabled. `all` requires at
 least one enabled provider.
 
+## Legacy-field migration
+
+When the target project still has a previous PublishPlugin configuration, do
+not preserve it for runtime compatibility. Read each old value, write the new
+configuration, and delete the old key in the same edit. Never print secret
+values.
+
+| Legacy location/key | New location |
+| --- | --- |
+| `publish.groupId`, `publish.artifactId`, `publish.version`, `publish.pluginId`, `publish.implementationClass`, and other component/POM fields | Module `PublishInfo { ... }`. `obfuscate` becomes `hasSource = !obfuscate`. |
+| `publish.githubRepo`, `publish.githubPackagesRepository`, `publish.githubPackagesUrl` | Tracked `PublishRepositories.githubPackages` (`repository`, `repositoryUrl`) or the matching reusable-workflow inputs. |
+| `publish.centralNamespace`, `publish.centralPublishingType`, `publish.centralRepositoryName` | Tracked `PublishRepositories.central` (`namespace`, `publishingType`, `releaseRepositoryName`). |
+| `publish.mavenCentralUsername`, `publish.mavenCentralPassword`, `publish.gpgKeyFile`, `publish.signingKeyId`, `publish.signingPassword`; same keys under `centralPublish.*` | Ignored `.publish/local.properties`: `publish.local.central.username`, `.password`, `.signingKeyFile`, `.signingKeyId`, `.signingPassword`. |
+| `publishTarget`, `Publish*RemoteTask`, or old task aliases | Workflow `publish_target` and the matching explicit task: `github_packages` → `RemoteGithubPackagesTask`, `central` → `RemoteCentralTask`, `all` → `RemoteAllTask`; use `Plugin` instead of `Library` for plugin modules. |
+| `githubActions`, `workflowPath`, `workflowUses`, and custom secret-name fields | A tracked caller workflow using the reusable workflow's fixed inputs/secrets. |
+| `dryRun`, `overwriteGithubSecrets`, `gpgGenerate`, and GPG key-generation fields | Delete and report as removed; they are not part of the new runtime contract. |
+
+The migration is complete only when searches of the configured files find no
+legacy keys or generic task references. If a legacy secret is in a tracked
+file, remove it from that file, keep the replacement local file ignored, and
+tell the user to rotate the exposed credential before committing. If both old
+and new keys are present, keep the new value, delete the old key, and report the
+conflict without printing either value.
+
 ## Local execution configuration
 
 Use ignored `.publish/local.properties` only:

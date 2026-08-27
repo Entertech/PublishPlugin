@@ -43,6 +43,36 @@ Read [references/publish-config-workflow.md](references/publish-config-workflow.
 when configuring task selection, local credentials, GitHub Actions, or prebuilt
 artifact manifests.
 
+## Legacy configuration migration
+
+The plugin runtime does not support legacy fields or task aliases. This skill
+does support projects that still contain them: detect legacy entries during
+configuration and replace them in the same pass. Do not leave a legacy key as
+a fallback, create a compatibility alias, or ask the release skill to interpret
+it later.
+
+Scan module build files, root `local.properties`, existing `publish.*` or
+`centralPublish.*` properties files, and caller workflows. Move values to the
+new location, then remove the old entry and update task/workflow references:
+
+| Legacy input | Replace with |
+| --- | --- |
+| Component fields in properties (`groupId`, `artifactId`, `version`, `pluginId`, `implementationClass`, POM fields, `hasSource`/`obfuscate`) | The module `PublishInfo` block; convert `obfuscate` to `hasSource = !obfuscate`. |
+| `publish.githubRepo`, `publish.githubPackagesRepository`, `publish.githubPackagesUrl` | `PublishRepositories.githubPackages { repository = ...; repositoryUrl = ... }` (and the equivalent reusable-workflow inputs when needed). |
+| `publish.centralNamespace`, `publish.centralPublishingType`, `publish.centralRepositoryName` | `PublishRepositories.central { namespace = ...; publishingType = ...; releaseRepositoryName = ... }`. |
+| `publish.mavenCentralUsername`, `publish.mavenCentralPassword`, `publish.gpgKeyFile`, `publish.signingKeyId`, `publish.signingPassword` (including `centralPublish.*`) | Ignored `.publish/local.properties` keys `publish.local.central.username`, `.password`, `.signingKeyFile`, `.signingKeyId`, `.signingPassword`. |
+| `publishTarget` and generic `Publish*RemoteTask` invocations | Explicit workflow `publish_target` and the matching task: `github_packages` → `RemoteGithubPackagesTask`, `central` → `RemoteCentralTask`, `all` → `RemoteAllTask`; use `Plugin` instead of `Library` for plugin modules. |
+| `githubActions`, `workflowPath`, `workflowUses`, GitHub secret-name fields | A tracked caller workflow plus repository Secrets; never copy secret values into tracked files. |
+| `dryRun`, `overwriteGithubSecrets`, `gpgGenerate` and GPG key-generation fields | Remove them from project configuration; they have no runtime equivalent in the new contract. Report their removal, and never generate keys or secrets as part of this skill. |
+
+When a legacy sensitive value is found, move it without printing the value and
+report the destination key. If the source file is tracked or would expose a
+secret, stop before committing and require the value to be rotated or removed;
+the generated local file must remain ignored and untracked. After migration,
+run non-publishing checks and report every removed legacy key and its new
+destination. If both legacy and new keys exist, keep the new key's value,
+remove the legacy key, and report the conflict without printing either value.
+
 ## Public task contract
 
 Configuration must target exactly four PublishPlugin tasks per module:
