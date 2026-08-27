@@ -19,7 +19,9 @@ java {
 
 group = "cn.entertech.android"
 val baseVersion = "1.2.4"
-val localPublishRequested = gradle.startParameter.taskNames.any { taskName ->
+val requestedTaskNames = generateSequence(gradle) { currentGradle -> currentGradle.parent }
+    .flatMap { currentGradle -> currentGradle.startParameter.taskNames.asSequence() }
+val localPublishRequested = requestedTaskNames.any { taskName ->
     val shortTaskName = taskName.substringAfterLast(":")
     shortTaskName == "publishToMavenLocal" || shortTaskName.endsWith("PublicationToMavenLocal")
 }

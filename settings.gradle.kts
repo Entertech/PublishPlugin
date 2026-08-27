@@ -1,4 +1,6 @@
 pluginManagement {
+    includeBuild("plugin_base")
+
     repositories {
         mavenLocal()
         google()
@@ -16,10 +18,9 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "EnterTechPlugin"
-include(":plugin_base")
 
-// Plugin-only CI must not configure demos that consume APIs from the plugin
-// version currently being built but not published yet.
+// Plugin-only CI does not need to configure the consumer examples. The plugin
+// itself remains available as the included build at :plugin_base.
 val pluginBaseOnly = providers.gradleProperty("pluginBaseOnly").orNull?.toBoolean() ?: false
 if (!pluginBaseOnly) {
     include(":app")
