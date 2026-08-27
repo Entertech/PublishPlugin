@@ -1,52 +1,168 @@
 # PublishPlugin
 
-`PublishPlugin` 为 Android Library 与 Gradle Plugin 模块生成 Maven
-publication，并提供明确的本地/远程发布任务。任务、配置和制品来源按
-[PRD](doc/prd/publish-task-config-redesign-prd.md) 与
-[技术方案](doc/tech/publish-task-config-redesign-plan.md) 分层。
+`PublishPlugin` 是 Enter/Flowtime Android 项目的发布编排插件。它为 Android
+Library 和 Gradle Plugin 模块生成标准 Maven publications，并把“组件类型、
+发布目标、执行环境、产物来源”拆成清晰的配置和任务边界。
 
-## 公开任务
+它适合以下场景：
+
+- 在本机把 Library 或 Gradle Plugin 发布到 Maven Local；
+- 从本机或 GitHub Actions 发布到 GitHub Packages 或 Sonatype Central Portal；
+- 直接发布已经准备好的 AAR/JAR、POM、sources、javadoc、签名和校验文件；
+- 在不把凭据写入仓库的前提下，为业务模块生成可审查的发布配置。
+
+PublishPlugin 负责 publication 和发布编排，不负责聚合多个业务模块，也不把
+凭据或一次性发布参数写入 Android 根目录的 `local.properties`。
+
+## 能力边界
+
+发布行为由四个互相独立的维度决定：
+
+| 维度 | 支持值 | 说明 |
+| --- | --- | --- |
+| 组件类型 | `library`、`plugin` | Android Library 或 Gradle Plugin。 |
+| 执行环境 | `local`、`github_actions` | 本机执行，或由 GitHub Actions runner 执行。 |
+| 发布目标 | `local`、`github_packages`、`central`、`all` | Maven Local、GitHub Packages、Central，或所有已启用的远程 provider。 |
+| 产物来源 | `project`、`prebuilt` | 当前工程生成 publication，或消费指定目录中的预制产物。 |
+
+几个重要约束：
+
+- GitHub Actions 不把 Maven Local 作为正式交付目标；`github_actions + local`
+  无效。
+- 远程任务只发布显式启用的 provider；`all` 不承诺跨仓库事务性。
+- 预制模式不会运行当前工程的 `compile`、`assemble`、`bundle`、`jar` 等打包任务。
+- workflow 只接受 allowlist 中的组件类型和目标，不接受任意 Gradle task 字符串。
+- 凭据只能来自环境变量、Gradle property、ignored 的本机配置文件或 GitHub
+  Secrets，不能提交到仓库。
+
+详细的需求、迁移约束和验收标准见
+[发布任务与一键配置重构 PRD](doc/prd/publish-task-config-redesign-prd.md)；
+实现边界见[技术方案](doc/tech/publish-task-config-redesign-plan.md)。
+
+## 快速开始
+
+### 1. 引入插件
+
+在根工程的 `build.gradle.kts` 中声明插件依赖。版本以本仓库当前发布版本为例：
+
+```kotlin
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        mavenLocal()
+    }
+
+    dependencies {
+        classpath("cn.entertech.android:publish:1.2.3")
+    }
+}
+```
+
+### 2. 配置 Android Library
+
+```kotlin
+plugins {
+    id("com.android.library")
+    id("cn.entertech.publish")
+}
+
+PublishInfo {
+    groupId = "cn.example.android"
+    artifactId = "example-library"
+    version = "2.0.0"
+
+    // 开源组件需要发布真实源码；闭源组件可保持默认 false。
+    hasSource = true
+}
+```
+
+### 3. 配置 Gradle Plugin
+
+```kotlin
+plugins {
+    id("cn.entertech.publish")
+    `java-gradle-plugin`
+}
+
+PublishInfo {
+    groupId = "cn.example.gradle"
+    artifactId = "example-plugin"
+    version = "2.0.0"
+    pluginId = "cn.example.plugin"
+    implementationClass = "cn.example.plugin.ExamplePlugin"
+}
+```
+
+### 4. 先做本地发布验证
+
+Library 和 Gradle Plugin 使用不同的任务名：
+
+```bash
+# Library
+./gradlew :library:PublishLibraryLocalTask
+
+# Gradle Plugin
+./gradlew :plugin:PublishPluginLocalTask
+```
+
+工程模式下，本地发布版本会追加 `-local`，例如：
+`cn.example.android:example-library:2.0.0-local`。
+
+## 公开任务 API
 
 每个应用 `cn.entertech.publish` 的模块只注册以下四个 `customPlugin` 任务：
 
-| 组件 | 本地 | 全部远程 | GitHub Packages | Central |
+| 组件 | Maven Local | 所有已启用远程仓库 | GitHub Packages | Central |
 | --- | --- | --- | --- | --- |
 | Library | `PublishLibraryLocalTask` | `PublishLibraryRemoteAllTask` | `PublishLibraryRemoteGithubPackagesTask` | `PublishLibraryRemoteCentralTask` |
 | Plugin | `PublishPluginLocalTask` | `PublishPluginRemoteAllTask` | `PublishPluginRemoteGithubPackagesTask` | `PublishPluginRemoteCentralTask` |
 
-旧的 `PublishLibraryRemoteTask`、`generatePublishConfig`、
-`configurePublish`、rollback task 及其别名不再注册。Gradle/AGP 自身的标准
-任务仍可存在，但不属于 PublishPlugin 的公开任务集合。
+远程任务的目标由任务名决定，不再通过一个通用任务和 `publishTarget` 猜测。
+Gradle、Android Gradle Plugin、`maven-publish` 和 `signing` 自身生成的标准任务
+仍可能存在，但不属于 PublishPlugin 的公开任务集合。
 
-## 配置边界
+以下历史任务不再注册：
 
-模块坐标、POM 元数据和 variant 规则写在模块 `PublishInfo`：
+- `PublishLibraryRemoteTask`；
+- `generatePublishConfig`、`configurePublish`；
+- `rollbackPublishSecrets`；
+- 上述任务的大小写别名和 Central 别名。
 
-```kotlin
-PublishInfo {
-    groupId = "cn.entertech.android"
-    artifactId = "demo-lib"
-    version = "2.0.0"
-}
-```
+这是一次公开任务 API 的破坏性变更。旧任务调用方请按目标迁移到对应的
+`PublishLibraryRemote*Task` 或 `PublishPluginRemote*Task`。
 
-非敏感远程仓库选择写在可提交的 DSL：
+## 共享配置与凭据隔离
+
+### 组件和仓库配置
+
+组件坐标、POM 元数据和 variant 规则写在模块 `PublishInfo`。非敏感的远程仓库
+选择写在可提交的 `PublishRepositories` DSL：
 
 ```kotlin
 PublishRepositories {
     githubPackages {
         enabled = true
-        repository = "Entertech/demo-lib"
+        repository = "OWNER/example-library"
+        // 也可以显式指定 repositoryUrl / repositoryName。
     }
+
     central {
         enabled = true
-        namespace = "cn.entertech"
+        namespace = "cn.example"
         publishingType = "user_managed"
     }
 }
 ```
 
-本机凭据只放在 ignored `.publish/local.properties`：
+启用专用远程任务前，必须启用对应 provider；`RemoteAllTask` 至少需要一个已启用
+的远程 provider。Central 的 `groupId`（以及预制 manifest 中的 publication）
+必须位于配置的 namespace 下。
+
+### 本机凭据
+
+本机持久化配置使用 ignored 的
+[`.publish/local.properties.example`](.publish/local.properties.example) 作为模板：
 
 ```properties
 publish.local.githubPackages.username=
@@ -58,76 +174,201 @@ publish.local.central.signingKeyId=
 publish.local.central.signingPassword=
 ```
 
-解析优先级为 Gradle property > 环境变量 > `.publish/local.properties`。
-根目录 Android `local.properties` 不再参与发布配置；GitHub Actions 只使用
-workflow inputs 和 repository Secrets。
-
-## 发布与打包分离
-
-默认 `artifactSource=project` 使用当前工程的标准 publication 任务。需要
-直接发布已有 AAR/JAR 时使用 `artifactSource=prebuilt` 和项目内相对目录：
+需要持久化本机配置时复制模板（生成文件已被 `.gitignore` 忽略）：
 
 ```bash
-./gradlew :library:PublishLibraryRemoteCentralTask \
+cp .publish/local.properties.example .publish/local.properties
+```
+
+推荐优先使用环境变量；本机文件只用于本机执行，必须保持未跟踪且被
+`.gitignore` 忽略。根目录 Android `local.properties` 不参与新的发布解析，也不会
+被 PublishPlugin 写入发布字段。
+
+常用环境变量：
+
+| 目标 | 环境变量 |
+| --- | --- |
+| GitHub Packages 用户名 | `GITHUB_PACKAGES_USER` 或 `GITHUB_ACTOR` |
+| GitHub Packages token | `GITHUB_PACKAGES_TOKEN` 或 `GITHUB_TOKEN` |
+| Central 用户名 | `CENTRAL_USERNAME` 或 `MAVEN_CENTRAL_USERNAME` |
+| Central 密码/token | `CENTRAL_PASSWORD` 或 `MAVEN_CENTRAL_PASSWORD` |
+| GPG 私钥 | `GPG_KEY_CONTENTS` 或 `SIGNING_IN_MEMORY_KEY` |
+| GPG key ID | `SIGNING_KEY_ID`（可选） |
+| GPG 密码 | `SIGNING_PASSWORD` 或 `SIGNING_IN_MEMORY_KEY_PASSWORD` |
+
+解析优先级按用途区分：显式 Gradle property/CI input 优先于环境变量和 DSL；本机
+敏感值按 `Gradle property > 环境变量 > .publish/local.properties` 解析；GitHub
+Actions 不回退到本机配置文件。
+
+## 发布到远程仓库
+
+### GitHub Packages
+
+启用 `PublishRepositories.githubPackages` 后执行对应任务：
+
+```bash
+GITHUB_PACKAGES_USER="OWNER" \
+GITHUB_PACKAGES_TOKEN="<token>" \
+./gradlew :library:PublishLibraryRemoteGithubPackagesTask
+```
+
+也可以使用 `-PgithubPackagesRepository=OWNER/example-library` 或
+`-PgithubPackagesUrl=https://maven.pkg.github.com/OWNER/example-library` 显式覆盖
+仓库位置。
+
+### Central Portal
+
+Central release 需要 namespace、完整 POM/SCM 元数据、Central 凭据和 GPG 签名。
+发布流程先上传 Maven layout 到 Central staging，再提交 Central Portal deployment；
+snapshot 版本按 Central snapshot 规则处理。
+
+```bash
+CENTRAL_USERNAME="<central-token-username>" \
+CENTRAL_PASSWORD="<central-token-password>" \
+GPG_KEY_CONTENTS="<armored-private-key>" \
+SIGNING_PASSWORD="<gpg-password>" \
+./gradlew :library:PublishLibraryRemoteCentralTask
+```
+
+正式远程发布会拒绝包含 `debug` 的版本。发布失败不会自动重试；使用
+`Publish*RemoteGithubPackagesTask` 或 `Publish*RemoteCentralTask` 对单个 provider
+重试更安全。
+
+### 同时发布到多个远程仓库
+
+```bash
+./gradlew :library:PublishLibraryRemoteAllTask
+```
+
+`RemoteAllTask` 按已启用 provider 依次执行。远程仓库之间没有事务性：如果前一个
+provider 成功、后一个失败，任务会报告部分成功状态，后续应使用失败 provider 的
+专用任务重试。
+
+## 预制产物发布
+
+当 AAR/JAR 已由其他 job 或其他构建系统产出时，使用 `artifactSource=prebuilt`：
+
+```bash
+./gradlew :library:PublishLibraryRemoteGithubPackagesTask \
   -PartifactSource=prebuilt \
   -PartifactBundlePath=release-artifacts/library
 ```
 
-目录必须包含 `publish-artifacts.json`。manifest 明确声明坐标、packaging、
-文件 role、相对路径、大小和 SHA-256；不能按文件名猜坐标。Central release
-至少需要 main、POM、sources、javadoc 和完整签名文件。预制模式不会执行
-compile、assemble、bundle、jar 等当前工程打包任务，也不会上传 manifest 之外
-的文件。
+目录必须包含 `publish-artifacts.json`。manifest 明确声明每个 publication 的：
+
+- `groupId`、`artifactId`、`version`、`packaging`；
+- `main`、`pom`、`gradle_module`、`sources`、`javadoc`、`signature`、`checksum`
+  等文件 role；
+- 项目根目录内的相对路径、文件大小和 SHA-256。
+
+发布器会在网络请求前校验 manifest、文件存在性、路径边界、大小、哈希和 Central
+所需伴生文件；不会按文件名猜坐标，也不会上传 manifest 之外的文件。Central
+对每个非 POM publication 至少需要 main、POM、sources、javadoc 和签名文件；POM
+publication 需要 POM（或 plugin marker）和签名。
+
+预制产物格式和生成示例见
+[技术方案中的 ArtifactBundle 章节](doc/tech/publish-task-config-redesign-plan.md)。
 
 ## GitHub Actions
 
-可复用 workflow 支持：
+仓库提供可复用 workflow：
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml)。业务仓库应提交
+一个 caller workflow，只保存非敏感编排参数，并通过 `secrets: inherit` 或明确的
+repository/organization Secrets 提供凭据：
 
 ```yaml
-with:
-  module: ":library"
-  component_type: "library"
-  publish_target: "central"
-  artifact_source: "prebuilt"
-  artifact_bundle_path: "release-artifacts/library"
-  artifact_bundle_artifact: ""
+name: Publish Maven
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    uses: Entertech/PublishPlugin/.github/workflows/publish.yml@main
+    secrets: inherit
+    with:
+      module: ":library"
+      component_type: "library"
+      publish_target: "github_packages"
+      publish_mode: "release"
+      version: "2.0.0"
 ```
 
-workflow 对组件类型和目标做固定 allowlist 映射，只调用对应的四个任务之一。
-`artifact_bundle_artifact` 非空时会先下载 Actions artifact；不同 job 不共享
-文件系统，因此下载步骤不能省略。GitHub Actions 不支持把 Maven Local 作为
-正式交付目标。
+使用预制产物时增加：
 
-## 本地脚本
-
-脚本只负责选择明确任务，不写根目录 `local.properties`，也不接受 secret
-参数：
-
-```bash
-scripts/configure-publish-offline.sh :library \
-  --component-type library --publish-target local --run
-
-scripts/configure-publish-offline.sh :library \
-  --component-type library --publish-target central \
-  --artifact-source prebuilt \
-  --artifact-bundle-path release-artifacts/library --run
+```yaml
+      artifact_source: "prebuilt"
+      artifact_bundle_path: "release-artifacts/library"
+      artifact_bundle_artifact: "library-bundle"
 ```
+
+如果产物来自 workflow 的前置 job，必须先用
+`actions/download-artifact` 下载到 `artifact_bundle_path`；不同 job 不共享文件系统。
+workflow 会校验组件类型、目标、版本和产物路径，并只映射到上表中的明确任务。
+`publish_mode=ci` 仅支持 Central，并会为非 snapshot 版本自动追加 `-SNAPSHOT`；
+`publish_mode=release` 拒绝 `-SNAPSHOT` 版本。
+
+完整的分支、PR、预发布和 Central 发布流程见
+[分支与发布工作流](doc/workflow.md)。
 
 ## Codex Skills
 
-仓库提供两个独立入口：`$enter-publish-config` 只配置和校验，
-`$enter-publish-run` 只在明确授权后执行本机或 GitHub Actions 发布。完整的
-选择规则、输入参数和提示词示例见
-[PublishPlugin Codex Skills 使用说明](doc/skills/publish-skills.md)。
+仓库提供两个职责独立的 Codex Skill：
 
-## 示例模块
+| Skill | 作用 | 是否发布 |
+| --- | --- | --- |
+| `$enter-publish-config` | 配置/校验 `PublishInfo`、`PublishRepositories`、本机模板、caller workflow 和 manifest。 | 否 |
+| `$enter-publish-run` | 消费已有配置，在本机执行发布或触发 GitHub Actions。 | 是，必须有明确发布指令 |
 
-- [`demo-lib`](demo-lib/build.gradle.kts)：Android Library、多 flavor release variant。
+推荐先配置、再单独发起发布请求。配置 Skill 不会运行发布任务、上传制品或触发
+workflow；发布 Skill 发现配置缺失时会停止并交回配置 Skill。详细输入、交接模型
+和示例见 [PublishPlugin Codex Skills 使用说明](doc/skills/publish-skills.md)。
+
+## 版本迁移提示
+
+### 1.2.3 的 sources 行为
+
+从 `1.2.2` 升级后，所有目标都会附带 `sources.jar`，但默认
+`PublishInfo.hasSource = false`，其中只包含 README 占位内容；需要公开真实源码的
+组件必须设置：
+
+```kotlin
+PublishInfo {
+    hasSource = true
+}
+```
+
+兼容字段 `obfuscate` 仍可使用，但语义相反：`obfuscate = true` 等于
+`hasSource = false`。完整变更记录见 [doc/changelog.md](doc/changelog.md)。
+
+### 任务和配置迁移
+
+| 旧用法 | 新用法 |
+| --- | --- |
+| `PublishLibraryRemoteTask` | 按目标改为 `PublishLibraryRemoteGithubPackagesTask`、`PublishLibraryRemoteCentralTask` 或 `PublishLibraryRemoteAllTask` |
+| Plugin 模块使用 `PublishLibrary*Task` | 使用 `PublishPlugin*Task` |
+| `generatePublishConfig` / `configurePublish` | 使用 `$enter-publish-config` 或按文档配置 caller workflow |
+| 根目录 `local.properties` 中的发布字段 | 非敏感字段迁入 `PublishRepositories`；本机凭据迁入 `.publish/local.properties`；CI 凭据迁入 GitHub Secrets |
+
+不要为了兼容旧任务而恢复已删除的别名；任务名和配置位置的变更应在升级时一并
+迁移，并在发现旧文件包含凭据时先轮换相关 token/key。
+
+## 仓库示例与开发验证
+
+- [`demo-lib`](demo-lib/build.gradle.kts)：Android Library、多 flavor release variant；
 - [`demo-plugin`](demo-plugin/build.gradle.kts)：Gradle Plugin、plugin marker publication。
 
-提交前运行：
+提交前至少运行：
 
 ```bash
-./gradlew :plugin_base:compileKotlin
-./gradlew :plugin_base:test
+./gradlew :plugin_base:check
+python3 .github/scripts/reusable_publish_workflow_test.py
+./scripts/install-codex-skill.sh --check
+git diff --check
 ```
+
+仓库贡献和分支约束见 [doc/workflow.md](doc/workflow.md)。
