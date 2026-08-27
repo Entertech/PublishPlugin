@@ -88,13 +88,17 @@ bundle 必须至少满足 manifest 中声明的 POM、main artifact、sources、
 uploadBundle
   -> deployment id
   -> waitForDeployment / deploymentStatus
-  -> validated
-  -> user_managed: leave in Portal
-     automatic: publishDeployment
+  -> user_managed: stop at VALIDATED and leave in Portal
+  -> automatic: Central continues automatically; poll until PUBLISHED
 
 failure or operator decision
   -> dropDeployment
 ```
+
+Publisher API 上传使用 `publishingType=USER_MANAGED|AUTOMATIC`；deployment status
+按官方协议通过 `POST /api/v1/publisher/status?id=...` 查询。只有
+`USER_MANAGED` 且已经到达 `VALIDATED` 的 deployment 才能显式调用
+`publishDeployment`。
 
 Client 使用 JDK `HttpURLConnection`，避免增加插件运行时 HTTP 依赖。Authorization 由 Central User Token 生成，响应进入异常或日志前必须脱敏。
 

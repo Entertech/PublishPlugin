@@ -310,6 +310,11 @@ object PublishConfigResolver {
         ).trimEnd('/')
     }
 
+    fun shouldUseCentralPortal(project: Project, publishInfo: PublishInfo): Boolean {
+        return resolveCentralUploadMode(project, publishInfo) == "portalApi" &&
+            !isCentralSnapshotPublish(project, publishInfo)
+    }
+
     fun isCentralSnapshotPublish(project: Project, publishInfo: PublishInfo? = null): Boolean {
         return resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT
     }

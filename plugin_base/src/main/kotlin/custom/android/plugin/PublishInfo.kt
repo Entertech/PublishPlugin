@@ -64,6 +64,7 @@ open class PublishInfo {
         set(value) {
             markExplicit("pluginId")
             field = value
+            notifyPluginDeclarationChanged()
         }
 
     private var hasSourceValue: Boolean = false
@@ -94,6 +95,7 @@ open class PublishInfo {
         set(value) {
             markExplicit("implementationClass")
             field = value
+            notifyPluginDeclarationChanged()
         }
 
     var publishUrl: String = ""
@@ -219,6 +221,7 @@ open class PublishInfo {
     private val publishVariantActions = mutableListOf<(PublishVariantInfo) -> Boolean>()
     private val explicitFields = mutableSetOf<String>()
     private val publishBuildTypeNames = linkedSetOf<String>()
+    private var pluginDeclarationChanged: ((String, String) -> Unit)? = null
 
     /** Build types to publish; release remains the default when this is not configured. */
     var artifactIdPattern: String = ""
@@ -241,6 +244,11 @@ open class PublishInfo {
         return fieldName in explicitFields
     }
 
+    internal fun onPluginDeclarationChanged(action: (String, String) -> Unit) {
+        pluginDeclarationChanged = action
+        notifyPluginDeclarationChanged()
+    }
+
     internal fun hasVariantCoordinateResolvers(): Boolean {
         return artifactIdForVariantAction != null ||
             groupIdForVariantAction != null ||
@@ -255,6 +263,10 @@ open class PublishInfo {
 
     private fun markExplicit(fieldName: String) {
         explicitFields += fieldName
+    }
+
+    private fun notifyPluginDeclarationChanged() {
+        pluginDeclarationChanged?.invoke(pluginId, implementationClass)
     }
 
     fun artifactIdForVariant(action: (PublishVariantInfo) -> String) {

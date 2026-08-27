@@ -19,6 +19,7 @@ import java.util.Enumeration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -236,9 +237,111 @@ public class PublishPluginFunctionalTest {
         assertTrue(content.contains("\"groupId\": \"com.example\""));
         assertTrue(content.contains("\"artifactId\": \"fixture\""));
         assertTrue(content.contains("\"version\": \"1.0.0\""));
+        assertTrue(content.contains("\"name\": \"gradlePluginCreatePluginMarkerMaven\""));
+        assertTrue(content.contains("\"artifactId\": \"com.example.fixture.gradle.plugin\""));
+        assertFalse(content.contains("\"name\": \"pluginMaven\""));
         assertFalse(content.contains("token"));
         assertFalse(content.contains("password"));
         assertTrue(output.contains("no artifacts were uploaded"));
+    }
+
+    @Test
+    public void pluginMarkerDependsOnEnterPublishCoordinates() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                "    artifactId = 'published-fixture'\n",
+                ""
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForGradlePluginCreatePluginMarkerMavenPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        String markerPom = read(projectDir.toPath().resolve(
+                "fixture/build/publications/gradlePluginCreatePluginMarkerMaven/pom-default.xml"
+        ));
+        assertTrue(markerPom.contains("<groupId>com.example</groupId>"));
+        assertTrue(markerPom.contains("<artifactId>published-fixture</artifactId>"));
+        assertFalse(markerPom.contains("<artifactId>fixture</artifactId>"));
+        assertTrue(markerPom.contains("<version>1.0.0</version>"));
+        assertEquals(1, markerPom.split("<dependencies>", -1).length - 1);
+    }
+
+    @Test
+    public void pluginMarkerIsCreatedWhenPublishPluginIsAppliedFirst() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        Path buildFile = projectDir.toPath().resolve("fixture/build.gradle");
+        String buildScript = read(buildFile)
+                .replace(
+                        "    id 'java-gradle-plugin'\n    id 'cn.entertech.publish'\n",
+                        "    id 'cn.entertech.publish'\n    id 'java-gradle-plugin'\n"
+                );
+        Files.write(buildFile, buildScript.getBytes(StandardCharsets.UTF_8));
+
+        gradleRunner(projectDir)
+                .withArguments(":fixture:checkPublish", "-PpublishValidationLevel=structure", "--stacktrace")
+                .build();
+
+        String manifest = read(projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json"));
+        assertTrue(manifest.contains("\"name\": \"gradlePluginCreatePluginMarkerMaven\""));
+    }
+
+    @Test
+    public void centralModeRegistersPluginMarkerSigningTask() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:tasks",
+                        "--all",
+                        "-PcentralPublish=true",
+                        "-PpublishTarget=central",
+                        "-PsigningInMemoryKey=key",
+                        "-PsigningInMemoryKeyPassword=password",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        assertTrue(output.contains("signGradlePluginCreatePluginMarkerMavenPublication"));
+    }
+
+    @Test
+    public void centralStructureCheckValidatesPluginMarkerNamespace() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                centralPublishInfo() + "    pluginId = 'org.other.fixture'\n",
+                ""
+        );
+        Path buildFile = projectDir.toPath().resolve("fixture/build.gradle");
+        Files.write(
+                buildFile,
+                ("\nPublishRepositories {\n"
+                        + "    central {\n"
+                        + "        enabled.set(true)\n"
+                        + "        namespace.set('com.example')\n"
+                        + "    }\n"
+                        + "}\n").getBytes(StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.APPEND
+        );
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:checkPublish",
+                        "-PpublishTarget=central",
+                        "-PpublishValidationLevel=structure",
+                        "--stacktrace"
+                )
+                .buildAndFail()
+                .getOutput();
+
+        assertTrue(output.contains("gradlePluginCreatePluginMarkerMaven=org.other.fixture"));
+        assertTrue(output.contains("must be under centralNamespace(com.example)"));
     }
 
     @Test

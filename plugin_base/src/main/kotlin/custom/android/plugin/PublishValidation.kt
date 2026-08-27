@@ -89,8 +89,15 @@ object PublishValidation {
                 errors += "Release Central publishing cannot use a -SNAPSHOT version"
             }
             if (source == ArtifactSource.PROJECT) {
-                if (publishInfo.groupId != namespace && !publishInfo.groupId.startsWith("$namespace.")) {
-                    errors += "PublishInfo.groupId(${publishInfo.groupId}) must be under centralNamespace($namespace)"
+                val projectPublications = publications.ifEmpty {
+                    listOf(PublishValidationPublication("PublishInfo", publishInfo.groupId, publishInfo.artifactId, version))
+                }
+                val outsideNamespace = projectPublications.filter { publication ->
+                    publication.groupId != namespace && !publication.groupId.startsWith("$namespace.")
+                }
+                if (outsideNamespace.isNotEmpty()) {
+                    errors += "Central publication groups must be under centralNamespace($namespace): " +
+                        outsideNamespace.joinToString { "${it.name}=${it.groupId}" }
                 }
                 val requiredPomFields = mapOf(
                     "pomDescription" to PublishConfigResolver.resolvePomDescription(project, publishInfo),
@@ -176,7 +183,13 @@ object PublishValidation {
     fun publications(project: Project): List<PublishValidationPublication> {
         val publishing = project.extensions.findByType(PublishingExtension::class.java) ?: return emptyList()
         val all = publishing.publications.withType(MavenPublication::class.java).toList()
-        return all.filter { it.name.endsWith(BasePublishTask.MAVEN_PUBLICATION_NAME) }
+        val enterPublications = all.filter { it.name.endsWith(BasePublishTask.MAVEN_PUBLICATION_NAME) }
+        val selected = if (PublishComponentKind.detect(project.plugins) == PublishComponentKind.PLUGIN) {
+            enterPublications + all.filter { it.name.endsWith("PluginMarkerMaven") }
+        } else {
+            enterPublications
+        }
+        return selected.distinctBy { it.name }
             .ifEmpty { all }
             .map { PublishValidationPublication(it.name, it.groupId, it.artifactId, it.version) }
     }

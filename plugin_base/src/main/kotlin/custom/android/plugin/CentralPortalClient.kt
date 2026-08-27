@@ -22,7 +22,7 @@ object CentralPortalClient {
             .uppercase(Locale.ROOT)
         val url = URI(
             "${PublishConfigResolver.resolveCentralPortalApiBaseUrl(project)}/upload" +
-                "?publishing_type=${URLEncoder.encode(publishingType, StandardCharsets.UTF_8.name())}"
+                "?publishingType=${URLEncoder.encode(publishingType, StandardCharsets.UTF_8.name())}"
         ).toURL()
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -35,7 +35,7 @@ object CentralPortalClient {
         connection.outputStream.use { output ->
             output.write("--$boundary\r\n".toByteArray())
             output.write("Content-Disposition: form-data; name=\"bundle\"; filename=\"${bundle.name}\"\r\n".toByteArray())
-            output.write("Content-Type: application/zip\r\n\r\n".toByteArray())
+            output.write("Content-Type: application/octet-stream\r\n\r\n".toByteArray())
             Files.copy(bundle.toPath(), output)
             output.write("\r\n--$boundary--\r\n".toByteArray())
         }
@@ -51,7 +51,7 @@ object CentralPortalClient {
 
     fun deploymentStatus(project: Project, publishInfo: PublishInfo, deploymentId: String): String {
         val encodedId = URLEncoder.encode(deploymentId, StandardCharsets.UTF_8.name())
-        return requestDeployment(project, publishInfo, "/status?id=$encodedId", "GET")
+        return requestDeployment(project, publishInfo, "/status?id=$encodedId", "POST")
     }
 
     fun publishDeployment(project: Project, publishInfo: PublishInfo, deploymentId: String) {
@@ -63,7 +63,8 @@ object CentralPortalClient {
     }
 
     /**
-     * Wait until Central has validated a deployment or reports a terminal failure.
+     * Wait until Central has validated a user-managed deployment, published an automatic
+     * deployment, or reported a terminal failure.
      * The raw status response is returned so callers can include the Portal details
      * in their manifest/logs without exposing credentials.
      */
@@ -76,13 +77,20 @@ object CentralPortalClient {
     ): String {
         require(timeoutMillis >= 0) { "timeoutMillis must be non-negative" }
         require(pollIntervalMillis >= 0) { "pollIntervalMillis must be non-negative" }
+        val successStates = if (
+            PublishConfigResolver.resolveCentralPublishingType(project, publishInfo) == "automatic"
+        ) {
+            setOf("PUBLISHED")
+        } else {
+            setOf("VALIDATED", "PUBLISHED")
+        }
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
         var lastResponse = ""
         while (true) {
             lastResponse = deploymentStatus(project, publishInfo, deploymentId)
             val state = deploymentState(lastResponse)
             when {
-                state in SUCCESS_STATES -> return lastResponse
+                state in successStates -> return lastResponse
                 state in FAILURE_STATES -> {
                     throw GradleException(
                         "Central Portal deployment $deploymentId failed validation: ${sanitize(lastResponse)}"
@@ -152,7 +160,6 @@ object CentralPortalClient {
         val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo)
         val connection = (URI(PublishConfigResolver.resolveCentralPortalApiBaseUrl(project) + path).toURL().openConnection() as HttpURLConnection).apply {
             requestMethod = method
-            doOutput = method == "POST"
             connectTimeout = 30_000
             readTimeout = 60_000
             setRequestProperty("Authorization", publisherAuth(credentials.username, credentials.password))
@@ -179,7 +186,6 @@ object CentralPortalClient {
             .orEmpty()
     }
 
-    private val SUCCESS_STATES = setOf("VALIDATED", "PUBLISHED", "SUCCESS", "COMPLETED")
     private val FAILURE_STATES = setOf("FAILED", "REJECTED", "DROPPED", "ERROR")
 
     private fun sanitize(value: String): String {

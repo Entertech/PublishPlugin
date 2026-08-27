@@ -2,6 +2,7 @@ package custom.android.plugin
 
 import com.android.build.gradle.LibraryExtension
 import custom.android.plugin.BasePublishTask.Companion.MAVEN_PUBLICATION_NAME
+import groovy.util.Node
 import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
@@ -70,10 +71,19 @@ open class PublishPlugin : Plugin<Project> {
         }.configureEach { task ->
             task.doLast { LocalPublishReporter.print(project) }
         }
-        project.extensions.create(
+        val publishInfoExtension = project.extensions.create(
             PublishInfo.EXTENSION_PUBLISH_INFO_NAME, PublishInfo::class.java,
         )
         project.extensions.create("PublishRepositories", PublishRepositories::class.java)
+        project.plugins.withId("java-gradle-plugin") {
+            val pluginDevelopment = project.extensions.getByType(GradlePluginDevelopmentExtension::class.java)
+            pluginDevelopment.isAutomatedPublishing = false
+            val declaration = pluginDevelopment.plugins.maybeCreate("gradlePluginCreate")
+            publishInfoExtension.onPluginDeclarationChanged { pluginId, implementationClass ->
+                if (pluginId.isNotBlank()) declaration.id = pluginId
+                if (implementationClass.isNotBlank()) declaration.implementationClass = implementationClass
+            }
+        }
         project.plugins.withId("com.android.library") {
             configureAndroidSingleVariantPublishing(project)
         }
@@ -87,17 +97,6 @@ open class PublishPlugin : Plugin<Project> {
                     components.forEach {
                     PluginLogUtil.printlnDebugInScreen("$TAG name: ${it.name}")
                         if (it.name == "java") {
-                            val gradlePluginDevelopmentExtension =
-                                project.extensions.getByType(GradlePluginDevelopmentExtension::class.java)
-                            gradlePluginDevelopmentExtension.plugins { namedDomainObjectContainer ->
-                                namedDomainObjectContainer.create("gradlePluginCreate") { pluginDeclaration ->
-                                    // 插件ID
-                                    pluginDeclaration.id = publishInfo.pluginId
-                                    // 插件的实现类
-                                    pluginDeclaration.implementationClass =
-                                        publishInfo.implementationClass
-                                }
-                            }
                             createPublication(
                                 project,
                                 publishing,
@@ -111,6 +110,7 @@ open class PublishPlugin : Plugin<Project> {
                             hasPublication = true
                         }
                     }
+                    configureGradlePluginMarkerPublications(project, publishing, publishInfo)
                 }
                 if (supportLibraryModule(container)) {
                     val publishTargets = resolveAndroidPublishTargets(project, components, publishInfo)
@@ -226,6 +226,53 @@ open class PublishPlugin : Plugin<Project> {
                 }
             }
         }
+    }
+
+    private fun configureGradlePluginMarkerPublications(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo
+    ) {
+        val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo)
+        val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
+        val markerName = "gradlePluginCreatePluginMarkerMaven"
+        val marker = publishing.publications.findByName(markerName) as? MavenPublication
+            ?: publishing.publications.create(markerName, MavenPublication::class.java)
+        marker.groupId = publishInfo.pluginId
+        marker.artifactId = "${publishInfo.pluginId}.gradle.plugin"
+        marker.version = resolvedVersion
+        configurePom(project, marker, publishInfo, marker.artifactId)
+        marker.pom.withXml { xml ->
+            rewritePluginMarkerDependency(
+                xml.asNode(),
+                publishInfo.groupId,
+                publishInfo.artifactId,
+                resolvedVersion
+            )
+        }
+        if (centralPublish) configureSigning(project, marker)
+    }
+
+    private fun rewritePluginMarkerDependency(
+        root: Node,
+        groupId: String,
+        artifactId: String,
+        version: String
+    ) {
+        val dependencies = root.childNode("dependencies") ?: root.appendNode("dependencies")
+        val dependency = dependencies.childNode("dependency") ?: dependencies.appendNode("dependency")
+        dependency.setChildValue("groupId", groupId)
+        dependency.setChildValue("artifactId", artifactId)
+        dependency.setChildValue("version", version)
+    }
+
+    private fun Node.childNode(name: String): Node? = children()
+        .filterIsInstance<Node>()
+        .firstOrNull { it.name().toString() == name }
+
+    private fun Node.setChildValue(name: String, value: String) {
+        val child = childNode(name) ?: appendNode(name)
+        child.setValue(value)
     }
 
     private fun resolvePublicationVersion(project: Project, version: String): String {

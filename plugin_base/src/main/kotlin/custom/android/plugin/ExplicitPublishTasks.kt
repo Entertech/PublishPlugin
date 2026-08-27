@@ -153,13 +153,10 @@ open class ExplicitPublishTask : DefaultTask() {
         if (credentials.username.isBlank() || credentials.password.isBlank()) {
             throw GradleException("Central prebuilt publishing requires Central credentials")
         }
-        if (PublishConfigResolver.resolveCentralUploadMode(project, publishInfo) == "portalApi") {
+        if (PublishConfigResolver.shouldUseCentralPortal(project, publishInfo)) {
             val zip = CentralPortalBundle.create(bundle, File(project.buildDir, "reports/publish/central-bundle.zip"))
             val deploymentId = CentralPortalClient.uploadBundle(project, zip, publishInfo)
             CentralPortalClient.waitForDeployment(project, publishInfo, deploymentId)
-            if (PublishConfigResolver.resolveCentralPublishingType(project, publishInfo) == "automatic") {
-                CentralPortalClient.publishDeployment(project, publishInfo, deploymentId)
-            }
         } else {
             ArtifactBundlePublisher.publishToRemote(
                 project,

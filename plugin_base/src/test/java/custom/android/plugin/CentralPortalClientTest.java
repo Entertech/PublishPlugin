@@ -57,13 +57,14 @@ public class CentralPortalClientTest {
 
         assertEquals("deployment-123", deploymentId);
         assertEquals("POST", observations.get(0));
-        assertTrue(observations.get(1).contains("/upload?publishing_type=USER_MANAGED"));
+        assertTrue(observations.get(1).contains("/upload?publishingType=USER_MANAGED"));
         String expected = "Bearer " + Base64.getEncoder().encodeToString(
                 "portal-user:portal-password".getBytes(StandardCharsets.UTF_8)
         );
         assertEquals(expected, observations.get(2));
         assertTrue(observations.get(3).startsWith("multipart/form-data; boundary="));
         assertTrue(observations.get(4).contains("name=\"bundle\""));
+        assertTrue(observations.get(4).contains("Content-Type: application/octet-stream"));
         assertTrue(observations.get(4).contains("zip-content"));
     }
 
@@ -82,7 +83,7 @@ public class CentralPortalClientTest {
         CentralPortalClient.INSTANCE.dropDeployment(project, info, "deployment 1");
 
         assertTrue(status.contains("VALIDATED"));
-        assertEquals("GET /api/v1/publisher/status?id=deployment+1", requests.get(0));
+        assertEquals("POST /api/v1/publisher/status?id=deployment+1", requests.get(0));
         assertEquals("POST /api/v1/publisher/deployment/deployment%201", requests.get(1));
         assertEquals("DELETE /api/v1/publisher/deployment/deployment%201", requests.get(2));
     }
@@ -100,6 +101,24 @@ public class CentralPortalClientTest {
         );
 
         assertTrue(response.contains("VALIDATED"));
+        assertEquals(2, calls.get());
+    }
+
+    @Test
+    public void automaticDeploymentWaitsUntilPublished() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        start(exchange -> {
+            String state = calls.incrementAndGet() == 1 ? "VALIDATED" : "PUBLISHED";
+            respond(exchange, 200, "{\"deploymentState\":\"" + state + "\"}");
+        });
+        PublishInfo info = new PublishInfo();
+        info.setCentralPublishingType("automatic");
+
+        String response = CentralPortalClient.INSTANCE.waitForDeployment(
+                project(), info, "deployment-automatic", 1_000, 1
+        );
+
+        assertTrue(response.contains("PUBLISHED"));
         assertEquals(2, calls.get());
     }
 
