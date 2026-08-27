@@ -6,7 +6,15 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = [ROOT / "README.md", ROOT / "doc" / "plan.md", ROOT / "doc" / "skills" / "publish-skills.md"]
+FILES = [
+    ROOT / "README.md",
+    ROOT / "doc" / "plan.md",
+    ROOT / "doc" / "skills" / "publish-skills.md",
+    ROOT / "doc" / "tech" / "publish-architecture.md",
+    ROOT / "doc" / "tech" / "publish-configuration.md",
+    ROOT / "doc" / "tech" / "central-publishing.md",
+    ROOT / "doc" / "tech" / "android-variant-publishing.md",
+]
 FACTS = {
     "default remote mode": "githubPackages",
     "reusable workflow": ".github/workflows/publish.yml",

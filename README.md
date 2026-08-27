@@ -37,7 +37,14 @@ PublishPlugin 负责 publication 和发布编排，不负责聚合多个业务�
 
 详细的需求、迁移约束和验收标准见
 [发布任务与一键配置重构 PRD](doc/prd/publish-task-config-redesign-prd.md)；
-实现边界见[技术方案](doc/tech/publish-task-config-redesign-plan.md)。
+实现边界见[发布架构](doc/tech/publish-architecture.md)。
+
+深入文档：
+
+- [Sonatype Central 发布](doc/tech/central-publishing.md)
+- [Android Variant 发布](doc/tech/android-variant-publishing.md)
+- [发布配置与凭据](doc/tech/publish-configuration.md)
+- [未完成工作与优先级](doc/plan.md)
 
 ## 快速开始
 
@@ -324,7 +331,7 @@ provider 成功、后一个失败，任务会报告部分成功状态，后续�
 publication 需要 POM（或 plugin marker）和签名。
 
 预制产物格式和生成示例见
-[技术方案中的 ArtifactBundle 章节](doc/tech/publish-task-config-redesign-plan.md)。
+[发布架构中的 Prebuilt 产物章节](doc/tech/publish-architecture.md#prebuilt-产物)。
 
 ## GitHub Actions
 

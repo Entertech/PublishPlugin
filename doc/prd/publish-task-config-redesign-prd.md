@@ -8,7 +8,7 @@
 | 日期 | 2026-08-21 |
 | 基线 | `main` / `e6840a1` |
 | 目标分支 | `codex/publish-task-config-redesign-docs` |
-| 关联技术方案 | `doc/tech/publish-task-config-redesign-plan.md` |
+| 关联技术方案 | `doc/tech/publish-architecture.md` |
 
 ## 背景
 
