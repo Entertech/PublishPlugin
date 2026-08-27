@@ -17,7 +17,12 @@ open class PublishCheckTask : DefaultTask() {
         val source = ArtifactSource.parse(
             project.findProperty("artifactSource")?.toString() ?: System.getenv("PUBLISH_ARTIFACT_SOURCE")
         )
-        var result = PublishValidation.validateRemote(project, publishInfo, resolvedTarget, source)
+        val validationLevel = PublishValidationLevel.parse(
+            project.findProperty("publishValidationLevel")?.toString()
+                ?: System.getenv("PUBLISH_VALIDATION_LEVEL"),
+            PublishValidationLevel.CREDENTIALS
+        )
+        var result = PublishValidation.validateRemote(project, publishInfo, resolvedTarget, source, validationLevel)
         if (source == ArtifactSource.PREBUILT) {
             val path = project.findProperty("artifactBundlePath")?.toString()
                 ?: System.getenv("PUBLISH_ARTIFACT_BUNDLE_PATH").orEmpty()
@@ -33,10 +38,16 @@ open class PublishCheckTask : DefaultTask() {
                 }
             )
         }
-        PluginLogUtil.printlnInfoInScreen("Publish check: mode=${result.mode}, repository=${result.repositoryName}")
+        PluginLogUtil.printlnInfoInScreen(
+            "Publish check: mode=${result.mode}, repository=${result.repositoryName}, " +
+                "level=${result.validationLevel.name.lowercase()}"
+        )
         if (result.repositoryUrl.isNotBlank()) PluginLogUtil.printlnInfoInScreen("Repository URL: ${result.repositoryUrl}")
         result.publications.forEach {
             PluginLogUtil.printlnInfoInScreen("Publication: ${it.name} ${it.groupId}:${it.artifactId}:${it.version}")
+        }
+        result.credentialSources.forEach { (name, sourceName) ->
+            PluginLogUtil.printlnInfoInScreen("Credential source: $name=$sourceName")
         }
         result.warnings.forEach { PluginLogUtil.printlnInfoInScreen("WARNING: $it") }
         if (!result.valid) {

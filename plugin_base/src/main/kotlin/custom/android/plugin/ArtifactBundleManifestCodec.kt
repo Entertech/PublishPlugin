@@ -45,8 +45,32 @@ object ArtifactBundleManifestCodec {
         return PreparedArtifactBundle(schema, bundleDirectory, publications)
     }
 
+    fun write(bundle: PreparedArtifactBundle, manifest: File = File(bundle.rootDirectory, "publish-artifacts.json")) {
+        manifest.parentFile?.mkdirs()
+        val publications = bundle.publications.joinToString(",\n") { publication ->
+            val files = publication.files.joinToString(",\n") { file ->
+                "        {\"role\":\"${escape(file.role)}\",\"path\":\"${escape(file.path)}\"," +
+                    "\"sha256\":\"${escape(file.sha256)}\",\"size\":${file.size ?: 0}}"
+            }
+            "    {\n" +
+                "      \"name\": \"${escape(publication.name)}\",\n" +
+                "      \"groupId\": \"${escape(publication.groupId)}\",\n" +
+                "      \"artifactId\": \"${escape(publication.artifactId)}\",\n" +
+                "      \"version\": \"${escape(publication.version)}\",\n" +
+                "      \"packaging\": \"${escape(publication.packaging)}\",\n" +
+                "      \"files\": [\n$files\n      ]\n" +
+                "    }"
+        }
+        manifest.writeText("{\n  \"schemaVersion\": 1,\n  \"publications\": [\n$publications\n  ]\n}\n")
+    }
+
     private fun required(map: Map<*, *>, key: String, context: String): String {
         return map[key]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw GradleException("$context requires $key")
     }
+
+    private fun escape(value: String): String = value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
 }

@@ -382,10 +382,20 @@ workflow 会校验组件类型、目标、版本和产物路径，并只映射�
 
 调用 reusable workflow 时设置 `check_only: true` 可只运行 `checkPublish`；发布和
 检查产生的 `publish-manifest` 都会作为 Actions artifact 上传（没有文件时忽略）。
+workflow 的 check-only 使用 `structure` 级别，不需要注入任何 secret。本机
+`checkPublish` 默认使用 `credentials`；可通过
+`-PpublishValidationLevel=structure|credentials|remote` 明确选择。
 
-兼容性矩阵可通过手动 workflow
-`.github/workflows/compatibility-matrix.yml` 运行，覆盖 JDK 17/21、Gradle 8.7/8.10
-和 AGP 8.1.3/8.5.2。
+PR 必跑支持组合为 JDK 17 / Gradle 8.7 / AGP 8.1.3 和 JDK 21 / Gradle 8.10 /
+AGP 8.5.2。`.github/workflows/compatibility-matrix.yml` 每周和手动运行完整 2×2×2
+矩阵；交叉组合属于 experimental，失败不阻断维护。
+
+远程任务默认在上传前执行版本存在性 preflight；`-PallowExistingVersion=true`
+可显式允许已有版本，`-PpublishPreflight=false` 可关闭检查。All 任务部分成功后，
+使用同一产物重新运行并增加 `-PresumePublish=true`，会根据 bundle fingerprint
+跳过已成功 provider。manifest 同目录还会生成 CycloneDX SBOM、provenance、
+provider state 和门禁结果。完整契约见
+[发布架构](doc/tech/publish-architecture.md)。
 
 完整的分支、PR、预发布和 Central 发布流程见
 [分支与发布工作流](doc/workflow.md)。

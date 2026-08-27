@@ -50,6 +50,8 @@ scripts/configure-publish-offline.sh :library \
 
 `--check-only` 只调用 `:module:checkPublish`；不生成模板、不写 workflow、不写 GitHub Secrets，也不上传 artifact。
 
+`checkPublish` 支持 `-PpublishValidationLevel=structure|credentials|remote`。workflow check-only 使用 structure；本机默认 credentials。manifest 只记录 credential source 类别，不保存用户名或 secret value。
+
 ## DSL 示例
 
 ```kotlin
@@ -156,11 +158,8 @@ Central/GPG secrets 只注入实际发布 step。主 job 使用 `contents: read`
 
 如果 secret 已经提交或 push，仅从当前文件删除并不安全。必须先轮换 credential，再根据团队策略执行 history rewrite；`git replace` 不能清理远端历史。
 
-## 已知限制
+## 支持边界
 
-- check-only 的“凭据来源已配置”和“当前进程拿到凭据值”尚未分层。
-- Windows 原生 PowerShell 入口尚未提供。
-- legacy rollback implementation 不再公开，新的可恢复 secret 管理流程仍需独立设计。
-- README、Skills 和技术文档的一致性检查目前只覆盖固定事实，不覆盖所有 DSL 字段。
-
-对应工作见 [后续规划](../plan.md)。
+- Windows 原生 PowerShell 入口尚未提供；支持 Git Bash/WSL 或直接 Gradle task。
+- legacy rollback task 不再公开。Secret 删除/轮换属于显式运维操作，不由发布插件自动执行。
+- 文档一致性脚本覆盖公开任务、版本、workflow 和 Skill 固定事实；自由文本语义仍依赖代码评审。

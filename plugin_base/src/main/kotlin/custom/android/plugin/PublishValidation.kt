@@ -18,7 +18,13 @@ data class PublishValidationResult(
     val mode: String,
     val repositoryName: String,
     val repositoryUrl: String,
-    val publications: List<PublishValidationPublication>
+    val publications: List<PublishValidationPublication>,
+    val validationLevel: PublishValidationLevel = PublishValidationLevel.REMOTE,
+    val credentialSources: Map<String, String> = emptyMap(),
+    val preflightResults: List<PublishPreflightResult> = emptyList(),
+    val providerResults: List<PublishProviderResult> = emptyList(),
+    val gates: List<PublishGateResult> = emptyList(),
+    val provenance: Map<String, String> = emptyMap()
 )
 
 object PublishValidation {
@@ -26,13 +32,15 @@ object PublishValidation {
         project: Project,
         publishInfo: PublishInfo,
         target: ExplicitPublishTarget,
-        source: ArtifactSource = ArtifactSource.PROJECT
+        source: ArtifactSource = ArtifactSource.PROJECT,
+        level: PublishValidationLevel = PublishValidationLevel.REMOTE
     ): PublishValidationResult {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
         val publications = publications(project)
         val version = PublishConfigResolver.resolveVersion(project, publishInfo)
         val repositories = project.extensions.findByType(PublishRepositories::class.java)
+        val credentialSources = PublishCredentialSources.summarize(project, target)
         val mode = when (target) {
             ExplicitPublishTarget.CENTRAL -> {
                 if (PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)) {
@@ -58,8 +66,10 @@ object PublishValidation {
             val config = PublishRuntimeConfig(project)
             val url = PublishConfigResolver.resolveGitHubPackagesUrl(project, publishInfo, config.properties)
             if (url.isBlank()) errors += "GitHub Packages requires githubPackagesRepository or githubPackagesUrl"
-            val credentials = PublishConfigResolver.resolveGitHubPackagesCredentials(project, publishInfo, config.properties)
-            if (credentials.username.isBlank() || credentials.password.isBlank()) {
+            if (level.includesCredentials && (
+                    credentialSources["githubPackages.username"] == "missing" ||
+                        credentialSources["githubPackages.token"] == "missing"
+                    )) {
                 errors += "GitHub Packages requires package credentials (values are never printed)"
             }
         }
@@ -70,9 +80,6 @@ object PublishValidation {
             val publishingType = PublishConfigResolver.resolveCentralPublishingType(project, publishInfo)
             if (publishingType != "user_managed" && publishingType != "automatic") {
                 errors += "centralPublishingType only supports user_managed or automatic"
-            }
-            if (source == ArtifactSource.PROJECT && PublishConfigResolver.resolveCentralUploadMode(project, publishInfo) == "portalApi") {
-                errors += "centralUploadMode=portalApi currently requires artifactSource=prebuilt"
             }
             val snapshot = PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)
             if (snapshot && !version.endsWith("-SNAPSHOT", ignoreCase = true)) {
@@ -99,14 +106,17 @@ object PublishValidation {
                 )
                 val missing = requiredPomFields.filterValues { it.isBlank() }.keys
                 if (missing.isNotEmpty()) errors += "Central publish missing POM fields: ${missing.joinToString()}"
-                val signing = PublishConfigResolver.resolveSigningCredentials(project)
-                if (signing.key.isBlank() || signing.password.isBlank()) {
+                if (level.includesCredentials && (
+                        credentialSources["signing.key"] == "missing" ||
+                            credentialSources["signing.password"] == "missing"
+                        )) {
                     errors += "Central project publishing requires signing credentials"
                 }
             }
-            val config = PublishRuntimeConfig(project)
-            val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, config.properties)
-            if (credentials.username.isBlank() || credentials.password.isBlank()) {
+            if (level.includesCredentials && (
+                    credentialSources["central.username"] == "missing" ||
+                        credentialSources["central.password"] == "missing"
+                    )) {
                 errors += "Central publishing requires Central credentials"
             }
         }
@@ -157,7 +167,9 @@ object PublishValidation {
             mode = mode,
             repositoryName = repositoryName,
             repositoryUrl = repositoryUrl,
-            publications = publications
+            publications = publications,
+            validationLevel = level,
+            credentialSources = credentialSources
         )
     }
 

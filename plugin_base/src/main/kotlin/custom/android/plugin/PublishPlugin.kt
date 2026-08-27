@@ -224,6 +224,9 @@ open class PublishPlugin : Plugin<Project> {
     }
 
     private fun resolvePublicationVersion(project: Project, version: String): String {
+        if (project.findProperty("publishPreparation")?.toString()?.toBooleanLenientLocal() == true) {
+            return version
+        }
         if (!isLocalPublishRequested(project) || version.endsWith("-local")) {
             return version
         }

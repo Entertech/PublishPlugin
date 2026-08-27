@@ -250,6 +250,37 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void structureCheckForGithubPackagesNeedsNoSecretValuesAndReportsSources() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        Path buildFile = projectDir.toPath().resolve("fixture/build.gradle");
+        Files.write(
+                buildFile,
+                ("\nPublishRepositories {\n"
+                        + "    githubPackages {\n"
+                        + "        enabled.set(true)\n"
+                        + "        repository.set('Entertech/fixture')\n"
+                        + "    }\n"
+                        + "}\n").getBytes(StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.APPEND
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:checkPublish",
+                        "-PpublishTarget=github_packages",
+                        "-PpublishValidationLevel=structure",
+                        "--stacktrace"
+                )
+                .build();
+
+        String manifest = read(projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json"));
+        assertTrue(manifest.contains("\"validationLevel\": \"structure\""));
+        assertTrue(manifest.contains("\"githubPackages.username\": \"missing\""));
+        assertTrue(manifest.contains("\"githubPackages.token\": \"missing\""));
+        assertFalse(manifest.contains("github-token-value"));
+    }
+
+    @Test
     public void centralModeAddsCentralRepositoryAndPomMetadataCanBeOverriddenFromCli() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
 
@@ -718,6 +749,93 @@ public class PublishPluginFunctionalTest {
         assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk");
     }
 
+    @Test
+    public void androidLibraryCanPublishDebugAndStagingBuildTypes() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    publishBuildTypes('debug', 'staging')\n"
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthDebugEnterPublishPublication",
+                        ":fixture:generatePomFileForBreathAuthStagingEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthDebugEnterPublish",
+                "breath-affective-offline-sdk-authentication"
+        );
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthStagingEnterPublish",
+                "breath-affective-offline-sdk-authentication"
+        );
+        assertFalse(Files.exists(projectDir.toPath().resolve(
+                "fixture/build/publications/BreathAuthReleaseEnterPublish/pom-default.xml"
+        )));
+    }
+
+    @Test
+    public void androidLibraryCombinesPublishAndSkipVariantPredicates() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    publishVariantIf { variant -> variant.flavor('project') == 'breath' }\n"
+                        + "    skipVariantIf { variant -> variant.flavor('authentication') == 'noAuth' }\n"
+        );
+
+        String tasks = gradleRunner(projectDir)
+                .withArguments(":fixture:tasks", "--all", "--stacktrace")
+                .build()
+                .getOutput();
+
+        assertTrue(tasks.contains("generatePomFileForBreathAuthReleaseEnterPublishPublication"));
+        assertFalse(tasks.contains("generatePomFileForBreathNoAuthReleaseEnterPublishPublication"));
+        assertFalse(tasks.contains("generatePomFileForSdkAuthReleaseEnterPublishPublication"));
+    }
+
+    @Test
+    public void artifactIdClosureTakesPriorityOverPattern() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    artifactIdPattern = '{artifactId}-{variant}'\n"
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthReleaseEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthReleaseEnterPublish",
+                "breath-affective-offline-sdk-authentication"
+        );
+    }
+
+    @Test
+    public void kotlinDslSupportsVariantSelectionAndArtifactPattern() throws IOException {
+        File projectDir = createKotlinDslAndroidLibraryProject();
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthReleaseEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthReleaseEnterPublish",
+                "affective-offline-sdk-breath-release"
+        );
+        assertFalse(Files.exists(projectDir.toPath().resolve(
+                "fixture/build/publications/SdkAuthReleaseEnterPublish/pom-default.xml"
+        )));
+    }
+
     private File createGradlePluginProject(String version, boolean componentPublishesSources) throws IOException {
         return createGradlePluginProject(version, componentPublishesSources, "", "");
     }
@@ -833,6 +951,7 @@ public class PublishPluginFunctionalTest {
                 + "    namespace 'com.example.fixture'\n"
                 + "    compileSdk 34\n"
                 + "    defaultConfig { minSdk 23 }\n"
+                + "    buildTypes { staging { initWith release } }\n"
                 + "    flavorDimensions 'project', 'authentication'\n"
                 + "    productFlavors {\n"
                 + "        breath { dimension 'project' }\n"
@@ -850,6 +969,51 @@ public class PublishPluginFunctionalTest {
                 + publishInfoExtra
                 + "}\n"
                 + buildScriptExtra);
+        return root;
+    }
+
+    private File createKotlinDslAndroidLibraryProject() throws IOException {
+        File root = temporaryFolder.newFolder("android-kotlin-dsl-project");
+        write(root.toPath().resolve("settings.gradle.kts"), "pluginManagement {\n"
+                + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
+                + "}\n"
+                + "dependencyResolutionManagement {\n"
+                + "    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)\n"
+                + "    repositories { google(); mavenCentral() }\n"
+                + "}\n"
+                + "rootProject.name = \"android-kotlin-dsl-fixture\"\n"
+                + "include(\":fixture\")\n");
+        write(root.toPath().resolve("local.properties"), "");
+
+        Path fixtureDir = root.toPath().resolve("fixture");
+        Files.createDirectories(fixtureDir.resolve("src/main/java/com/example/fixture"));
+        write(fixtureDir.resolve("src/main/java/com/example/fixture/Fixture.java"),
+                "package com.example.fixture; public class Fixture {}\n");
+        write(fixtureDir.resolve("build.gradle.kts"),
+                "import custom.android.plugin.PublishInfo\n"
+                        + "plugins {\n"
+                        + "    id(\"com.android.library\") version \"" + TEST_AGP_VERSION + "\"\n"
+                        + "    id(\"cn.entertech.publish\")\n"
+                        + "}\n"
+                        + "android {\n"
+                        + "    namespace = \"com.example.fixture\"\n"
+                        + "    compileSdk = 34\n"
+                        + "    defaultConfig { minSdk = 23 }\n"
+                        + "    flavorDimensions += listOf(\"project\", \"authentication\")\n"
+                        + "    productFlavors {\n"
+                        + "        create(\"breath\") { dimension = \"project\" }\n"
+                        + "        create(\"sdk\") { dimension = \"project\" }\n"
+                        + "        create(\"auth\") { dimension = \"authentication\" }\n"
+                        + "    }\n"
+                        + "}\n"
+                        + "configure<PublishInfo> {\n"
+                        + "    groupId = \"com.example\"\n"
+                        + "    artifactId = \"affective-offline-sdk\"\n"
+                        + "    version = \"1.0.0\"\n"
+                        + "    publishBuildTypes(\"release\")\n"
+                        + "    publishVariantIf { it.flavor(\"project\") == \"breath\" }\n"
+                        + "    artifactIdPattern = \"{artifactId}-{flavor.project}-{buildType}\"\n"
+                        + "}\n");
         return root;
     }
 

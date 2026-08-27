@@ -62,6 +62,7 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}", publish)
         self.assertIn("artifactSource=prebuilt", publish)
         self.assertIn('"${{ inputs.check_only }}" == "true"', publish)
+        self.assertIn("-PpublishValidationLevel=structure", publish)
 
     def test_release_publish_can_sync_readme(self):
         text = workflow_text()

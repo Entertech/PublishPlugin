@@ -22,6 +22,8 @@ open class ExplicitPublishTask : DefaultTask() {
     @get:Input
     var componentKind: PublishComponentKind = PublishComponentKind.LIBRARY
 
+    private val providerResults = mutableListOf<PublishProviderResult>()
+
     init {
         group = "customPlugin"
     }
@@ -35,21 +37,64 @@ open class ExplicitPublishTask : DefaultTask() {
         val publishInfo = project.extensions.findByType(PublishInfo::class.java)
             ?: throw GradleException("PublishInfo is required for ${componentKind.taskNamePart} publishing")
         val version = PublishConfigResolver.resolveVersion(project, publishInfo)
-        val validation = PublishValidation.validateRemote(project, publishInfo, target, source)
+        var validation = PublishValidation.validateRemote(project, publishInfo, target, source)
         validation.warnings.forEach { PluginLogUtil.printlnInfoInScreen("WARNING: $it") }
         if (!validation.valid) {
             validation.errors.forEach { PluginLogUtil.printlnErrorInScreen(it) }
             throw GradleException("发布配置校验失败")
         }
-        if (source == ArtifactSource.PREBUILT) {
-            publishPrebuilt(publishInfo, version)
-        } else {
-            publishProject(publishInfo)
+        var bundle: PreparedArtifactBundle? = null
+        try {
+            bundle = when {
+                source == ArtifactSource.PREBUILT -> preparePrebuilt(publishInfo, version)
+                shouldPrepareProjectBundle() -> ProjectArtifactBundleProducer.prepare(
+                    project,
+                    validation.publications,
+                    requireCentral = target == ExplicitPublishTarget.CENTRAL ||
+                        (target == ExplicitPublishTarget.ALL &&
+                            project.extensions.findByType(PublishRepositories::class.java)?.isCentralEnabled() == true)
+                )
+                else -> null
+            }
+            if (bundle != null) {
+                validation = validation.copy(publications = bundle.publications.map {
+                    PublishValidationPublication(it.name, it.groupId, it.artifactId, it.version)
+                })
+            }
+            val preflight = PublishPreflight.run(project, publishInfo, target, validation.publications)
+            validation = validation.copy(preflightResults = preflight)
+            preflight.filter { it.status == "failed" }.takeIf { it.isNotEmpty() }?.let { failures ->
+                throw GradleException("Publish preflight failed: ${failures.joinToString { "${it.provider}: ${it.message}" }}")
+            }
+            val supplyChain = PublishSupplyChain.collect(project, bundle)
+            validation = validation.copy(gates = supplyChain.gates, provenance = supplyChain.provenance)
+            supplyChain.gates.filter { it.status == "failed" }.takeIf { it.isNotEmpty() }?.let { failures ->
+                throw GradleException("Publish gate failed: ${failures.joinToString { "${it.name}: ${it.message}" }}")
+            }
+            bundle = if (source == ArtifactSource.PREBUILT) {
+                publishPrebuilt(requireNotNull(bundle), publishInfo)
+            } else {
+                publishProject(publishInfo, bundle)
+            }
+        } catch (error: Exception) {
+            PublishReport.write(project, validation.copy(providerResults = providerResults.toList()), dryRun = false)
+            throw error
         }
-        PublishReport.write(project, validation, dryRun = false)
+        if (bundle != null) {
+            validation = validation.copy(publications = bundle.publications.map {
+                PublishValidationPublication(it.name, it.groupId, it.artifactId, it.version)
+            })
+        }
+        PublishReport.write(project, validation.copy(providerResults = providerResults.toList()), dryRun = false)
+        if (source == ArtifactSource.PROJECT &&
+            project.findProperty("cleanupPreparedBundle")?.toString().toBoolean() &&
+            bundle?.rootDirectory?.name == "project-bundle"
+        ) {
+            bundle.rootDirectory.deleteRecursively()
+        }
     }
 
-    private fun publishPrebuilt(publishInfo: PublishInfo, version: String) {
+    private fun preparePrebuilt(publishInfo: PublishInfo, version: String): PreparedArtifactBundle {
         val centralEnabled = project.extensions.findByType(PublishRepositories::class.java)
             ?.isCentralEnabled() == true
         val requireCentral = target == ExplicitPublishTarget.CENTRAL ||
@@ -58,32 +103,17 @@ open class ExplicitPublishTask : DefaultTask() {
             ?: System.getenv("PUBLISH_ARTIFACT_BUNDLE_PATH").orEmpty()
         val bundle = PrebuiltArtifactBundleProducer.prepare(project, path, version, requireCentral)
         if (requireCentral) validateCentralBundleNamespace(bundle, publishInfo)
+        return bundle
+    }
+
+    private fun publishPrebuilt(bundle: PreparedArtifactBundle, publishInfo: PublishInfo): PreparedArtifactBundle {
         when (target) {
             ExplicitPublishTarget.LOCAL -> ArtifactBundlePublisher.publishToMavenLocal(project, bundle)
             ExplicitPublishTarget.GITHUB_PACKAGES -> publishPrebuiltGithub(bundle, publishInfo)
             ExplicitPublishTarget.CENTRAL -> publishPrebuiltCentral(bundle, publishInfo)
-            ExplicitPublishTarget.ALL -> {
-                val repositories = project.extensions.getByType(PublishRepositories::class.java)
-                var githubSucceeded = false
-                if (repositories.isGithubPackagesEnabled()) {
-                    try {
-                        publishPrebuiltGithub(bundle, publishInfo)
-                        githubSucceeded = true
-                    } catch (e: Exception) {
-                        val suffix = if (repositories.isCentralEnabled()) "; Central was not started" else ""
-                        throw GradleException("GitHub Packages prebuilt publishing failed$suffix: ${e.message}", e)
-                    }
-                }
-                if (repositories.isCentralEnabled()) {
-                    try {
-                        publishPrebuiltCentral(bundle, publishInfo)
-                    } catch (e: Exception) {
-                        val prefix = if (githubSucceeded) "GitHub Packages succeeded; " else ""
-                        throw GradleException("${prefix}Central prebuilt publishing failed: ${e.message}", e)
-                    }
-                }
-            }
+            ExplicitPublishTarget.ALL -> publishAll(bundle, publishInfo, projectSource = false)
         }
+        return bundle
     }
 
     private fun validateCentralBundleNamespace(bundle: PreparedArtifactBundle, publishInfo: PublishInfo) {
@@ -132,65 +162,95 @@ open class ExplicitPublishTask : DefaultTask() {
         }
     }
 
-    private fun publishProject(publishInfo: PublishInfo) {
-        fun targetProperties(targetName: String? = null): Map<String, String> =
+    private fun publishProject(
+        publishInfo: PublishInfo,
+        preparedBundle: PreparedArtifactBundle?
+    ): PreparedArtifactBundle? {
+        fun targetProperties(): Map<String, String> =
             project.gradle.startParameter.projectProperties
                 .filterValues { it.isNotBlank() }
-                .toMutableMap()
-                .apply { if (!targetName.isNullOrBlank()) this["publishTarget"] = targetName }
-        when (target) {
+                .toMap()
+        return when (target) {
             ExplicitPublishTarget.LOCAL -> runNested("publishToMavenLocal", targetProperties())
-            ExplicitPublishTarget.GITHUB_PACKAGES -> runNested(
-                remoteTaskName(PublishConfigResolver.MODE_GITHUB_PACKAGES),
-                targetProperties("github_packages")
-            )
-            ExplicitPublishTarget.CENTRAL -> runNested(
-                remoteTaskName(PublishConfigResolver.MODE_CENTRAL),
-                targetProperties("central")
-            ).also { finalizeCentralPublication(publishInfo) }
-            ExplicitPublishTarget.ALL -> {
-                val repositories = project.extensions.getByType(PublishRepositories::class.java)
-                var githubSucceeded = false
-                if (repositories.isGithubPackagesEnabled()) {
-                    try {
-                        runNested(remoteTaskName(PublishConfigResolver.MODE_GITHUB_PACKAGES), targetProperties("github_packages"))
-                        githubSucceeded = true
-                    } catch (e: Exception) {
-                        val suffix = if (repositories.isCentralEnabled()) "; Central was not started" else ""
-                        throw GradleException("GitHub Packages publishing failed$suffix: ${e.message}", e)
-                    }
+                .let { null }
+            ExplicitPublishTarget.GITHUB_PACKAGES -> requireNotNull(preparedBundle) {
+                "Project remote bundle was not prepared"
+            }.also { publishPrebuiltGithub(it, publishInfo) }
+            ExplicitPublishTarget.CENTRAL -> {
+                requireNotNull(preparedBundle) { "Project remote bundle was not prepared" }
+                    .also { publishPrebuiltCentral(it, publishInfo) }
+            }
+            ExplicitPublishTarget.ALL -> requireNotNull(preparedBundle) {
+                "Project remote bundle was not prepared"
+            }.also { publishAll(it, publishInfo, projectSource = true) }
+        }
+    }
+
+    private fun shouldPrepareProjectBundle(): Boolean {
+        return target != ExplicitPublishTarget.LOCAL
+    }
+
+    private fun publishAll(bundle: PreparedArtifactBundle, publishInfo: PublishInfo, projectSource: Boolean) {
+        val repositories = project.extensions.getByType(PublishRepositories::class.java)
+        val store = PublishExecutionStateStore(project)
+        val states = store.read().toMutableMap()
+        val fingerprint = PublishExecutionStateStore.fingerprint(
+            bundle.publications.map { PublishValidationPublication(it.name, it.groupId, it.artifactId, it.version) },
+            bundle
+        )
+        val resume = project.findProperty("resumePublish")?.toString().toBoolean()
+        val enabled = buildList {
+            if (repositories.isGithubPackagesEnabled()) add("github_packages")
+            if (repositories.isCentralEnabled()) add("central")
+        }.let { providers ->
+            val requested = project.findProperty("publishProviderOrder")?.toString().orEmpty()
+                .split(',').map { it.trim().lowercase() }.filter { it in providers }
+            (requested + providers).distinct()
+        }
+        enabled.forEach { provider ->
+            states.putIfAbsent(provider, PublishProviderState(provider, "not_started", fingerprint))
+        }
+        store.write(states)
+        enabled.forEach { provider ->
+            val previous = states[provider]
+            if (resume && previous?.status in setOf("succeeded", "skipped") && previous?.fingerprint == fingerprint) {
+                states[provider] = PublishProviderState(provider, "skipped", fingerprint, "already succeeded for identical bundle")
+                store.write(states)
+                providerResults += PublishProviderResult(provider, "skipped", "already succeeded for identical bundle")
+                return@forEach
+            }
+            states[provider] = PublishProviderState(provider, "running", fingerprint)
+            store.write(states)
+            try {
+                when (provider) {
+                    "github_packages" -> publishPrebuiltGithub(bundle, publishInfo)
+                    "central" -> publishPrebuiltCentral(bundle, publishInfo)
                 }
-                if (repositories.isCentralEnabled()) {
-                    try {
-                        runNested(remoteTaskName(PublishConfigResolver.MODE_CENTRAL), targetProperties("central"))
-                        finalizeCentralPublication(publishInfo)
-                    } catch (e: Exception) {
-                        val prefix = if (githubSucceeded) "GitHub Packages succeeded; " else ""
-                        throw GradleException("${prefix}Central publishing failed: ${e.message}", e)
-                    }
-                }
+                states[provider] = PublishProviderState(provider, "succeeded", fingerprint)
+                store.write(states)
+                providerResults += PublishProviderResult(provider, "succeeded")
+            } catch (error: Exception) {
+                val safeMessage = sanitizeProviderMessage(error.message.orEmpty())
+                states[provider] = PublishProviderState(provider, "failed", fingerprint, safeMessage)
+                store.write(states)
+                providerResults += PublishProviderResult(provider, "failed", safeMessage)
+                val sourceName = if (projectSource) "project" else "prebuilt"
+                throw GradleException(
+                    "$provider $sourceName publishing failed; rerun with -PresumePublish=true to continue: ${error.message}",
+                    error
+                )
             }
         }
     }
 
+    private fun sanitizeProviderMessage(value: String): String = value
+        .replace(Regex("(?i)(password|token|secret|authorization|key)[^\\s,}]*"), "$1=***")
+        .replace('"', '\'')
+        .take(500)
+
     private fun finalizeCentralPublication(publishInfo: PublishInfo) {
         if (!PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)) {
             CentralPortalClient.manualUpload(project, publishInfo)
-        }
-    }
-
-    private fun remoteTaskName(mode: String): String {
-        val repositoryName = if (mode == PublishConfigResolver.MODE_CENTRAL) {
-            PublishConfigResolver.resolveCentralRepositoryName(project, project.extensions.getByType(PublishInfo::class.java))
-        } else {
-            PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, project.extensions.getByType(PublishInfo::class.java))
-        }
-        val publishing = project.extensions.getByType(org.gradle.api.publish.PublishingExtension::class.java)
-        val multiple = publishing.publications.names.count { it.endsWith(BasePublishTask.MAVEN_PUBLICATION_NAME) } > 1
-        return if (multiple) {
-            "publishAllPublicationsTo${repositoryName}Repository"
-        } else {
-            "publish${BasePublishTask.MAVEN_PUBLICATION_NAME}PublicationTo${repositoryName}Repository"
         }
     }
 

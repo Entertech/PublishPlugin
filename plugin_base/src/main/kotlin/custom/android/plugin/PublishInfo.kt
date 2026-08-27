@@ -244,7 +244,8 @@ open class PublishInfo {
     internal fun hasVariantCoordinateResolvers(): Boolean {
         return artifactIdForVariantAction != null ||
             groupIdForVariantAction != null ||
-            versionForVariantAction != null
+            versionForVariantAction != null ||
+            artifactIdPattern.isNotBlank()
     }
 
     private fun writeHasSource(value: Boolean, explicitField: String) {

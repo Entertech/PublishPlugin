@@ -104,11 +104,8 @@ versionForVariant closure
 
 variant 过滤同时作用于 `singleVariant` 注册和 publication 创建，不能只在后一阶段跳过。
 
-## 已知限制与测试缺口
+## 自动回归与支持边界
 
-- build type/include/template 的 Groovy 与 Kotlin DSL 组合测试尚不完整。
-- pattern 与 closure 优先级缺少端到端 fixture。
-- flavor 名解析仍依赖 component 命名约定，新的 AGP 版本需要兼容性矩阵持续验证。
-- KMP、Android application 和 test fixtures 不属于当前支持范围。
+TestKit 覆盖 debug/staging build type、include+exclude predicate、closure 优先于 pattern，以及 Groovy/Kotlin DSL fixture。PR 必跑两组 supported AGP/Gradle/JDK 组合，完整交叉矩阵每周运行。
 
-对应工作见 [后续规划 Task 2 与 Task 7](../plan.md)。
+flavor 名解析仍依赖 Android component 命名约定；KMP、Android application 和 test fixtures 不属于当前支持范围。

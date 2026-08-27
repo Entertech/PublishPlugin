@@ -24,7 +24,7 @@ PublishPlugin 将发布拆为四类责任：
 PublishInfo + PublishRepositories + runtime credentials
                          |
                          v
-                PublishValidation
+      PublishValidation (structure / credentials / remote)
                          |
              +-----------+-----------+
              |                       |
@@ -32,6 +32,8 @@ PublishInfo + PublishRepositories + runtime credentials
       project publication      prebuilt bundle
              |                       |
              +-----------+-----------+
+                         |
+       preflight + supply-chain gates
                          |
         Maven Local / GitHub Packages / Central
                          |
@@ -56,15 +58,17 @@ PublishInfo + PublishRepositories + runtime credentials
 
 ### Check
 
-`checkPublish` 调用统一的 `PublishValidation`，收集 publication、目标仓库与错误/警告；成功后写入 dry-run manifest，不上传 artifact。
+`checkPublish` 调用统一的 `PublishValidation`，收集 publication、目标仓库与错误/警告；成功后写入 dry-run manifest，不上传 artifact。校验级别为：
 
-当前远程 check 仍把凭据值存在性作为校验条件，而 reusable workflow 的 `check_only` 分支不注入 secret。这一语义冲突属于 P0 缺口，见后续规划 Task 1。
+- `structure`：坐标、目标、版本、POM 与 bundle 结构，不要求 secret；
+- `credentials`：在 structure 上检查凭据来源是否可用，默认级别；
+- `remote`：显式发布使用的完整本地校验级别，远端 I/O 仍由 preflight 执行。
+
+credential source 只记录 `gradle_property`、`environment`、`local_file` 或 `missing`，绝不记录值。reusable workflow 的 `check_only` 固定使用 `structure`，所以无需注入 secret。
 
 ### Project 产物
 
-显式 task 通过 nested Gradle 调用标准 Maven Publish task。Local 使用 `publishToMavenLocal`；远程目标根据 provider 对应的 repository name 选择单 publication 或 all-publications task。
-
-project 模式尚未统一生成 `PreparedArtifactBundle`。因此 Central `portalApi` 暂不接受 project 产物，仍需要 staging 兼容路径。
+Local 通过 nested Gradle 调用标准 Maven Publish task。所有远程 project 任务先将 publications 发布到隔离的 Maven Local layout，再扫描为与 prebuilt 相同的 `PreparedArtifactBundle`，因此 preflight、供应链门禁、上传与恢复都共享 provider 边界。Snapshot 仍上传 Maven snapshot repository，不进入 deployment API。成功时可用 `-PcleanupPreparedBundle=true` 清理 project staging；失败时始终保留诊断 bundle。
 
 ### Prebuilt 产物
 
@@ -80,7 +84,7 @@ project 模式尚未统一生成 `PreparedArtifactBundle`。因此 Central `port
 
 ## 校验与报告
 
-`PublishValidationResult` 是显式 task 与 `checkPublish` 的共享校验结果。它包含 mode、repository、publication、error 和 warning，不包含 credential value。
+`PublishValidationResult` 是显式 task 与 `checkPublish` 的共享校验结果。除 mode、repository、publication、error/warning 外，还包含 validation level、credential source、preflight、provider、gate 与 provenance，不包含 credential value。
 
 报告输出：
 
@@ -89,17 +93,31 @@ project 模式尚未统一生成 `PreparedArtifactBundle`。因此 Central `port
 <module>/build/reports/publish/publish-manifest.md
 ```
 
-manifest 记录模块、mode、仓库、dry-run 状态、生成时间和 publication 坐标。token、password、GPG key 等敏感内容禁止写入日志或报告。
+manifest 记录模块、mode、仓库、dry-run、publication、校验级别、非敏感凭据来源、preflight、provider、gate 与 provenance。显式发布还生成 `publish-sbom.cdx.json`、`publish-api.txt`（有 prepared bundle 时）和 `provider-state.json`（All）。token、password、GPG key 等敏感内容禁止写入日志或报告。
+
+## Preflight、恢复与门禁
+
+Maven provider 对每个目标 POM 执行认证 HEAD：404 为可发布，2xx 表示版本已存在，401/403 为永久认证失败，5xx 为 retryable。默认阻止已存在版本；只有 `-PallowExistingVersion=true` 才允许继续。Publisher API 没有无副作用的坐标/权限检查接口，因此 release Portal 返回 `unsupported`，而不是假成功。
+
+All 任务按 provider 原子写入 `not_started`、`running`、`succeeded`、`failed` 或 `skipped`。`-PresumePublish=true` 只跳过坐标与全部文件 SHA-256 形成的 fingerprint 相同，且历史状态为 succeeded/skipped 的 provider。
+
+供应链输出包括 CycloneDX 1.5 SBOM、Git commit、GitHub run id、Gradle/JDK 版本与 bundle SHA-256。门禁包括：
+
+- `publishApiBaseline=<file>`：使用 `javap -public` 生成 public API dump 并对比基线；
+- `publishDeniedDependencyGroups=a,b`：拒绝 POM 中命中的 dependency group；
+- `trustedArtifactRoots=<paths>` 与 `publishTrustedKeyring=<file>`：限制 prebuilt 根目录并用 GPG keyring 验证 detached signatures。
+
+未配置可选基线/信任材料时状态为 `skipped`；远端不提供能力时为 `unsupported`；只有 `failed` 阻断发布。
 
 ## Provider 行为
 
 | Provider | Project | Prebuilt | 备注 |
 | --- | --- | --- | --- |
 | Maven Local | 标准 `publishToMavenLocal` | 写入 Maven layout | 普通 project 版本自动追加 `-local` |
-| GitHub Packages | Maven Publish repository | Maven HTTP PUT | URL 可从 `owner/repo` 推导 |
-| Central staging | Maven Publish repository | Maven HTTP PUT | release 后调用 manual upload；snapshot 不调用 |
-| Central portal API | 尚未支持 | bundle upload | 支持 status polling、publish/drop |
-| All | 顺序执行启用的远程 provider | 顺序执行 | 当前 fail-fast，不具备恢复状态 |
+| GitHub Packages | project bundle HTTP PUT | Maven HTTP PUT | URL 可从 `owner/repo` 推导 |
+| Central staging | project bundle HTTP PUT | Maven HTTP PUT | release 后调用 manual upload；snapshot 不调用 |
+| Central portal API | project staging bundle upload | bundle upload | 支持 status polling、publish/drop |
+| All | 共享 prepared bundle（Portal 场景） | 共享 bundle | provider 状态持久化，可安全 resume |
 
 ## Workflow
 
@@ -127,10 +145,8 @@ manifest 记录模块、mode、仓库、dry-run 状态、生成时间和 publica
 
 具体字段及迁移规则见 [发布配置与凭据](publish-configuration.md)。
 
-## 已知限制
+## 支持边界
 
-- project/prebuilt 尚未在 provider 边界统一为同一 bundle。
-- `RemoteAllTask` 部分成功后不能恢复。
-- 远程版本存在性与权限没有统一 preflight。
-- manifest 尚未包含 SBOM/provenance/API ABI 门禁结果。
-- 兼容性矩阵仍以手动 workflow 为主。
+- 所有远程 project/prebuilt 在 provider 边界统一为 bundle；Maven Local 继续使用标准 Maven Publish。
+- Central Publisher API 无无副作用 token 权限/坐标查询，preflight 明确报告 `unsupported`。
+- SLSA statement/签名尚未选定外部实现；当前 provenance 是 manifest 内的构建证据，不宣称达到某个 SLSA level。

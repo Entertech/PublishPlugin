@@ -20,7 +20,7 @@ Central 当前包含三条路径：
 | Snapshot | `centralSnapshot` + `snapshot` | Central snapshots Maven repository | 不调用 release deployment API |
 | Release 原生路径 | `central` + `portalApi` | Publisher API bundle upload | poll status，按 publishing type publish 或等待人工操作 |
 
-默认 `centralUploadMode=stagingApi`，以保持既有项目行为。`portalApi` 当前只接受 `artifactSource=prebuilt`；project 模式在校验阶段会给出明确错误。
+默认 `centralUploadMode=stagingApi`，以保持既有项目行为。`portalApi` 同时接受 `artifactSource=project|prebuilt`；project 会先生成隔离 Maven layout 并扫描成统一 bundle。
 
 ## 配置
 
@@ -58,7 +58,7 @@ Maven publication
 
 `centralPublishingType=user_managed` 会把 deployment 留在 Portal 等待人工 Publish；`automatic` 由 Central 在校验通过后继续发布。
 
-该路径是当前 project 产物的稳定默认值。它依赖 staging 兼容层的生命周期，不等同于 Publisher API bundle upload。
+该路径是当前 project 产物的稳定默认值。project 仍先生成本地 Maven layout/bundle，再逐文件 PUT 到 staging repository；它依赖 staging 兼容层生命周期，不等同于 Publisher API deployment bundle upload。
 
 ## Snapshot
 
@@ -74,7 +74,7 @@ Snapshot 必须使用 `-SNAPSHOT` 版本，并路由到 `CentralSnapshots`。Sna
 
 ### Bundle
 
-prebuilt manifest 先经过通用校验和 Central 完整性校验。`CentralPortalBundle` 将文件写成 Maven Central 所需的目录结构：
+prebuilt manifest 或 project staging scanner 先经过通用校验和 Central 完整性校验。`CentralPortalBundle` 将文件写成 Maven Central 所需的目录结构：
 
 ```text
 <group path>/<artifactId>/<version>/<artifact files>
@@ -111,6 +111,8 @@ Central project publication 检查：
 
 prebuilt 额外检查 manifest、路径、SHA-256、size、file role 和 bundle namespace。
 
+远程 preflight 对 snapshot/staging Maven repository 执行目标 POM HEAD。Portal release 因官方 API 没有无副作用的坐标存在性或 token 权限端点，结果明确为 `unsupported`；namespace、版本策略、POM 与本地凭据仍在上传前阻断。`allowExistingVersion` 不会把 Portal 的 unsupported 改写为 passed。
+
 ## 凭据与日志安全
 
 - workflow 只在实际发布 step 注入 Central/GPG secrets。
@@ -118,11 +120,6 @@ prebuilt 额外检查 manifest、路径、SHA-256、size、file role 和 bundle 
 - HTTP 错误只允许输出状态码和脱敏后的响应摘要。
 - bundle 可作为失败诊断材料保存，但不得包含本机配置文件。
 
-## 未完成边界
+## 验证与恢复边界
 
-- project publication 尚不能生成本地 Maven layout 后直接走 Publisher API。
-- fake HTTP server 测试尚未完整覆盖 header、multipart、状态轮询和 timeout。
-- 远程 namespace/权限/版本存在性 preflight 尚未实现。
-- deployment 的重试、恢复与持久化结果尚未纳入 `RemoteAllTask`。
-
-对应路线见 [后续规划 Task 2～5](../plan.md)。
+fake HTTP server 覆盖 Authorization、multipart、deployment id、polling、publish/drop、失败/未知状态、timeout 与错误脱敏。All 任务通过 provider state 和 bundle fingerprint 恢复；单 provider task 失败时保留 bundle 和 manifest，由操作者明确重试。Publisher deployment 的跨工作区恢复和人工审批 handoff 属于后续候选能力。

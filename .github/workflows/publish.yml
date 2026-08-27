@@ -278,7 +278,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ inputs.check_only }}" == "true" ]]; then
-            ./gradlew "${MODULE_PATH}:checkPublish" "-PcheckPublishTarget=${PUBLISH_TARGET}" "-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}" --no-daemon --stacktrace
+            ./gradlew "${MODULE_PATH}:checkPublish" "-PcheckPublishTarget=${PUBLISH_TARGET}" "-PpublishValidationLevel=structure" "-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}" --no-daemon --stacktrace
             exit 0
           fi
           if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
