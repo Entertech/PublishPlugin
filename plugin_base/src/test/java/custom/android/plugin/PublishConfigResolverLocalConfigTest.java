@@ -4,6 +4,7 @@ import org.gradle.api.Project;
 import org.gradle.api.GradleException;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.Rule;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
@@ -15,6 +16,7 @@ import java.util.Properties;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+@Ignore("Root local.properties publishing fallback was removed by publish task redesign")
 public class PublishConfigResolverLocalConfigTest {
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();

@@ -2,6 +2,7 @@ package custom.android.plugin;
 
 import org.gradle.testkit.runner.GradleRunner;
 import org.junit.Rule;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
@@ -14,12 +15,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class OneClickPublishTaskFunctionalTest {
-    private static final String TEST_GRADLE_VERSION = "8.7";
+    private static final String TEST_GRADLE_VERSION = System.getProperty("testGradleVersion", "8.7");
 
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void generatePublishConfigPreservesAndroidLocalProperties() throws Exception {
         File projectDir = createGradlePluginProject("");
         write(projectDir.toPath().resolve("local.properties"), "sdk.dir=/Users/example/Library/Android/sdk\n");
@@ -37,6 +39,7 @@ public class OneClickPublishTaskFunctionalTest {
     }
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void configurePublishGeneratesGitHubPackagesWorkflowByDefault() throws Exception {
         File projectDir = createGradlePluginProject(
                 "publish.githubActions=true\n"
@@ -66,6 +69,7 @@ public class OneClickPublishTaskFunctionalTest {
     }
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void configurePublishCanGenerateCentralWorkflowWhenRequested() throws Exception {
         File projectDir = createGradlePluginProject(
                 "publish.githubActions=true\n"
@@ -99,21 +103,17 @@ public class OneClickPublishTaskFunctionalTest {
                 .build()
                 .getOutput();
 
-        assertTrue(output.contains("generatePublishConfig"));
-        assertTrue(output.contains("configurePublish"));
-        assertTrue(output.contains("rollbackPublishSecrets"));
-        assertTrue(output.contains("GeneratePublishConfigTask"));
-        assertTrue(output.contains("ConfigurePublishTask"));
-        assertTrue(output.contains("RollbackPublishSecretsTask"));
-        assertTrue(output.contains("generateCentralPublishConfig"));
-        assertTrue(output.contains("GenerateCentralPublishConfigTask"));
-        assertTrue(output.contains("configureCentralPublish"));
-        assertTrue(output.contains("ConfigureCentralPublishTask"));
-        assertTrue(output.contains("rollbackCentralPublishSecrets"));
-        assertTrue(output.contains("RollbackCentralPublishSecretsTask"));
+        assertTrue(output.contains("PublishPluginLocalTask"));
+        assertTrue(output.contains("PublishPluginRemoteAllTask"));
+        assertTrue(output.contains("PublishPluginRemoteGithubPackagesTask"));
+        assertTrue(output.contains("PublishPluginRemoteCentralTask"));
+        assertFalse(output.contains("PublishLibraryRemoteTask"));
+        assertFalse(output.contains("generatePublishConfig"));
+        assertFalse(output.contains("configurePublish"));
     }
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void configurePublishRejectsComponentFieldsInLocalProperties() throws Exception {
         File projectDir = createGradlePluginProject("publish.pomUrl=https://example.com\n");
 
@@ -127,6 +127,7 @@ public class OneClickPublishTaskFunctionalTest {
     }
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void configurePublishDryRunDoesNotWriteFilesOrSecrets() throws Exception {
         File projectDir = createGradlePluginProject("");
         Path gpgKeyFile = projectDir.toPath().resolve("gpg-private.asc");
@@ -158,6 +159,7 @@ public class OneClickPublishTaskFunctionalTest {
     }
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void configurePublishWritesOnlyMissingGpgSecretsWhenCentralTargetNotOverwriting() throws Exception {
         File projectDir = createGradlePluginProject("");
         Path gpgKeyFile = projectDir.toPath().resolve("gpg-private.asc");
@@ -189,6 +191,7 @@ public class OneClickPublishTaskFunctionalTest {
     }
 
     @Test
+    @Ignore("Configuration Gradle tasks were removed by publish task redesign")
     public void rollbackPublishSecretsInfersRepoAndRemovesDefaultGeneratedWorkflow() throws Exception {
         File projectDir = createGradlePluginProject(
                 "publish.centralNamespace=com.example\n"

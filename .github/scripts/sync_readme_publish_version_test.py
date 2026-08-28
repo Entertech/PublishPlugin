@@ -1,7 +1,10 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from sync_readme_publish_version import (
     github_packages_url_from_repository,
+    read_plugin_version,
     sync_readme_publish_version,
     sync_root_build_publish_version,
 )
@@ -23,6 +26,17 @@ buildscript {
 
 
 class SyncReadmePublishVersionTest(unittest.TestCase):
+    def test_reads_plugin_base_version_from_local_suffix_layout(self):
+        with TemporaryDirectory() as directory:
+            build_file = Path(directory) / "build.gradle.kts"
+            build_file.write_text(
+                'val baseVersion = "1.2.4"\n'
+                'version = if (localPublishRequested) "$baseVersion-local" else baseVersion\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual("1.2.4", read_plugin_version(build_file))
+
     def test_updates_publish_plugin_versions_only(self):
         readme = README_CODE_CONFIG + """
 cn.entertech.android:publish:<version>

@@ -2,6 +2,7 @@ package custom.android.plugin
 
 import com.android.build.gradle.LibraryExtension
 import custom.android.plugin.BasePublishTask.Companion.MAVEN_PUBLICATION_NAME
+import groovy.util.Node
 import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
@@ -14,7 +15,6 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.plugins.MavenPublishPlugin
 import org.gradle.api.tasks.SourceSetContainer
-import org.gradle.api.tasks.TaskContainer
 import org.gradle.jvm.tasks.Jar
 import org.gradle.plugin.devel.GradlePluginDevelopmentExtension
 import org.gradle.plugins.signing.SigningExtension
@@ -66,9 +66,24 @@ open class PublishPlugin : Plugin<Project> {
             return
         }
         container.apply(MavenPublishPlugin::class.java)
-        project.extensions.create(
+        project.tasks.matching {
+            it.name == "publishToMavenLocal" || it.name.endsWith("PublicationToMavenLocal")
+        }.configureEach { task ->
+            task.doLast { LocalPublishReporter.print(project) }
+        }
+        val publishInfoExtension = project.extensions.create(
             PublishInfo.EXTENSION_PUBLISH_INFO_NAME, PublishInfo::class.java,
         )
+        project.extensions.create("PublishRepositories", PublishRepositories::class.java)
+        project.plugins.withId("java-gradle-plugin") {
+            val pluginDevelopment = project.extensions.getByType(GradlePluginDevelopmentExtension::class.java)
+            pluginDevelopment.isAutomatedPublishing = false
+            val declaration = pluginDevelopment.plugins.maybeCreate("gradlePluginCreate")
+            publishInfoExtension.onPluginDeclarationChanged { pluginId, implementationClass ->
+                if (pluginId.isNotBlank()) declaration.id = pluginId
+                if (implementationClass.isNotBlank()) declaration.implementationClass = implementationClass
+            }
+        }
         project.plugins.withId("com.android.library") {
             configureAndroidSingleVariantPublishing(project)
         }
@@ -82,17 +97,6 @@ open class PublishPlugin : Plugin<Project> {
                     components.forEach {
                     PluginLogUtil.printlnDebugInScreen("$TAG name: ${it.name}")
                         if (it.name == "java") {
-                            val gradlePluginDevelopmentExtension =
-                                project.extensions.getByType(GradlePluginDevelopmentExtension::class.java)
-                            gradlePluginDevelopmentExtension.plugins { namedDomainObjectContainer ->
-                                namedDomainObjectContainer.create("gradlePluginCreate") { pluginDeclaration ->
-                                    // 插件ID
-                                    pluginDeclaration.id = publishInfo.pluginId
-                                    // 插件的实现类
-                                    pluginDeclaration.implementationClass =
-                                        publishInfo.implementationClass
-                                }
-                            }
                             createPublication(
                                 project,
                                 publishing,
@@ -106,6 +110,7 @@ open class PublishPlugin : Plugin<Project> {
                             hasPublication = true
                         }
                     }
+                    configureGradlePluginMarkerPublications(project, publishing, publishInfo)
                 }
                 if (supportLibraryModule(container)) {
                     val publishTargets = resolveAndroidPublishTargets(project, components, publishInfo)
@@ -137,62 +142,45 @@ open class PublishPlugin : Plugin<Project> {
 
 
         }
-        val currProjectName = project.displayName
-        PluginLogUtil.printlnDebugInScreen("$TAG currProjectName $currProjectName")
-        project.gradle.afterProject { currProject ->
-            PluginLogUtil.printlnDebugInScreen("$TAG currProject.displayName ${currProject.displayName}")
-            if (currProjectName == currProject.displayName) {
-                PluginLogUtil.printlnDebugInScreen("$TAG $currProjectName start register ")
-                project.tasks.register(
-                    PublishLibraryLocalTask.TAG, PublishLibraryLocalTask::class.java
-                )
-                project.tasks.register(
-                    PublishLibraryRemoteTask.TAG, PublishLibraryRemoteTask::class.java
-                )
-                project.tasks.register(
-                    "generatePublishConfig", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "GeneratePublishConfigTask", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "generateCentralPublishConfig", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "GenerateCentralPublishConfigTask", GeneratePublishConfigTask::class.java
-                )
-                project.tasks.register(
-                    "configurePublish", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "ConfigurePublishTask", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "configureCentralPublish", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "ConfigureCentralPublishTask", ConfigurePublishTask::class.java
-                )
-                project.tasks.register(
-                    "rollbackPublishSecrets", RollbackPublishSecretsTask::class.java
-                )
-                project.tasks.register(
-                    "RollbackPublishSecretsTask", RollbackPublishSecretsTask::class.java
-                )
-                project.tasks.register(
-                    "rollbackCentralPublishSecrets", RollbackPublishSecretsTask::class.java
-                )
-                project.tasks.register(
-                    "RollbackCentralPublishSecretsTask", RollbackPublishSecretsTask::class.java
-                )
+        project.afterEvaluate {
+            val kind = PublishComponentKind.detect(project.plugins)
+            if (project.tasks.findByName("PublishCheckTask") == null) {
+                project.tasks.register("PublishCheckTask", PublishCheckTask::class.java).configure { task ->
+                    task.target = ExplicitPublishTarget.LOCAL
+                    task.description = "Validate publish configuration without uploading artifacts."
+                }
+                project.tasks.register("checkPublish", PublishCheckTask::class.java).configure { task ->
+                    task.target = ExplicitPublishTarget.LOCAL
+                    task.description = "Validate publish configuration without uploading artifacts."
+                }
+            }
+            val local = PublishTaskNames.local(kind)
+            val all = PublishTaskNames.remoteAll(kind)
+            val github = PublishTaskNames.remoteGithubPackages(kind)
+            val central = PublishTaskNames.remoteCentral(kind)
+            if (project.tasks.findByName(local) == null) {
+                project.tasks.register(local, PublishLocalTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.LOCAL
+                    task.description = "Publish prepared or project artifacts to Maven Local."
+                }
+                project.tasks.register(all, PublishRemoteAllTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.ALL
+                    task.description = "Publish prepared or project artifacts to all enabled remote repositories."
+                }
+                project.tasks.register(github, PublishRemoteGithubPackagesTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.GITHUB_PACKAGES
+                    task.description = "Publish prepared or project artifacts to GitHub Packages."
+                }
+                project.tasks.register(central, PublishRemoteCentralTask::class.java).configure { task ->
+                    task.componentKind = kind
+                    task.target = ExplicitPublishTarget.CENTRAL
+                    task.description = "Publish prepared or project artifacts to Sonatype Central."
+                }
             }
         }
-    }
-
-    private fun registerTask(container: TaskContainer, task: BasePublishTask) {
-        container.register(
-            task.fetchTaskName(), task::class.java
-        )
     }
 
     private fun createPublication(
@@ -240,7 +228,57 @@ open class PublishPlugin : Plugin<Project> {
         }
     }
 
+    private fun configureGradlePluginMarkerPublications(
+        project: Project,
+        publishing: PublishingExtension,
+        publishInfo: PublishInfo
+    ) {
+        val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo)
+        val centralPublish = PublishConfigResolver.isCentralPublish(project, publishInfo)
+        val markerName = "gradlePluginCreatePluginMarkerMaven"
+        val marker = publishing.publications.findByName(markerName) as? MavenPublication
+            ?: publishing.publications.create(markerName, MavenPublication::class.java)
+        marker.groupId = publishInfo.pluginId
+        marker.artifactId = "${publishInfo.pluginId}.gradle.plugin"
+        marker.version = resolvedVersion
+        configurePom(project, marker, publishInfo, marker.artifactId)
+        marker.pom.withXml { xml ->
+            rewritePluginMarkerDependency(
+                xml.asNode(),
+                publishInfo.groupId,
+                publishInfo.artifactId,
+                resolvedVersion
+            )
+        }
+        if (centralPublish) configureSigning(project, marker)
+    }
+
+    private fun rewritePluginMarkerDependency(
+        root: Node,
+        groupId: String,
+        artifactId: String,
+        version: String
+    ) {
+        val dependencies = root.childNode("dependencies") ?: root.appendNode("dependencies")
+        val dependency = dependencies.childNode("dependency") ?: dependencies.appendNode("dependency")
+        dependency.setChildValue("groupId", groupId)
+        dependency.setChildValue("artifactId", artifactId)
+        dependency.setChildValue("version", version)
+    }
+
+    private fun Node.childNode(name: String): Node? = children()
+        .filterIsInstance<Node>()
+        .firstOrNull { it.name().toString() == name }
+
+    private fun Node.setChildValue(name: String, value: String) {
+        val child = childNode(name) ?: appendNode(name)
+        child.setValue(value)
+    }
+
     private fun resolvePublicationVersion(project: Project, version: String): String {
+        if (project.findProperty("publishPreparation")?.toString()?.toBooleanLenientLocal() == true) {
+            return version
+        }
         if (!isLocalPublishRequested(project) || version.endsWith("-local")) {
             return version
         }
@@ -250,7 +288,8 @@ open class PublishPlugin : Plugin<Project> {
     private fun isLocalPublishRequested(project: Project): Boolean {
         return project.gradle.startParameter.taskNames.any { taskName ->
             val shortTaskName = taskName.substringAfterLast(":")
-            shortTaskName == PublishLibraryLocalTask.TAG ||
+            shortTaskName == PublishTaskNames.local(PublishComponentKind.LIBRARY) ||
+                shortTaskName == PublishTaskNames.local(PublishComponentKind.PLUGIN) ||
                 shortTaskName == "publishToMavenLocal" ||
                 (shortTaskName.startsWith("publish") && shortTaskName.endsWith("PublicationToMavenLocal"))
         }
@@ -263,12 +302,19 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val properties = PublishConfigResolver.loadLocalProperties(project)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        if (mode == PublishConfigResolver.MODE_CENTRAL) {
-            configureCentralRepository(project, publishing, publishInfo, properties)
-        } else if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
+        val all = project.gradle.startParameter.taskNames.any { it.contains("RemoteAllTask") }
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
+        if (mode == PublishConfigResolver.MODE_CENTRAL || mode == PublishConfigResolver.MODE_CENTRAL_SNAPSHOT || all) {
+            if (!all || repositories?.isCentralEnabled() == true) {
+                configureCentralRepository(project, publishing, publishInfo, properties)
+            }
+        }
+        if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
             configureCustomRepository(project, publishing, publishInfo, properties)
-        } else if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
-            configureGitHubPackagesRepository(project, publishing, publishInfo, properties)
+        } else if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES || all) {
+            if (!all || repositories?.isGithubPackagesEnabled() == true) {
+                configureGitHubPackagesRepository(project, publishing, publishInfo, properties)
+            }
         }
     }
 
@@ -286,8 +332,8 @@ open class PublishPlugin : Plugin<Project> {
 
         finalizeDslMethod.invoke(androidComponents, Action<Any> { androidDsl ->
             val publishInfo = project.extensions.getByType(PublishInfo::class.java)
-            val candidates = createAndroidReleaseVariantInfos(project)
-            val publishableVariants = selectAndroidPublishVariants(candidates, publishInfo)
+            val candidates = createAndroidVariantInfos(project, publishInfo.publishBuildTypes())
+            val publishableVariants = selectAndroidPublishVariants(candidates, publishInfo, singleByDefault = true)
             publishableVariants.forEach { variant ->
                 registerSingleVariant(androidDsl, variant.name)
             }
@@ -305,17 +351,12 @@ open class PublishPlugin : Plugin<Project> {
         PluginLogUtil.printlnDebugInScreen("$TAG register android singleVariant $variantName")
     }
 
-    private fun createAndroidReleaseVariantInfos(project: Project): List<PublishVariantInfo> {
-        val buildTypeName = "release"
+    private fun createAndroidVariantInfos(project: Project, buildTypes: Set<String>): List<PublishVariantInfo> {
         val flavorSpecs = readAndroidFlavorSpecs(project)
         if (flavorSpecs.isEmpty()) {
-            return listOf(
-                PublishVariantInfo(
-                    name = buildTypeName,
-                    buildType = buildTypeName,
-                    flavors = emptyMap()
-                )
-            )
+            return buildTypes.map { buildTypeName ->
+                PublishVariantInfo(buildTypeName, buildTypeName, emptyMap())
+            }
         }
 
         val dimensions = readAndroidFlavorDimensions(project)
@@ -332,15 +373,17 @@ open class PublishPlugin : Plugin<Project> {
             return emptyList()
         }
 
-        return cartesianFlavorSpecs(flavorsByDimension.map { it.second }).map { flavors ->
-            val flavorName = flavors.mapIndexed { index, flavor ->
-                if (index == 0) flavor.name else flavor.name.capitalizeAscii()
-            }.joinToString("")
-            PublishVariantInfo(
-                name = "$flavorName${buildTypeName.capitalizeAscii()}",
-                buildType = buildTypeName,
-                flavors = flavors.associate { it.dimension to it.name }
-            )
+        return buildTypes.flatMap { buildTypeName ->
+            cartesianFlavorSpecs(flavorsByDimension.map { it.second }).map { flavors ->
+                val flavorName = flavors.mapIndexed { index, flavor ->
+                    if (index == 0) flavor.name else flavor.name.capitalizeAscii()
+                }.joinToString("")
+                PublishVariantInfo(
+                    name = "$flavorName${buildTypeName.capitalizeAscii()}",
+                    buildType = buildTypeName,
+                    flavors = flavors.associate { it.dimension to it.name }
+                )
+            }
         }
     }
 
@@ -357,16 +400,24 @@ open class PublishPlugin : Plugin<Project> {
         components: List<SoftwareComponent>,
         publishInfo: PublishInfo
     ): List<PublishTarget> {
-        val buildTypeName = "release"
-        val buildTypeComponents = components.filter { isBuildTypeComponent(it.name, buildTypeName) }
+        val buildTypes = publishInfo.publishBuildTypes()
+        val buildTypeComponents = components.filter { component ->
+            buildTypes.any { buildType -> isBuildTypeComponent(component.name, buildType) }
+        }
         val singleReleaseComponent =
-            buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals(buildTypeName, ignoreCase = true)
-        val useBasePublicationName = singleReleaseComponent || !publishInfo.hasVariantCoordinateResolvers()
+            buildTypes.size == 1 && buildTypes.first().equals("release", ignoreCase = true) &&
+                buildTypeComponents.size == 1 && buildTypeComponents.first().name.equals("release", ignoreCase = true)
+        val useBasePublicationName = singleReleaseComponent ||
+            (!publishInfo.hasVariantCoordinateResolvers() && buildTypeComponents.size == 1)
 
         val publishableVariantNames = if (singleReleaseComponent) {
             null
         } else {
-            selectAndroidPublishVariants(createAndroidReleaseVariantInfos(project), publishInfo)
+            selectAndroidPublishVariants(
+                createAndroidVariantInfos(project, buildTypes),
+                publishInfo,
+                singleByDefault = buildTypes.size == 1 && buildTypes.first().equals("release", ignoreCase = true)
+            )
                 .map { it.name }
                 .toSet()
         }
@@ -385,7 +436,7 @@ open class PublishPlugin : Plugin<Project> {
             val variantInfo = if (useBasePublicationName) {
                 null
             } else {
-                createAndroidVariantInfo(project, component.name, buildTypeName)
+                createAndroidVariantInfo(project, component.name, buildTypes.firstOrNull { isBuildTypeComponent(component.name, it) } ?: "release")
             }
             val artifactId = publishInfo.resolveArtifactId(variantInfo)
             val groupId = publishInfo.resolveGroupId(variantInfo)
@@ -396,7 +447,8 @@ open class PublishPlugin : Plugin<Project> {
 
     private fun selectAndroidPublishVariants(
         candidates: List<PublishVariantInfo>,
-        publishInfo: PublishInfo
+        publishInfo: PublishInfo,
+        singleByDefault: Boolean
     ): List<PublishVariantInfo> {
         val filtered = candidates.filter { publishInfo.shouldPublishVariant(it) }
         if (candidates.isNotEmpty() && filtered.isEmpty()) {
@@ -404,7 +456,7 @@ open class PublishPlugin : Plugin<Project> {
                 "No publishable Android release variants. Candidates: ${candidates.joinToString { it.name }}"
             )
         }
-        if (publishInfo.hasVariantCoordinateResolvers()) {
+        if (!singleByDefault || publishInfo.hasVariantCoordinateResolvers()) {
             return filtered
         }
         return filtered.take(1)
@@ -638,7 +690,7 @@ open class PublishPlugin : Plugin<Project> {
     ) {
         val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo, properties)
         val repositoryName = PublishConfigResolver.resolveCentralRepositoryName(project, publishInfo)
-        val repositoryUrl = PublishConfigResolver.resolveCentralRepositoryUrl(project)
+        val repositoryUrl = PublishConfigResolver.resolveCentralRepositoryUrl(project, publishInfo)
         publishing.repositories { artifactRepositories ->
             artifactRepositories.maven { repository ->
                 repository.name = repositoryName

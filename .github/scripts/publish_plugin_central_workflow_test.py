@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / "workflows"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CENTRAL_WORKFLOW = WORKFLOWS / "publish-plugin-central.yml"
 PR_CHECK_WORKFLOW = WORKFLOWS / "publish-plugin-pr-check.yml"
 SECRET_ENV_NAMES = (
@@ -97,14 +98,22 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         self.assertIn("== \"true\"", merge)
         self.assertIn("does not require Central publish; merging directly", merge)
 
-    def test_release_sync_updates_readme_and_root_build_after_publish(self):
+    def test_release_sync_updates_readme_without_reintroducing_root_version_pin(self):
         sync = step_block("Sync README release version")
 
-        self.assertIn("--root-build-file build.gradle.kts", sync)
-        self.assertIn("README.md build.gradle.kts", sync)
-        self.assertIn("git add plugin_base/build.gradle.kts README.md build.gradle.kts", sync)
+        self.assertNotIn("--root-build-file", sync)
+        self.assertNotIn("README.md build.gradle.kts", sync)
+        self.assertIn("git add plugin_base/build.gradle.kts README.md", sync)
         self.assertIn("Update publish plugin usage version", sync)
         self.assertNotIn("HEAD:pre_publish", sync)
+
+    def test_repository_consumes_publish_plugin_from_included_build(self):
+        settings = (REPOSITORY_ROOT / "settings.gradle.kts").read_text(encoding="utf-8")
+        root_build = (REPOSITORY_ROOT / "build.gradle.kts").read_text(encoding="utf-8")
+
+        self.assertIn('includeBuild("plugin_base")', settings)
+        self.assertNotIn('include(":plugin_base")', settings)
+        self.assertNotIn("cn.entertech.android:publish:", root_build)
 
     def test_main_merge_uses_release_head_after_readme_sync(self):
         merge = step_block("Merge pre_publish to main")
@@ -129,8 +138,20 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
         self.assertNotIn("sync_readme_publish_version.py", snapshot)
         self.assertNotIn("git tag", snapshot)
 
+    def test_plugin_build_steps_isolate_unpublished_demo_consumers(self):
+        text = workflow_text()
+
+        self.assertIn("-PpluginBaseOnly=true", text)
+
 
 class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
+    def test_pr_check_runs_repository_pre_release_gate(self):
+        pre_release = step_block("Run pre-release checks", PR_CHECK_WORKFLOW)
+
+        self.assertIn("./scripts/pre-release-check.sh", pre_release)
+        self.assertIn("--require-clean", pre_release)
+        self.assertIn('--base-file "$BASE_FILE"', pre_release)
+
     def test_version_bump_only_runs_when_plugin_base_changed(self):
         detect_changes = step_block("Detect plugin_base changes", PR_CHECK_WORKFLOW)
         ensure_version = step_block("Ensure publish plugin version", PR_CHECK_WORKFLOW)

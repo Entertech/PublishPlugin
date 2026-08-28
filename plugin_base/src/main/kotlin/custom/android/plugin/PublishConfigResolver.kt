@@ -17,6 +17,7 @@ object PublishConfigResolver {
     const val CENTRAL_MANUAL_UPLOAD_BASE_URL =
         "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository"
     const val MODE_CENTRAL = "central"
+    const val MODE_CENTRAL_SNAPSHOT = "centralSnapshot"
     const val MODE_CUSTOM_REPOSITORY = "customRepository"
     const val MODE_GITHUB_PACKAGES = "githubPackages"
     const val WORKFLOW_TARGET_CENTRAL = "central"
@@ -44,7 +45,14 @@ object PublishConfigResolver {
 
     fun loadLocalProperties(project: Project): Properties {
         val properties = Properties()
-        val file = project.rootProject.file("local.properties")
+        if (environment("GITHUB_ACTIONS").equals("true", ignoreCase = true)) return properties
+        val configuredPath = projectProperty(project, "publishLocalConfig")
+        val file = if (configuredPath.isBlank()) {
+            project.rootProject.file(".publish/local.properties")
+        } else {
+            val candidate = File(configuredPath)
+            if (candidate.isAbsolute) candidate else project.rootProject.file(configuredPath)
+        }
         if (file.exists()) {
             file.inputStream().use { properties.load(it) }
         }
@@ -54,7 +62,7 @@ object PublishConfigResolver {
     fun publishConfigFile(project: Project): File {
         val configuredPath = projectProperty(project, "publishConfig")
         if (configuredPath.isBlank()) {
-            return project.rootProject.file("local.properties")
+            return project.rootProject.file(".publish/local.properties")
         }
         val configuredFile = File(configuredPath)
         return if (configuredFile.isAbsolute) configuredFile else project.rootProject.file(configuredPath)
@@ -65,19 +73,28 @@ object PublishConfigResolver {
     }
 
     fun resolveRemotePublishMode(project: Project, @Suppress("UNUSED_PARAMETER") publishInfo: PublishInfo): String {
+        val taskTarget = explicitTaskPublishTarget(project)
+        if (taskTarget.isNotBlank()) return taskTarget
+        val explicitMode = firstNotBlank(
+            projectProperty(project, "remotePublishMode"),
+            environment("REMOTE_PUBLISH_MODE")
+        )
+        if (explicitMode.isNotBlank()) return normalizeLegacyRemotePublishMode(explicitMode)
+        val configuredTarget = firstNotBlank(
+            projectProperty(project, "publishTarget"),
+            environment("PUBLISH_TARGET")
+        )
+        if (configuredTarget.isNotBlank()) {
+            return remotePublishModeFromPublishTarget(configuredTarget).ifBlank {
+                normalizeLegacyRemotePublishMode(configuredTarget)
+            }
+        }
+        if (publishInfo.version.endsWith("-SNAPSHOT", ignoreCase = true) ||
+            environment("PUBLISH_VERSION").endsWith("-SNAPSHOT", ignoreCase = true)
+        ) {
+            return MODE_CENTRAL_SNAPSHOT
+        }
         return firstNotBlank(
-            remotePublishModeFromPublishTarget(
-                firstNotBlank(
-                    projectProperty(project, "publishTarget"),
-                    environment("PUBLISH_TARGET")
-                )
-            ),
-            normalizeLegacyRemotePublishMode(
-                firstNotBlank(
-                    projectProperty(project, "remotePublishMode"),
-                    environment("REMOTE_PUBLISH_MODE")
-                )
-            ),
             remotePublishModeFromPublishTarget(loadPublishProperties(project).publishTarget),
             MODE_GITHUB_PACKAGES
         ).ifBlank { MODE_GITHUB_PACKAGES }
@@ -168,6 +185,7 @@ object PublishConfigResolver {
         return when (normalizeWorkflowPublishTarget(publishTarget)) {
             WORKFLOW_TARGET_CENTRAL -> MODE_CENTRAL
             WORKFLOW_TARGET_GITHUB_PACKAGES -> MODE_GITHUB_PACKAGES
+            MODE_CENTRAL_SNAPSHOT -> MODE_CENTRAL_SNAPSHOT
             else -> ""
         }
     }
@@ -175,13 +193,14 @@ object PublishConfigResolver {
     private fun normalizeLegacyRemotePublishMode(mode: String): String {
         return when (mode.trim()) {
             WORKFLOW_TARGET_GITHUB_PACKAGES -> MODE_GITHUB_PACKAGES
+            MODE_CENTRAL_SNAPSHOT -> MODE_CENTRAL_SNAPSHOT
             else -> mode.trim()
         }
     }
 
     fun isCentralPublish(project: Project, publishInfo: PublishInfo): Boolean {
         val mode = resolveRemotePublishMode(project, publishInfo)
-        if (mode != MODE_CENTRAL) {
+        if (mode != MODE_CENTRAL && mode != MODE_CENTRAL_SNAPSHOT) {
             return false
         }
         if (projectProperty(project, "centralPublish").toBooleanLenient()) {
@@ -190,7 +209,9 @@ object PublishConfigResolver {
         val publishTaskPrefix = "publish${BasePublishTask.MAVEN_PUBLICATION_NAME}PublicationTo"
         return project.gradle.startParameter.taskNames.any { taskName ->
             val publishRepositoryTask = taskName.contains(publishTaskPrefix) && taskName.contains("Repository")
-                taskName.contains(PublishLibraryRemoteTask.TAG) ||
+            taskName.contains("PublishLibraryRemoteTask") ||
+                taskName.contains("RemoteCentralTask") ||
+                taskName.contains("RemoteAllTask") ||
                 taskName.contains("CentralStagingRepository") ||
                 taskName.contains("CentralSnapshotsRepository") ||
                 publishRepositoryTask ||
@@ -198,32 +219,66 @@ object PublishConfigResolver {
         }
     }
 
+    private fun explicitTaskPublishTarget(project: Project): String {
+        val names = project.gradle.startParameter.taskNames.joinToString(" ")
+        return when {
+            names.contains("RemoteCentralTask") -> MODE_CENTRAL
+            names.contains("RemoteGithubPackagesTask") -> MODE_GITHUB_PACKAGES
+            else -> ""
+        }
+    }
+
     fun resolveCentralRepositoryName(project: Project, publishInfo: PublishInfo): String {
-        if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
-            return "CentralSnapshots"
+        if (resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
+            return firstNotBlank(
+                projectProperty(project, "centralRepositoryName"),
+                environment("CENTRAL_REPOSITORY_NAME"),
+                project.extensions.findByType(PublishRepositories::class.java)
+                    ?.central?.snapshotRepositoryName?.orNull,
+                "CentralSnapshots"
+            )
         }
         return firstNotBlank(
             projectProperty(project, "centralRepositoryName"),
             environment("CENTRAL_REPOSITORY_NAME"),
+            project.extensions.findByType(PublishRepositories::class.java)
+                ?.central?.releaseRepositoryName?.orNull,
             explicitPublishInfoValue(publishInfo, "centralRepositoryName", publishInfo.centralRepositoryName),
             loadPublishProperties(project).centralRepositoryName,
             "CentralStaging"
         )
     }
 
-    fun resolveCentralRepositoryUrl(project: Project): String {
-        return if (resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
+    fun resolveCentralRepositoryUrl(project: Project, publishInfo: PublishInfo?): String {
+        return if (resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT) {
             CENTRAL_SNAPSHOT_URL
         } else {
             CENTRAL_STAGING_URL
         }
     }
 
-    fun resolveCentralReleaseType(project: Project): String {
-        val value = firstNotBlank(
+    fun resolveCentralRepositoryUrl(project: Project): String = resolveCentralRepositoryUrl(project, null)
+
+    fun resolveCentralReleaseType(project: Project, publishInfo: PublishInfo? = null): String {
+        val explicitValue = firstNotBlank(
             projectProperty(project, "centralReleaseType"),
             environment("CENTRAL_RELEASE_TYPE")
-        ).ifBlank { CENTRAL_RELEASE_TYPE_RELEASE }
+        )
+        val value = explicitValue.ifBlank {
+            val requestedVersion = firstNotBlank(
+                projectProperty(project, "publishVersion"),
+                environment("PUBLISH_VERSION"),
+                projectProperty(project, "version"),
+                publishInfo?.version
+            )
+            if (requestedVersion.endsWith("-SNAPSHOT", ignoreCase = true) ||
+                resolveRemotePublishMode(project, PublishInfo()) == MODE_CENTRAL_SNAPSHOT
+            ) {
+                CENTRAL_RELEASE_TYPE_SNAPSHOT
+            } else {
+                CENTRAL_RELEASE_TYPE_RELEASE
+            }
+        }
         return when (value.trim().lowercase()) {
             CENTRAL_RELEASE_TYPE_RELEASE -> CENTRAL_RELEASE_TYPE_RELEASE
             CENTRAL_RELEASE_TYPE_SNAPSHOT -> CENTRAL_RELEASE_TYPE_SNAPSHOT
@@ -233,14 +288,43 @@ object PublishConfigResolver {
         }
     }
 
-    fun isCentralSnapshotPublish(project: Project): Boolean {
-        return resolveCentralReleaseType(project) == CENTRAL_RELEASE_TYPE_SNAPSHOT
+    fun resolveCentralUploadMode(project: Project, publishInfo: PublishInfo): String {
+        return firstNotBlank(
+            projectProperty(project, "centralUploadMode"),
+            environment("CENTRAL_UPLOAD_MODE"),
+            explicitPublishInfoValue(publishInfo, "centralUploadMode", publishInfo.centralUploadMode),
+            loadPublishProperties(project).centralUploadMode,
+            "stagingApi"
+        ).also {
+            if (it != "stagingApi" && it != "portalApi") {
+                throw IllegalArgumentException("centralUploadMode only supports stagingApi or portalApi, but was $it")
+            }
+        }
+    }
+
+    fun resolveCentralPortalApiBaseUrl(project: Project): String {
+        return firstNotBlank(
+            projectProperty(project, "centralPortalApiBaseUrl"),
+            environment("CENTRAL_PORTAL_API_BASE_URL"),
+            "https://central.sonatype.com/api/v1/publisher"
+        ).trimEnd('/')
+    }
+
+    fun shouldUseCentralPortal(project: Project, publishInfo: PublishInfo): Boolean {
+        return resolveCentralUploadMode(project, publishInfo) == "portalApi" &&
+            !isCentralSnapshotPublish(project, publishInfo)
+    }
+
+    fun isCentralSnapshotPublish(project: Project, publishInfo: PublishInfo? = null): Boolean {
+        return resolveCentralReleaseType(project, publishInfo) == CENTRAL_RELEASE_TYPE_SNAPSHOT
     }
 
     fun resolveCentralNamespace(project: Project, publishInfo: PublishInfo): String {
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
         return firstNotBlank(
             projectProperty(project, "centralNamespace"),
             environment("CENTRAL_NAMESPACE"),
+            repositories?.central?.namespace?.orNull,
             explicitPublishInfoValue(publishInfo, "centralNamespace", publishInfo.centralNamespace),
             loadPublishProperties(project).centralNamespace,
             publishInfo.centralNamespace
@@ -251,32 +335,38 @@ object PublishConfigResolver {
         return firstNotBlank(
             projectProperty(project, "centralPublishingType"),
             environment("CENTRAL_PUBLISHING_TYPE"),
+            project.extensions.findByType(PublishRepositories::class.java)
+                ?.central?.publishingType?.orNull,
             explicitPublishInfoValue(publishInfo, "centralPublishingType", publishInfo.centralPublishingType),
             loadPublishProperties(project).centralPublishingType,
             "user_managed"
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun resolveCentralCredentials(
         project: Project,
         publishInfo: PublishInfo,
         localProperties: Properties = loadLocalProperties(project)
     ): CentralCredentials {
+        val runtime = PublishRuntimeConfig(project)
         val username = firstNotBlank(
             projectProperty(project, "centralUsername"),
             environment("CENTRAL_USERNAME"),
             projectProperty(project, "mavenCentralUsername"),
             environment("MAVEN_CENTRAL_USERNAME"),
-            publishInfo.publishUserName,
-            localProperties.getProperty("publishUserName")
+            runtime.value("publish.local.central.username", "centralUsername", "mavenCentralUsername"),
+            localProperties.getProperty("publish.local.central.username"),
+            localProperties.getProperty("mavenCentralUsername")
         )
         val password = firstNotBlank(
             projectProperty(project, "centralPassword"),
             environment("CENTRAL_PASSWORD"),
             projectProperty(project, "mavenCentralPassword"),
             environment("MAVEN_CENTRAL_PASSWORD"),
-            publishInfo.publishPassword,
-            localProperties.getProperty("publishPassword")
+            localProperties.getProperty("publish.local.central.password"),
+            localProperties.getProperty("centralPassword"),
+            localProperties.getProperty("mavenCentralPassword")
         )
         return CentralCredentials(username, password)
     }
@@ -318,9 +408,11 @@ object PublishConfigResolver {
     }
 
     fun resolveGitHubPackagesRepositoryName(project: Project, publishInfo: PublishInfo): String {
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
         return firstNotBlank(
             projectProperty(project, "githubPackagesRepositoryName"),
             environment("GITHUB_PACKAGES_REPOSITORY_NAME"),
+            repositories?.githubPackages?.repositoryName?.orNull,
             publishInfo.githubPackagesRepositoryName,
             DEFAULT_GITHUB_PACKAGES_REPOSITORY_NAME
         )
@@ -332,9 +424,11 @@ object PublishConfigResolver {
         localProperties: Properties = loadLocalProperties(project)
     ): String {
         val publishProperties = loadPublishProperties(project)
+        val repositories = project.extensions.findByType(PublishRepositories::class.java)
         return firstNotBlank(
             projectProperty(project, "githubPackagesUrl"),
             environment("GITHUB_PACKAGES_URL"),
+            repositories?.githubPackages?.repositoryUrl?.orNull,
             publishInfo.githubPackagesUrl,
             publishProperties.githubPackagesUrl,
             localProperties.getProperty("githubPackagesUrl"),
@@ -342,21 +436,22 @@ object PublishConfigResolver {
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun resolveGitHubPackagesCredentials(
         project: Project,
         publishInfo: PublishInfo,
         localProperties: Properties = loadLocalProperties(project)
     ): RepositoryCredentials {
+        val runtime = PublishRuntimeConfig(project)
         val username = firstNotBlank(
             projectProperty(project, "githubPackagesUsername"),
             projectProperty(project, "gpr.user"),
             environment("GITHUB_PACKAGES_USER"),
             environment("GITHUB_ACTOR"),
             environment("USERNAME"),
-            publishInfo.githubPackagesUsername,
-            publishInfo.publishUserName,
-            localProperties.getProperty("githubPackagesUsername"),
-            localProperties.getProperty("publishUserName")
+            runtime.value("publish.local.githubPackages.username", "githubPackagesUsername"),
+            localProperties.getProperty("publish.local.githubPackages.username"),
+            localProperties.getProperty("githubPackagesUsername")
         )
         val password = firstNotBlank(
             projectProperty(project, "githubPackagesPassword"),
@@ -364,32 +459,41 @@ object PublishConfigResolver {
             environment("GITHUB_PACKAGES_TOKEN"),
             environment("GITHUB_TOKEN"),
             environment("TOKEN"),
-            publishInfo.githubPackagesPassword,
-            publishInfo.publishPassword,
-            localProperties.getProperty("githubPackagesPassword"),
-            localProperties.getProperty("publishPassword")
+            runtime.value("publish.local.githubPackages.token", "githubPackagesPassword"),
+            localProperties.getProperty("publish.local.githubPackages.token"),
+            localProperties.getProperty("githubPackagesPassword")
         )
         return RepositoryCredentials(username, password)
     }
 
     fun resolveSigningCredentials(project: Project): SigningCredentials {
+        val runtime = PublishRuntimeConfig(project)
+        val keyFile = runtime.value("publish.local.central.signingKeyFile", "signingKeyFile")
+        val keyFromFile = if (keyFile.isBlank()) "" else {
+            val file = File(keyFile).let { if (it.isAbsolute) it else project.rootProject.file(keyFile) }
+            if (file.isFile) file.readText() else ""
+        }
         return SigningCredentials(
             keyId = firstNotBlank(
                 projectProperty(project, "signingInMemoryKeyId"),
                 environment("SIGNING_IN_MEMORY_KEY_ID"),
                 projectProperty(project, "signingKeyId"),
-                environment("SIGNING_KEY_ID")
+                environment("SIGNING_KEY_ID"),
+                runtime.value("publish.local.central.signingKeyId", "signingKeyId")
             ),
             key = firstNotBlank(
                 projectProperty(project, "signingInMemoryKey"),
                 environment("SIGNING_IN_MEMORY_KEY"),
-                environment("GPG_KEY_CONTENTS")
+                environment("GPG_KEY_CONTENTS"),
+                keyFromFile,
+                runtime.value("publish.local.central.signingKey", "signingInMemoryKey", "gpgKeyContents")
             ),
             password = firstNotBlank(
                 projectProperty(project, "signingInMemoryKeyPassword"),
                 environment("SIGNING_IN_MEMORY_KEY_PASSWORD"),
                 projectProperty(project, "signingPassword"),
-                environment("SIGNING_PASSWORD")
+                environment("SIGNING_PASSWORD"),
+                runtime.value("publish.local.central.signingPassword", "signingPassword")
             )
         )
     }
@@ -503,9 +607,11 @@ object PublishConfigResolver {
         val publishProperties = loadPublishProperties(project)
         return normalizeOwnerRepo(
             firstNotBlank(
-                projectProperty(project, "githubPackagesRepository"),
-                environment("GITHUB_PACKAGES_REPOSITORY"),
-                publishInfo.githubPackagesRepository,
+            projectProperty(project, "githubPackagesRepository"),
+            environment("GITHUB_PACKAGES_REPOSITORY"),
+            project.extensions.findByType(PublishRepositories::class.java)
+                ?.githubPackages?.repository?.orNull,
+            publishInfo.githubPackagesRepository,
                 publishProperties.githubPackagesRepository,
                 localProperties.getProperty("githubPackagesRepository"),
                 environment("GITHUB_REPOSITORY"),

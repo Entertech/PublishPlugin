@@ -7,7 +7,9 @@ import org.gradle.api.GradleException
 import org.gradle.api.tasks.TaskAction
 import java.io.File
 
-open class ConfigurePublishTask : DefaultTask() {
+/** Legacy configuration task kept only for source migration; never registered. */
+@Deprecated("Configuration tasks were removed from the public task API; use enter-publish-config")
+internal open class ConfigurePublishTask : DefaultTask() {
     init {
         group = "customPlugin"
         description = "Validate PublishInfo and configure GitHub secrets/workflow for publishing."
@@ -24,6 +26,13 @@ open class ConfigurePublishTask : DefaultTask() {
         val centralTarget = PublishConfigResolver.requiresCentralForWorkflowTarget(publishTarget)
         if (GitSafetyChecker.isTracked(project.rootDir, configFile)) {
             throw GradleException("${configFile.name} is tracked by git. Run: git rm --cached ${configFile.name}")
+        }
+        val trackedSecretHits = GitSafetyChecker.findTrackedSensitiveKeys(project.rootDir)
+        if (trackedSecretHits.isNotEmpty()) {
+            throw GradleException(
+                "Tracked files contain publishing secret fields; rotate affected secrets before continuing:\n" +
+                    trackedSecretHits.joinToString("\n") { "- $it" }
+            )
         }
         if (config.dryRunEnabled) {
             PluginLogUtil.printlnInfoInScreen("Dry run: would ensure ${configFile.name} is ignored by git.")
@@ -83,7 +92,12 @@ open class ConfigurePublishTask : DefaultTask() {
                     githubPackagesUrl,
                     workflowPath,
                     workflowUses,
-                    project.findProperty("overwriteWorkflow")?.toString()?.toBooleanLenientLocal() == true
+                    project.findProperty("overwriteWorkflow")?.toString()?.toBooleanLenientLocal() == true,
+                    componentType = runCatching { PublishComponentKind.detect(project.plugins).name.lowercase() }
+                        .getOrDefault("library"),
+                    artifactSource = project.findProperty("artifactSource")?.toString().orEmpty()
+                        .ifBlank { "project" },
+                    artifactBundlePath = project.findProperty("artifactBundlePath")?.toString().orEmpty()
                 )
                 PluginLogUtil.printlnInfoInScreen("Generated workflow: ${workflowFile.absolutePath}")
             }
@@ -145,6 +159,7 @@ open class ConfigurePublishTask : DefaultTask() {
         if (repo.isBlank()) {
             throw GradleException("publish.githubRepo is required when it cannot be inferred")
         }
+        PluginLogUtil.printlnInfoInScreen("GitHub CLI authenticated; target repository: $repo")
         val existingSecrets = gh.listSecretNames(repo)
         val overwrite = config.overwriteGithubSecretsEnabled
         setSecretIfNeeded(gh, repo, config.effectiveMavenCentralUsernameSecret, config.mavenCentralUsername, existingSecrets, overwrite)

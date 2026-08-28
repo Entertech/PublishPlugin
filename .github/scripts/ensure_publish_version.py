@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-VERSION_LINE_RE = re.compile(r"(?m)^(\s*version\s*=\s*)(['\"])([^'\"]+)(\2)")
+VERSION_LINE_RE = re.compile(
+    r"(?m)^(\s*(?:(?:val|var)\s+baseVersion|version)\s*=\s*)(['\"])([^'\"]+)(\2)"
+)
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 NORMALIZABLE_SEMVER_RE = re.compile(r"^\s*v?(\d+)\.(\d+)\.(\d+)(?:[^\d].*)?\s*$")
 

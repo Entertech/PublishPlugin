@@ -65,6 +65,7 @@ object PublishConfigLoader {
             githubPackagesUrl = values["githubPackagesUrl"].orEmpty(),
             centralNamespace = values["centralNamespace"].orEmpty(),
             centralPublishingType = values["centralPublishingType"].orEmpty(),
+            centralUploadMode = values["centralUploadMode"].orEmpty(),
             centralRepositoryName = values["centralRepositoryName"].orEmpty(),
             pomInceptionYear = values["pomInceptionYear"].orEmpty(),
             licenseName = values["licenseName"].orEmpty(),
