@@ -11,6 +11,7 @@ FILES = [
     ROOT / "doc" / "plan.md",
     ROOT / "doc" / "skills" / "publish-skills.md",
     ROOT / "doc" / "tech" / "publish-architecture.md",
+    ROOT / "doc" / "tech" / "pre-release-testing.md",
     ROOT / "doc" / "tech" / "publish-configuration.md",
     ROOT / "doc" / "tech" / "central-publishing.md",
     ROOT / "doc" / "tech" / "android-variant-publishing.md",
@@ -22,6 +23,7 @@ FACTS = {
     "config prefix": "publish.*",
     "config skill": "skills/enter-publish-config/",
     "run skill": "skills/enter-publish-run/",
+    "pre-release automation": "scripts/pre-release-check.sh",
 }
 
 

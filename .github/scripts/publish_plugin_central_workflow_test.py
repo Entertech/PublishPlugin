@@ -145,6 +145,13 @@ class PublishPluginCentralWorkflowTest(unittest.TestCase):
 
 
 class PublishPluginPrCheckWorkflowTest(unittest.TestCase):
+    def test_pr_check_runs_repository_pre_release_gate(self):
+        pre_release = step_block("Run pre-release checks", PR_CHECK_WORKFLOW)
+
+        self.assertIn("./scripts/pre-release-check.sh", pre_release)
+        self.assertIn("--require-clean", pre_release)
+        self.assertIn('--base-file "$BASE_FILE"', pre_release)
+
     def test_version_bump_only_runs_when_plugin_base_changed(self):
         detect_changes = step_block("Detect plugin_base changes", PR_CHECK_WORKFLOW)
         ensure_version = step_block("Ensure publish plugin version", PR_CHECK_WORKFLOW)

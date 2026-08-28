@@ -120,25 +120,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Test version helper
-        run: |
-          python3 .github/scripts/ensure_publish_version_test.py
-          python3 .github/scripts/normalize_signing_key_id_test.py
-          python3 .github/scripts/reusable_publish_workflow_test.py
-          python3 .github/scripts/sync_readme_publish_version_test.py
-          python3 .github/scripts/verify_publishplugin_docs.py
-          if [ -d "${CODEX_HOME:-$HOME/.codex}/skills" ]; then
-            ./scripts/install-codex-skill.sh --check
-          else
-            echo "Codex runtime skills directory is unavailable; skipping local symlink check."
-          fi
-
-      - name: Run required Gradle tasks
-        run: |
-          ./gradlew :plugin_base:build -PpluginBaseOnly=true --stacktrace
-          ./gradlew :plugin_base:publishToMavenLocal -PpluginBaseOnly=true --stacktrace
-          python3 .github/scripts/validate_publish_plugin_publications.py
-          python3 .github/scripts/sync_readme_publish_version.py --check
+      - name: Run pre-release checks
+        run: ./scripts/pre-release-check.sh --require-clean --base-file "$BASE_FILE"
 
   compatibility:
     name: Supported JDK ${{ matrix.java }} / Gradle ${{ matrix.gradle }} / AGP ${{ matrix.agp }}

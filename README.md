@@ -41,6 +41,7 @@ PublishPlugin 负责 publication 和发布编排，不负责聚合多个业务�
 
 深入文档：
 
+- [发布前测试与验收清单](doc/tech/pre-release-testing.md)
 - [Sonatype Central 发布](doc/tech/central-publishing.md)
 - [Android Variant 发布](doc/tech/android-variant-publishing.md)
 - [发布配置与凭据](doc/tech/publish-configuration.md)

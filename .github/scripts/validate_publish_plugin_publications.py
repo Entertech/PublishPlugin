@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -87,7 +88,50 @@ def assert_plugin_descriptor() -> None:
         fail("Old custom.android.plugin descriptor must not be generated")
 
 
+def assert_published_repository(repository: Path, version: str) -> None:
+    implementation = repository / "cn/entertech/android/publish" / version
+    marker = repository / "cn/entertech/publish/cn.entertech.publish.gradle.plugin" / version
+    required = (
+        implementation / f"publish-{version}.pom",
+        implementation / f"publish-{version}.jar",
+        implementation / f"publish-{version}-sources.jar",
+        implementation / f"publish-{version}-javadoc.jar",
+        implementation / f"publish-{version}.module",
+        marker / f"cn.entertech.publish.gradle.plugin-{version}.pom",
+    )
+    for path in required:
+        if not path.is_file():
+            fail(f"Missing published artifact: {path}")
+        if path.stat().st_size == 0:
+            fail(f"Published artifact is empty: {path}")
+
+    implementation_pom = load_pom(required[0])
+    marker_pom = load_pom(required[-1])
+    assert_coordinates(
+        implementation_pom,
+        GROUP_ID,
+        ARTIFACT_ID,
+        re.escape(version),
+        "published pluginMaven",
+    )
+    assert_coordinates(
+        marker_pom,
+        PLUGIN_ID,
+        f"{PLUGIN_ID}.gradle.plugin",
+        re.escape(version),
+        "published plugin marker",
+    )
+    assert_marker_dependency(marker_pom, version)
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Validate PublishPlugin Maven publications.")
+    parser.add_argument(
+        "--repository",
+        help="Optional Maven repository root whose published files must be validated.",
+    )
+    args = parser.parse_args()
+
     publications = ROOT / "plugin_base/build/publications"
     plugin_pom = load_pom(publications / "pluginMaven/pom-default.xml")
     marker_pom = load_pom(publications / "publishPluginMarkerMaven/pom-default.xml")
@@ -111,6 +155,8 @@ def main() -> None:
     assert_central_metadata(marker_pom, "publishPluginMarkerMaven")
     assert_marker_dependency(marker_pom, version)
     assert_plugin_descriptor()
+    if args.repository:
+        assert_published_repository(Path(args.repository).resolve(), version)
     print("publish plugin publication metadata ok")
 
 

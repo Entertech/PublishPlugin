@@ -19,6 +19,7 @@ PublishPlugin 当前公开能力包括：
 当前技术契约见：
 
 - [发布架构](tech/publish-architecture.md)
+- [发布前测试与验收清单](tech/pre-release-testing.md)
 - [Central 发布](tech/central-publishing.md)
 - [Android Variant 发布](tech/android-variant-publishing.md)
 - [发布配置与凭据](tech/publish-configuration.md)
@@ -42,19 +43,12 @@ PublishPlugin 当前公开能力包括：
 基础验证：
 
 ```bash
-./gradlew :plugin_base:test --stacktrace
-./gradlew :plugin_base:build --stacktrace
-python3 .github/scripts/verify_publishplugin_docs.py
-python3 .github/scripts/reusable_publish_workflow_test.py
-./scripts/install-codex-skill.sh --check
-git diff --check
+./scripts/pre-release-check.sh
 ```
 
-涉及 publication 或 demo 时追加：
+涉及 demo 模块配置或 publication 行为时追加对应 demo 验证：
 
 ```bash
-./gradlew :plugin_base:publishToMavenLocal --stacktrace
 ./gradlew :demo-lib:publishToMavenLocal --stacktrace
 ./gradlew :demo-plugin:publishToMavenLocal --stacktrace
-python3 .github/scripts/validate_publish_plugin_publications.py
 ```
