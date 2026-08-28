@@ -3,10 +3,9 @@ package custom.android.plugin
 import org.gradle.api.publish.PublishingExtension
 
 
-/**
- * 如果不写成open，会报找不到这个类的错误
- * */
-open class PublishLibraryLocalTask : BasePublishTask() {
+/** Legacy implementation; the public task name is now backed by PublishLocalTask. */
+@Deprecated("Removed implementation; use PublishLocalTask registered by PublishPlugin")
+internal open class PublishLibraryLocalTask : BasePublishTask() {
 
     companion object {
         const val TAG = "PublishLibraryLocalTask"

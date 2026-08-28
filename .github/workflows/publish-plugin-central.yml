@@ -70,7 +70,10 @@ jobs:
           from pathlib import Path
 
           content = Path("plugin_base/build.gradle.kts").read_text(encoding="utf-8")
-          match = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]", content)
+          match = re.search(
+              r"(?m)^\s*(?:(?:val|var)\s+baseVersion|version)\s*=\s*['\"]([^'\"]+)['\"]",
+              content,
+          )
           if not match:
               print("::error::Cannot find plugin_base version", file=sys.stderr)
               sys.exit(1)
@@ -99,7 +102,10 @@ jobs:
           from pathlib import Path
 
           content = Path(os.environ["MAIN_FILE"]).read_text(encoding="utf-8")
-          match = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]", content)
+          match = re.search(
+              r"(?m)^\s*(?:(?:val|var)\s+baseVersion|version)\s*=\s*['\"]([^'\"]+)['\"]",
+              content,
+          )
           if not match:
               print("::error::Cannot find main plugin_base version", file=sys.stderr)
               sys.exit(1)
@@ -235,8 +241,8 @@ jobs:
       - name: Validate local publication metadata
         if: steps.release.outputs.publish_required == 'true' && steps.release_tag.outputs.exists != 'true'
         run: |
-          ./gradlew :plugin_base:build --stacktrace
-          ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+          ./gradlew :plugin_base:build -PpluginBaseOnly=true --stacktrace
+          ./gradlew :plugin_base:publishToMavenLocal -PpluginBaseOnly=true --stacktrace
           python3 .github/scripts/validate_publish_plugin_publications.py
 
       - name: Publish to Central staging
@@ -257,6 +263,7 @@ jobs:
           fi
 
           ./gradlew :plugin_base:publishAllPublicationsToCentralStagingRepository \
+            -PpluginBaseOnly=true \
             -PcentralPublish=true \
             --no-daemon \
             --stacktrace
@@ -317,14 +324,13 @@ jobs:
           set -euo pipefail
 
           python3 .github/scripts/sync_readme_publish_version.py \
-            --version "$RELEASE_VERSION" \
-            --root-build-file build.gradle.kts
-          if git diff --quiet -- plugin_base/build.gradle.kts README.md build.gradle.kts; then
-            echo "README.md and build.gradle.kts already document PublishPlugin ${RELEASE_VERSION}"
+            --version "$RELEASE_VERSION"
+          if git diff --quiet -- plugin_base/build.gradle.kts README.md; then
+            echo "README.md already documents PublishPlugin ${RELEASE_VERSION}"
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add plugin_base/build.gradle.kts README.md build.gradle.kts
+            git add plugin_base/build.gradle.kts README.md
             git commit -m "[codex] Update publish plugin usage version to ${RELEASE_VERSION} [skip ci]"
           fi
 
@@ -380,7 +386,10 @@ jobs:
           from pathlib import Path
 
           content = Path("plugin_base/build.gradle.kts").read_text(encoding="utf-8")
-          match = re.search(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]", content)
+          match = re.search(
+              r"(?m)^\s*(?:(?:val|var)\s+baseVersion|version)\s*=\s*['\"]([^'\"]+)['\"]",
+              content,
+          )
           if not match:
               print("::error::Cannot find plugin_base version", file=sys.stderr)
               sys.exit(1)
@@ -401,7 +410,7 @@ jobs:
           version = os.environ["VERSION"]
           content = path.read_text(encoding="utf-8")
           content, count = re.subn(
-              r'(?m)^(\s*version\s*=\s*["\'])([^"\']+)(["\'])',
+              r'(?m)^(\s*(?:(?:val|var)\s+baseVersion|version)\s*=\s*["\'])([^"\']+)(["\'])',
               rf"\g<1>{version}\g<3>",
               content,
               count=1,
@@ -432,8 +441,8 @@ jobs:
 
       - name: Validate local publication metadata
         run: |
-          ./gradlew :plugin_base:build --stacktrace
-          ./gradlew :plugin_base:publishToMavenLocal --stacktrace
+          ./gradlew :plugin_base:build -PpluginBaseOnly=true --stacktrace
+          ./gradlew :plugin_base:publishToMavenLocal -PpluginBaseOnly=true --stacktrace
 
       - name: Publish snapshot to Central snapshots
         env:
@@ -452,6 +461,7 @@ jobs:
           fi
 
           ./gradlew :plugin_base:publishAllPublicationsToCentralSnapshotsRepository \
+            -PpluginBaseOnly=true \
             -PcentralPublish=true \
             -PcentralReleaseType=snapshot \
             --no-daemon \

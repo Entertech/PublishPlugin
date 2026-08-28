@@ -24,6 +24,27 @@ class EnsurePublishVersionTest(unittest.TestCase):
         self.assertEqual("1.3.0", result.version)
         self.assertEqual(head, result.content)
 
+    def test_reads_base_version_from_local_suffix_layout(self):
+        head = 'val baseVersion = "1.2.4"\nversion = if (localPublishRequested) "$baseVersion-local" else baseVersion\n'
+        base = "version = '1.2.3'\n"
+
+        result = ensure_publish_version(head, base)
+
+        self.assertFalse(result.changed)
+        self.assertEqual("1.2.4", result.version)
+        self.assertEqual(head, result.content)
+
+    def test_bumps_base_version_without_rewriting_runtime_version(self):
+        head = 'val baseVersion = "1.2.3"\nversion = if (localPublishRequested) "$baseVersion-local" else baseVersion\n'
+        base = "version = '1.2.3'\n"
+
+        result = ensure_publish_version(head, base)
+
+        self.assertTrue(result.changed)
+        self.assertEqual("1.2.4", result.version)
+        self.assertIn('val baseVersion = "1.2.4"', result.content)
+        self.assertIn('version = if (localPublishRequested)', result.content)
+
     def test_normalizes_version_suffix_when_greater_than_base(self):
         result = ensure_publish_version('version = "1.2.0-local"\n', "version = '1.1.9'\n")
 

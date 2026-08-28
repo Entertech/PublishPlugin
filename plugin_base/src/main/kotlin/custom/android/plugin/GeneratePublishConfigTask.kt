@@ -6,7 +6,9 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.tasks.TaskAction
 
-open class GeneratePublishConfigTask : DefaultTask() {
+/** Legacy configuration task kept only for source migration; never registered. */
+@Deprecated("Configuration tasks were removed from the public task API; use enter-publish-config")
+internal open class GeneratePublishConfigTask : DefaultTask() {
     init {
         group = "customPlugin"
         description = "Generate or update local.properties publish configuration template."

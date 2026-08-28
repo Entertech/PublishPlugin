@@ -104,7 +104,10 @@ python3 .github/scripts/sync_readme_publish_version.py --check
 ./scripts/install-codex-skill.sh --check
 ```
 
-如果改了 `skills/publishplugin-one-click-publish/**`，仓库内 skill 目录是源文件，运行时 skill 必须继续通过 `scripts/install-codex-skill.sh` 指向仓库目录。
+如果改了 `skills/enter-publish-config/**` 或 `skills/enter-publish-run/**`，
+仓库内 Skill 目录是源文件，运行时 Skill 必须继续通过
+`scripts/install-codex-skill.sh` 指向对应仓库目录。两个 Skill 的使用方式见
+[`doc/skills/publish-skills.md`](skills/publish-skills.md)。
 
 ## 4. 提 PR 到 pre_publish
 

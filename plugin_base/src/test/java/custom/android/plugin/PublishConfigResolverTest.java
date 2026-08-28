@@ -42,6 +42,55 @@ public class PublishConfigResolverTest {
     }
 
     @Test
+    public void snapshotVersionAutomaticallyUsesCentralSnapshotMode() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        publishInfo.setVersion("1.0.0-SNAPSHOT");
+        project.getExtensions().getExtraProperties().set("publishVersion", "1.0.0-SNAPSHOT");
+
+        assertEquals(
+                PublishConfigResolver.MODE_CENTRAL_SNAPSHOT,
+                PublishConfigResolver.INSTANCE.resolveRemotePublishMode(project, publishInfo)
+        );
+        assertEquals(
+                PublishConfigResolver.CENTRAL_SNAPSHOT_URL,
+                PublishConfigResolver.INSTANCE.resolveCentralRepositoryUrl(project)
+        );
+    }
+
+    @Test
+    public void centralPublishingTypeUsesRepositoryDslValue() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        PublishRepositories repositories = project.getExtensions().create(
+                "PublishRepositories", PublishRepositories.class
+        );
+        repositories.getCentral().getPublishingType().set("automatic");
+
+        assertEquals(
+                "automatic",
+                PublishConfigResolver.INSTANCE.resolveCentralPublishingType(project, publishInfo)
+        );
+    }
+
+    @Test
+    public void centralPortalIsOnlyUsedForReleaseDeployments() {
+        Project project = ProjectBuilder.builder().build();
+        PublishInfo publishInfo = new PublishInfo();
+        project.getExtensions().getExtraProperties().set("centralUploadMode", "portalApi");
+        project.getExtensions().getExtraProperties().set("centralReleaseType", "release");
+
+        assertTrue(PublishConfigResolver.INSTANCE.shouldUseCentralPortal(project, publishInfo));
+
+        project.getExtensions().getExtraProperties().set("centralReleaseType", "snapshot");
+        assertFalse(PublishConfigResolver.INSTANCE.shouldUseCentralPortal(project, publishInfo));
+        assertEquals(
+                PublishConfigResolver.CENTRAL_SNAPSHOT_URL,
+                PublishConfigResolver.INSTANCE.resolveCentralRepositoryUrl(project, publishInfo)
+        );
+    }
+
+    @Test
     public void scmConnectionsCanBeDerivedFromSshRemoteStyleUrl() {
         Project project = ProjectBuilder.builder().build();
         PublishInfo publishInfo = new PublishInfo();

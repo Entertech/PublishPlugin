@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
-BUILD_VERSION_RE = re.compile(r"(?m)^\s*version\s*=\s*['\"]([^'\"]+)['\"]")
+BUILD_VERSION_RE = re.compile(
+    r"(?m)^\s*(?:(?:val|var)\s+baseVersion|version)\s*=\s*['\"]([^'\"]+)['\"]"
+)
 PLUGIN_REPOSITORY_BLOCK_RE = re.compile(
     r"(?ms)(buildscript\s*\{\s*repositories\s*\{\n)(?P<body>.*?)(\n\s*\}\s*\n\s*\n\s*dependencies\s*\{\s*classpath\(\"cn\.entertech\.android:publish:)"
 )

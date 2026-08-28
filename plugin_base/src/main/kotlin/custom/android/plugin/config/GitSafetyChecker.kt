@@ -3,6 +3,14 @@ package custom.android.plugin.config
 import java.io.File
 
 object GitSafetyChecker {
+    private val sensitiveKeys = listOf(
+        "publish.mavenCentralPassword",
+        "publish.signingPassword",
+        "publish.gpgKeyFile",
+        "GPG_KEY_CONTENTS",
+        "SIGNING_PASSWORD"
+    )
+
     fun isTracked(rootDir: File, configFile: File): Boolean {
         if (!File(rootDir, ".git").exists()) {
             return false
@@ -32,5 +40,24 @@ object GitSafetyChecker {
 
     fun relativePath(rootDir: File, configFile: File): String {
         return configFile.canonicalFile.relativeTo(rootDir.canonicalFile).invariantSeparatorsPath
+    }
+
+    fun findTrackedSensitiveKeys(rootDir: File): List<String> {
+        if (!File(rootDir, ".git").exists()) return emptyList()
+        val process = ProcessBuilder("git", "ls-files", "-z")
+            .directory(rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.readBytes()
+        if (process.waitFor() != 0) return emptyList()
+        val hits = mutableListOf<String>()
+        output.toString(Charsets.UTF_8).split('\u0000').filter { it.isNotBlank() }.forEach { path ->
+            val file = File(rootDir, path)
+            if (!file.isFile || file.length() > 5 * 1024 * 1024) return@forEach
+            val content = runCatching { file.readText() }.getOrDefault("")
+            sensitiveKeys.filter { key -> content.contains(key, ignoreCase = true) }
+                .forEach { key -> hits += "$path contains $key" }
+        }
+        return hits
     }
 }

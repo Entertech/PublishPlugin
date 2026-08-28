@@ -6,7 +6,13 @@ import org.gradle.api.publish.PublishingExtension
 import org.gradle.process.ExecSpec
 
 
-open class PublishLibraryRemoteTask : BasePublishTask() {
+/**
+ * Legacy implementation retained only so older compiled callers can be migrated
+ * without reintroducing the task. It is intentionally not registered by
+ * [PublishPlugin].
+ */
+@Deprecated("Removed from the public task API; use PublishLibraryRemoteGithubPackagesTask or PublishLibraryRemoteCentralTask")
+internal open class PublishLibraryRemoteTask : BasePublishTask() {
 
     companion object {
         const val TAG = "PublishLibraryRemoteTask"
@@ -33,134 +39,35 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
 
 
     override fun checkPublishInfo(publishInfo: PublishInfo): Boolean {
-        if (publishInfo.groupId.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen("PublishInfo.groupId is required")
-            return false
-        }
-        if (publishInfo.artifactId.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen("PublishInfo.artifactId is required")
-            return false
-        }
-        val resolvedVersion = PublishConfigResolver.resolveVersion(project, publishInfo)
-        if (resolvedVersion.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen("PublishInfo.version is required")
-            return false
-        }
-        if (resolvedVersion.contains("debug", ignoreCase = true)) {
-            PluginLogUtil.printlnErrorInScreen("$resolvedVersion contains debug")
-            return false
-        }
-
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
         if (mode == PublishConfigResolver.MODE_CUSTOM_REPOSITORY) {
-            return checkCustomRepositoryPublishInfo(publishInfo)
+            val publishUrl = PublishConfigResolver.resolveCustomRepositoryUrl(project, publishInfo)
+            if (publishUrl.isBlank()) {
+                PluginLogUtil.printlnErrorInScreen("customRepository mode requires publishUrl")
+                return false
+            }
+            return true
         }
-        if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
-            return checkGitHubPackagesPublishInfo(publishInfo)
+        val target = when (mode) {
+            PublishConfigResolver.MODE_GITHUB_PACKAGES -> ExplicitPublishTarget.GITHUB_PACKAGES
+            PublishConfigResolver.MODE_CENTRAL,
+            PublishConfigResolver.MODE_CENTRAL_SNAPSHOT -> ExplicitPublishTarget.CENTRAL
+            else -> {
+                PluginLogUtil.printlnErrorInScreen("Unsupported publishTarget: $mode")
+                return false
+            }
         }
-        if (mode != PublishConfigResolver.MODE_CENTRAL) {
-            PluginLogUtil.printlnErrorInScreen("Unsupported publishTarget: $mode")
-            return false
-        }
-        return checkCentralPublishInfo(publishInfo)
-    }
-
-    private fun checkCustomRepositoryPublishInfo(publishInfo: PublishInfo): Boolean {
-        val properties = PublishConfigResolver.loadLocalProperties(project)
-        val publishUrl = PublishConfigResolver.resolveCustomRepositoryUrl(project, publishInfo, properties)
-        if (publishUrl.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen("customRepository mode requires publishUrl")
-            return false
-        }
-        return true
-    }
-
-    private fun checkGitHubPackagesPublishInfo(publishInfo: PublishInfo): Boolean {
-        val properties = PublishConfigResolver.loadLocalProperties(project)
-        val publishUrl = PublishConfigResolver.resolveGitHubPackagesUrl(project, publishInfo, properties)
-        if (publishUrl.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen(
-                "githubPackages mode requires githubPackagesRepository or githubPackagesUrl"
-            )
-            return false
-        }
-        val credentials = PublishConfigResolver.resolveGitHubPackagesCredentials(project, publishInfo, properties)
-        if (credentials.username.isBlank() || credentials.password.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen(
-                "githubPackages mode requires githubPackagesUsername/githubPackagesPassword or GITHUB_ACTOR/GITHUB_TOKEN"
-            )
-            return false
-        }
-        return true
-    }
-
-    private fun checkCentralPublishInfo(publishInfo: PublishInfo): Boolean {
-        val namespace = PublishConfigResolver.resolveCentralNamespace(project, publishInfo)
-        if (namespace.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen("Central publish requires centralNamespace")
-            return false
-        }
-        if (publishInfo.groupId != namespace && !publishInfo.groupId.startsWith("$namespace.")) {
-            PluginLogUtil.printlnErrorInScreen(
-                "PublishInfo.groupId(${publishInfo.groupId}) must be under centralNamespace($namespace)"
-            )
-            return false
-        }
-        val publishingType = PublishConfigResolver.resolveCentralPublishingType(project, publishInfo)
-        if (publishingType != "user_managed" && publishingType != "automatic") {
-            PluginLogUtil.printlnErrorInScreen("centralPublishingType only supports user_managed or automatic")
-            return false
-        }
-
-        val requiredPomFields = mapOf(
-            "pomDescription" to PublishConfigResolver.resolvePomDescription(project, publishInfo),
-            "pomUrl" to PublishConfigResolver.resolvePomUrl(project, publishInfo),
-            "developerId" to PublishConfigResolver.resolvePublishInfoText(
-                project, "developerId", publishInfo, publishInfo.developerId
-            ),
-            "developerName" to PublishConfigResolver.resolvePublishInfoText(
-                project, "developerName", publishInfo, publishInfo.developerName
-            ),
-            "developerEmail" to PublishConfigResolver.resolvePublishInfoText(
-                project, "developerEmail", publishInfo, publishInfo.developerEmail
-            ),
-            "developerOrganization" to PublishConfigResolver.resolvePublishInfoText(
-                project, "developerOrganization", publishInfo, publishInfo.developerOrganization
-            ),
-            "developerOrganizationUrl" to PublishConfigResolver.resolvePublishInfoText(
-                project, "developerOrganizationUrl", publishInfo, publishInfo.developerOrganizationUrl
-            ),
-            "scmUrl" to PublishConfigResolver.resolveScmUrl(project, publishInfo),
-            "scmConnection" to PublishConfigResolver.resolveScmConnection(project, publishInfo),
-            "scmDeveloperConnection" to PublishConfigResolver.resolveScmDeveloperConnection(project, publishInfo)
-        )
-        val missingPomFields = requiredPomFields.filterValues { it.isBlank() }.keys
-        if (missingPomFields.isNotEmpty()) {
-            PluginLogUtil.printlnErrorInScreen("Central publish missing POM fields: ${missingPomFields.joinToString()}")
-            return false
-        }
-
-        val credentials = PublishConfigResolver.resolveCentralCredentials(project, publishInfo)
-        if (credentials.username.isBlank() || credentials.password.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen("Central publish requires centralUsername/centralPassword")
-            return false
-        }
-
-        val signingCredentials = PublishConfigResolver.resolveSigningCredentials(project)
-        if (signingCredentials.key.isBlank() || signingCredentials.password.isBlank()) {
-            PluginLogUtil.printlnErrorInScreen(
-                "Central publish requires signingInMemoryKey and signingInMemoryKeyPassword"
-            )
-            return false
-        }
-        return true
+        val result = PublishValidation.validateRemote(project, publishInfo, target, ArtifactSource.PROJECT)
+        result.warnings.forEach { PluginLogUtil.printlnInfoInScreen("WARNING: $it") }
+        result.errors.forEach { PluginLogUtil.printlnErrorInScreen(it) }
+        return result.valid
     }
 
     override fun getPublishingExtensionRepositoriesPath(publishing: PublishingExtension): String {
         val publishInfo = project.extensions.getByType(PublishInfo::class.java)
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        if (mode == PublishConfigResolver.MODE_CENTRAL) {
-            return PublishConfigResolver.resolveCentralRepositoryUrl(project)
+        if (mode == PublishConfigResolver.MODE_CENTRAL || mode == PublishConfigResolver.MODE_CENTRAL_SNAPSHOT) {
+            return PublishConfigResolver.resolveCentralRepositoryUrl(project, publishInfo)
         }
         val repositoryName = if (mode == PublishConfigResolver.MODE_GITHUB_PACKAGES) {
             PublishConfigResolver.resolveGitHubPackagesRepositoryName(project, publishInfo)
@@ -203,8 +110,8 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
 
     override fun afterPublishSuccess(publishInfo: PublishInfo, output: String) {
         val mode = PublishConfigResolver.resolveRemotePublishMode(project, publishInfo)
-        if (mode == PublishConfigResolver.MODE_CENTRAL &&
-            !PublishConfigResolver.isCentralSnapshotPublish(project)
+        if ((mode == PublishConfigResolver.MODE_CENTRAL || mode == PublishConfigResolver.MODE_CENTRAL_SNAPSHOT) &&
+            !PublishConfigResolver.isCentralSnapshotPublish(project, publishInfo)
         ) {
             try {
                 CentralPortalClient.manualUpload(project, publishInfo)
@@ -261,6 +168,8 @@ open class PublishLibraryRemoteTask : BasePublishTask() {
         "centralPublishingType",
         "centralRepositoryName",
         "centralReleaseType",
+        "centralUploadMode",
+        "centralPortalApiBaseUrl",
         "centralUsername",
         "centralPassword",
         "mavenCentralUsername",

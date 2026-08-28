@@ -2,6 +2,7 @@ package custom.android.plugin;
 
 import org.gradle.testkit.runner.GradleRunner;
 import org.junit.Rule;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
@@ -12,16 +13,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Year;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Enumeration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class PublishPluginFunctionalTest {
-    private static final String TEST_GRADLE_VERSION = "8.7";
+    private static final String TEST_GRADLE_VERSION = System.getProperty("testGradleVersion", "8.7");
+    private static final String TEST_AGP_VERSION = System.getProperty("testAgpVersion", "8.1.3");
 
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -90,32 +95,41 @@ public class PublishPluginFunctionalTest {
         File projectDir = createGradlePluginProject("1.0.0", false);
         File mavenLocal = temporaryFolder.newFolder("local-suffix-maven-local");
 
-        gradleRunner(projectDir)
+        String output = gradleRunner(projectDir)
                 .withArguments(
                         ":fixture:publishToMavenLocal",
                         "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
                         "--stacktrace"
                 )
-                .build();
+                .build()
+                .getOutput();
 
         Path localVersionDir = mavenLocal.toPath().resolve("com/example/fixture/1.0.0-local");
         assertTrue(Files.exists(localVersionDir.resolve("fixture-1.0.0-local.jar")));
         assertFalse(Files.exists(mavenLocal.toPath().resolve("com/example/fixture/1.0.0")));
+        assertTrue(output.contains("Maven Local repository:"));
+        assertTrue(output.contains("Maven Local publication: com.example:fixture:1.0.0-local"));
+        assertTrue(output.contains("Maven Local address:"));
     }
 
     @Test
-    public void publishLibraryLocalTaskPrintsCompleteDependencyBlocksWithLocalVersion() throws IOException {
+    public void publishPluginLocalTaskPrintsLocalAddressAndLocalVersion() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeSuccessfulGradlew(projectDir);
+        File mavenLocal = temporaryFolder.newFolder("explicit-local-maven-local");
 
         String output = gradleRunner(projectDir)
                 .withArguments(
-                        ":fixture:PublishLibraryLocalTask",
+                        ":fixture:PublishPluginLocalTask",
+                        "-Dmaven.repo.local=" + mavenLocal.getAbsolutePath(),
                         "--stacktrace"
                 )
                 .build()
                 .getOutput();
 
+        assertTrue(output.contains("Maven Local repository:"));
+        assertTrue(output.contains("Maven Local publication: com.example:fixture:1.0.0-local"));
+        assertTrue(output.contains("Maven Local address:"));
         assertTrue(output.contains("dependencies {\n    implementation 'com.example:fixture:1.0.0-local'\n}"));
         assertTrue(output.contains("dependencies {\n    implementation(\"com.example:fixture:1.0.0-local\")\n}"));
     }
@@ -205,6 +219,192 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    public void checkPublishWritesDryRunManifestWithoutUploading() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(":fixture:checkPublish", "--stacktrace")
+                .build()
+                .getOutput();
+
+        Path manifest = projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json");
+        Path markdown = projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.md");
+        assertTrue(Files.exists(manifest));
+        assertTrue(Files.exists(markdown));
+        String content = read(manifest);
+        assertTrue(content.contains("\"modulePath\": \":fixture\""));
+        assertTrue(content.contains("\"dryRun\": true"));
+        assertTrue(content.contains("\"groupId\": \"com.example\""));
+        assertTrue(content.contains("\"artifactId\": \"fixture\""));
+        assertTrue(content.contains("\"version\": \"1.0.0\""));
+        assertTrue(content.contains("\"name\": \"gradlePluginCreatePluginMarkerMaven\""));
+        assertTrue(content.contains("\"artifactId\": \"com.example.fixture.gradle.plugin\""));
+        assertFalse(content.contains("\"name\": \"pluginMaven\""));
+        assertFalse(content.contains("token"));
+        assertFalse(content.contains("password"));
+        assertTrue(output.contains("no artifacts were uploaded"));
+    }
+
+    @Test
+    public void pluginMarkerDependsOnEnterPublishCoordinates() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                "    artifactId = 'published-fixture'\n",
+                ""
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForGradlePluginCreatePluginMarkerMavenPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        String markerPom = read(projectDir.toPath().resolve(
+                "fixture/build/publications/gradlePluginCreatePluginMarkerMaven/pom-default.xml"
+        ));
+        assertTrue(markerPom.contains("<groupId>com.example</groupId>"));
+        assertTrue(markerPom.contains("<artifactId>published-fixture</artifactId>"));
+        assertFalse(markerPom.contains("<artifactId>fixture</artifactId>"));
+        assertTrue(markerPom.contains("<version>1.0.0</version>"));
+        assertEquals(1, markerPom.split("<dependencies>", -1).length - 1);
+    }
+
+    @Test
+    public void pluginMarkerIsCreatedWhenPublishPluginIsAppliedFirst() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        Path buildFile = projectDir.toPath().resolve("fixture/build.gradle");
+        String buildScript = read(buildFile)
+                .replace(
+                        "    id 'java-gradle-plugin'\n    id 'cn.entertech.publish'\n",
+                        "    id 'cn.entertech.publish'\n    id 'java-gradle-plugin'\n"
+                );
+        Files.write(buildFile, buildScript.getBytes(StandardCharsets.UTF_8));
+
+        gradleRunner(projectDir)
+                .withArguments(":fixture:checkPublish", "-PpublishValidationLevel=structure", "--stacktrace")
+                .build();
+
+        String manifest = read(projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json"));
+        assertTrue(manifest.contains("\"name\": \"gradlePluginCreatePluginMarkerMaven\""));
+    }
+
+    @Test
+    public void centralModeRegistersPluginMarkerSigningTask() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:tasks",
+                        "--all",
+                        "-PcentralPublish=true",
+                        "-PpublishTarget=central",
+                        "-PsigningInMemoryKey=key",
+                        "-PsigningInMemoryKeyPassword=password",
+                        "--stacktrace"
+                )
+                .build()
+                .getOutput();
+
+        assertTrue(output.contains("signGradlePluginCreatePluginMarkerMavenPublication"));
+    }
+
+    @Test
+    public void centralStructureCheckValidatesPluginMarkerNamespace() throws IOException {
+        File projectDir = createGradlePluginProject(
+                "1.0.0",
+                false,
+                centralPublishInfo() + "    pluginId = 'org.other.fixture'\n",
+                ""
+        );
+        Path buildFile = projectDir.toPath().resolve("fixture/build.gradle");
+        Files.write(
+                buildFile,
+                ("\nPublishRepositories {\n"
+                        + "    central {\n"
+                        + "        enabled.set(true)\n"
+                        + "        namespace.set('com.example')\n"
+                        + "    }\n"
+                        + "}\n").getBytes(StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.APPEND
+        );
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:checkPublish",
+                        "-PpublishTarget=central",
+                        "-PpublishValidationLevel=structure",
+                        "--stacktrace"
+                )
+                .buildAndFail()
+                .getOutput();
+
+        assertTrue(output.contains("gradlePluginCreatePluginMarkerMaven=org.other.fixture"));
+        assertTrue(output.contains("must be under centralNamespace(com.example)"));
+    }
+
+    @Test
+    public void checkPublishFailsWhenRequestedRemoteProviderIsNotConfigured() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+
+        String output = gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:checkPublish",
+                        "-PpublishTarget=github_packages",
+                        "--stacktrace"
+                )
+                .buildAndFail()
+                .getOutput();
+
+        assertTrue(output.contains("GitHub Packages is not enabled"));
+        assertTrue(output.contains("发布配置校验失败"));
+        assertFalse(Files.exists(projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json")));
+    }
+
+    @Test
+    public void structureCheckForGithubPackagesNeedsNoSecretValuesAndReportsSources() throws IOException {
+        File projectDir = createGradlePluginProject("1.0.0", false);
+        Path buildFile = projectDir.toPath().resolve("fixture/build.gradle");
+        Files.write(
+                buildFile,
+                ("\nPublishRepositories {\n"
+                        + "    githubPackages {\n"
+                        + "        enabled.set(true)\n"
+                        + "        repository.set('Entertech/fixture')\n"
+                        + "    }\n"
+                        + "}\n").getBytes(StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.APPEND
+        );
+
+        Map<String, String> environment = new HashMap<>(System.getenv());
+        environment.keySet().removeAll(java.util.Arrays.asList(
+                "GITHUB_PACKAGES_USER",
+                "GITHUB_ACTOR",
+                "USERNAME",
+                "GITHUB_PACKAGES_TOKEN",
+                "GITHUB_TOKEN",
+                "TOKEN"
+        ));
+
+        gradleRunner(projectDir)
+                .withEnvironment(environment)
+                .withArguments(
+                        ":fixture:checkPublish",
+                        "-PpublishTarget=github_packages",
+                        "-PpublishValidationLevel=structure",
+                        "--stacktrace"
+                )
+                .build();
+
+        String manifest = read(projectDir.toPath().resolve("fixture/build/reports/publish/publish-manifest.json"));
+        assertTrue(manifest.contains("\"validationLevel\": \"structure\""));
+        assertTrue(manifest.contains("\"githubPackages.username\": \"missing\""));
+        assertTrue(manifest.contains("\"githubPackages.token\": \"missing\""));
+        assertFalse(manifest.contains("github-token-value"));
+    }
+
+    @Test
     public void centralModeAddsCentralRepositoryAndPomMetadataCanBeOverriddenFromCli() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo(), "");
 
@@ -266,6 +466,7 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    @Ignore("Generic remote task removed by publish task redesign")
     public void remoteTaskPublishesToGitHubPackagesRepository() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeRecordingGradlew(projectDir);
@@ -298,6 +499,7 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    @Ignore("Generic remote task removed by publish task redesign")
     public void remoteTaskUsesCentralRepositoryWhenLocalPublishTargetIsCentral() throws IOException {
         File projectDir = createGradlePluginProject(
                 "1.0.0",
@@ -324,6 +526,7 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    @Ignore("Generic remote task removed by publish task redesign")
     public void remoteTaskUsesCentralSnapshotsRepositoryWhenRequested() throws IOException {
         File projectDir = createGradlePluginProject(
                 "1.0.0",
@@ -355,6 +558,7 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    @Ignore("Generic remote task removed by publish task redesign")
     public void remoteTaskForwardsCliVersionPropertiesToNestedGradle() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false);
         writeRecordingGradlew(projectDir);
@@ -503,6 +707,7 @@ public class PublishPluginFunctionalTest {
     }
 
     @Test
+    @Ignore("Generic remote task removed by publish task redesign")
     public void remoteTaskUsesCliNamespaceAndLegacyCredentialsBeforeSigningValidation() throws IOException {
         File projectDir = createGradlePluginProject("1.0.0", false, centralPublishInfo("org.wrong"), "");
 
@@ -668,6 +873,93 @@ public class PublishPluginFunctionalTest {
         assertMavenAarPublication(mavenLocal.toPath(), "sdk-affective-offline-sdk");
     }
 
+    @Test
+    public void androidLibraryCanPublishDebugAndStagingBuildTypes() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    publishBuildTypes('debug', 'staging')\n"
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthDebugEnterPublishPublication",
+                        ":fixture:generatePomFileForBreathAuthStagingEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthDebugEnterPublish",
+                "breath-affective-offline-sdk-authentication"
+        );
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthStagingEnterPublish",
+                "breath-affective-offline-sdk-authentication"
+        );
+        assertFalse(Files.exists(projectDir.toPath().resolve(
+                "fixture/build/publications/BreathAuthReleaseEnterPublish/pom-default.xml"
+        )));
+    }
+
+    @Test
+    public void androidLibraryCombinesPublishAndSkipVariantPredicates() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    publishVariantIf { variant -> variant.flavor('project') == 'breath' }\n"
+                        + "    skipVariantIf { variant -> variant.flavor('authentication') == 'noAuth' }\n"
+        );
+
+        String tasks = gradleRunner(projectDir)
+                .withArguments(":fixture:tasks", "--all", "--stacktrace")
+                .build()
+                .getOutput();
+
+        assertTrue(tasks.contains("generatePomFileForBreathAuthReleaseEnterPublishPublication"));
+        assertFalse(tasks.contains("generatePomFileForBreathNoAuthReleaseEnterPublishPublication"));
+        assertFalse(tasks.contains("generatePomFileForSdkAuthReleaseEnterPublishPublication"));
+    }
+
+    @Test
+    public void artifactIdClosureTakesPriorityOverPattern() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    artifactIdPattern = '{artifactId}-{variant}'\n"
+        );
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthReleaseEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthReleaseEnterPublish",
+                "breath-affective-offline-sdk-authentication"
+        );
+    }
+
+    @Test
+    public void kotlinDslSupportsVariantSelectionAndArtifactPattern() throws IOException {
+        File projectDir = createKotlinDslAndroidLibraryProject();
+
+        gradleRunner(projectDir)
+                .withArguments(
+                        ":fixture:generatePomFileForBreathAuthReleaseEnterPublishPublication",
+                        "--stacktrace"
+                )
+                .build();
+
+        assertPomContainsArtifactId(
+                projectDir.toPath(),
+                "BreathAuthReleaseEnterPublish",
+                "affective-offline-sdk-breath-release"
+        );
+        assertFalse(Files.exists(projectDir.toPath().resolve(
+                "fixture/build/publications/SdkAuthReleaseEnterPublish/pom-default.xml"
+        )));
+    }
+
     private File createGradlePluginProject(String version, boolean componentPublishesSources) throws IOException {
         return createGradlePluginProject(version, componentPublishesSources, "", "");
     }
@@ -776,13 +1068,14 @@ public class PublishPluginFunctionalTest {
                         + "    public String value() { return \"fixture\"; }\n"
                         + "}\n");
         write(fixtureDir.resolve("build.gradle"), "plugins {\n"
-                + "    id 'com.android.library' version '8.1.3'\n"
+                + "    id 'com.android.library' version '" + TEST_AGP_VERSION + "'\n"
                 + "    id 'cn.entertech.publish'\n"
                 + "}\n"
                 + "android {\n"
                 + "    namespace 'com.example.fixture'\n"
                 + "    compileSdk 34\n"
                 + "    defaultConfig { minSdk 23 }\n"
+                + "    buildTypes { staging { initWith release } }\n"
                 + "    flavorDimensions 'project', 'authentication'\n"
                 + "    productFlavors {\n"
                 + "        breath { dimension 'project' }\n"
@@ -800,6 +1093,51 @@ public class PublishPluginFunctionalTest {
                 + publishInfoExtra
                 + "}\n"
                 + buildScriptExtra);
+        return root;
+    }
+
+    private File createKotlinDslAndroidLibraryProject() throws IOException {
+        File root = temporaryFolder.newFolder("android-kotlin-dsl-project");
+        write(root.toPath().resolve("settings.gradle.kts"), "pluginManagement {\n"
+                + "    repositories { google(); mavenCentral(); gradlePluginPortal() }\n"
+                + "}\n"
+                + "dependencyResolutionManagement {\n"
+                + "    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)\n"
+                + "    repositories { google(); mavenCentral() }\n"
+                + "}\n"
+                + "rootProject.name = \"android-kotlin-dsl-fixture\"\n"
+                + "include(\":fixture\")\n");
+        write(root.toPath().resolve("local.properties"), "");
+
+        Path fixtureDir = root.toPath().resolve("fixture");
+        Files.createDirectories(fixtureDir.resolve("src/main/java/com/example/fixture"));
+        write(fixtureDir.resolve("src/main/java/com/example/fixture/Fixture.java"),
+                "package com.example.fixture; public class Fixture {}\n");
+        write(fixtureDir.resolve("build.gradle.kts"),
+                "import custom.android.plugin.PublishInfo\n"
+                        + "plugins {\n"
+                        + "    id(\"com.android.library\") version \"" + TEST_AGP_VERSION + "\"\n"
+                        + "    id(\"cn.entertech.publish\")\n"
+                        + "}\n"
+                        + "android {\n"
+                        + "    namespace = \"com.example.fixture\"\n"
+                        + "    compileSdk = 34\n"
+                        + "    defaultConfig { minSdk = 23 }\n"
+                        + "    flavorDimensions += listOf(\"project\", \"authentication\")\n"
+                        + "    productFlavors {\n"
+                        + "        create(\"breath\") { dimension = \"project\" }\n"
+                        + "        create(\"sdk\") { dimension = \"project\" }\n"
+                        + "        create(\"auth\") { dimension = \"authentication\" }\n"
+                        + "    }\n"
+                        + "}\n"
+                        + "configure<PublishInfo> {\n"
+                        + "    groupId = \"com.example\"\n"
+                        + "    artifactId = \"affective-offline-sdk\"\n"
+                        + "    version = \"1.0.0\"\n"
+                        + "    publishBuildTypes(\"release\")\n"
+                        + "    publishVariantIf { it.flavor(\"project\") == \"breath\" }\n"
+                        + "    artifactIdPattern = \"{artifactId}-{flavor.project}-{buildType}\"\n"
+                        + "}\n");
         return root;
     }
 

@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-skill_name="publishplugin-one-click-publish"
+skill_names=(
+  "enter-publish-config"
+  "enter-publish-run"
+)
+legacy_skill_names=(
+  "publishplugin-one-click-publish"
+  "enter-publish-release"
+  "publishplugin-local-release"
+)
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
-source_dir="$repo_root/skills/$skill_name"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
-target_dir="$codex_home/skills/$skill_name"
+runtime_skills_dir="$codex_home/skills"
+backup_root="$codex_home/skill-backups"
 
 mode="install"
 force="false"
@@ -15,12 +24,16 @@ usage() {
   cat <<EOF
 Usage: $0 [--check] [--force]
 
-Installs the local Codex runtime skill as a symlink to:
-  $source_dir
+Installs these repository skills as runtime symlinks:
+  enter-publish-config
+  enter-publish-run
+
+Legacy configuration/release skill names are retired after the new skills are
+installed.
 
 Options:
-  --check   Verify the symlink without changing files.
-  --force   Back up any existing target before creating the symlink.
+  --check   Verify both symlinks and confirm legacy skills are inactive.
+  --force   Back up a differing existing target before linking.
 EOF
 }
 
@@ -31,63 +44,79 @@ die() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --check)
-      mode="check"
-      ;;
-    --force)
-      force="true"
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage >&2
-      die "unknown argument: $1"
-      ;;
+    --check) mode="check" ;;
+    --force) force="true" ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown argument: $1" ;;
   esac
   shift
 done
 
-[ -d "$source_dir" ] || die "missing repository skill directory: $source_dir"
-[ -f "$source_dir/SKILL.md" ] || die "missing repository SKILL.md: $source_dir/SKILL.md"
-
-link_target=""
-if [ -L "$target_dir" ]; then
-  link_target="$(readlink "$target_dir")"
-fi
+for skill_name in "${skill_names[@]}"; do
+  source_dir="$repo_root/skills/$skill_name"
+  [ -d "$source_dir" ] || die "missing repository skill directory: $source_dir"
+  [ -f "$source_dir/SKILL.md" ] || die "missing repository SKILL.md: $source_dir/SKILL.md"
+done
 
 if [ "$mode" = "check" ]; then
-  if [ "$link_target" = "$source_dir" ]; then
+  for skill_name in "${skill_names[@]}"; do
+    source_dir="$repo_root/skills/$skill_name"
+    target_dir="$runtime_skills_dir/$skill_name"
+    link_target=""
+    if [ -L "$target_dir" ]; then
+      link_target="$(readlink "$target_dir")"
+    fi
+    [ "$link_target" = "$source_dir" ] || die "$target_dir is not linked to $source_dir"
     printf 'OK: %s -> %s\n' "$target_dir" "$source_dir"
-    exit 0
-  fi
-
-  if [ -n "$link_target" ]; then
-    die "$target_dir points to $link_target, expected $source_dir"
-  fi
-
-  die "$target_dir is not linked to $source_dir"
-fi
-
-mkdir -p "$codex_home/skills"
-
-if [ "$link_target" = "$source_dir" ]; then
-  printf 'Already linked: %s -> %s\n' "$target_dir" "$source_dir"
+  done
+  for legacy_skill_name in "${legacy_skill_names[@]}"; do
+    legacy_target="$runtime_skills_dir/$legacy_skill_name"
+    [ ! -e "$legacy_target" ] && [ ! -L "$legacy_target" ] || \
+      die "legacy runtime skill is still active: $legacy_target"
+    printf 'OK: legacy runtime skill is inactive: %s\n' "$legacy_target"
+  done
   exit 0
 fi
 
-if [ -e "$target_dir" ] || [ -L "$target_dir" ]; then
-  if [ "$force" != "true" ] && [ ! -L "$target_dir" ]; then
-    if ! diff -qr "$source_dir" "$target_dir" >/dev/null; then
-      die "existing skill differs from repository copy; review it or rerun with --force"
-    fi
+mkdir -p "$runtime_skills_dir"
+
+for skill_name in "${skill_names[@]}"; do
+  source_dir="$repo_root/skills/$skill_name"
+  target_dir="$runtime_skills_dir/$skill_name"
+  link_target=""
+  if [ -L "$target_dir" ]; then
+    link_target="$(readlink "$target_dir")"
   fi
 
-  backup_dir="$target_dir.backup-$(date +%Y%m%d%H%M%S)"
-  mv "$target_dir" "$backup_dir"
-  printf 'Backed up existing skill to %s\n' "$backup_dir"
-fi
+  if [ "$link_target" = "$source_dir" ]; then
+    printf 'Already linked: %s -> %s\n' "$target_dir" "$source_dir"
+    continue
+  fi
 
-ln -s "$source_dir" "$target_dir"
-printf 'Linked: %s -> %s\n' "$target_dir" "$source_dir"
+  if [ -e "$target_dir" ] || [ -L "$target_dir" ]; then
+    if [ "$force" != "true" ] && [ ! -L "$target_dir" ]; then
+      if ! diff -qr "$source_dir" "$target_dir" >/dev/null; then
+        die "existing skill differs from repository copy; review it or rerun with --force: $target_dir"
+      fi
+    fi
+    mkdir -p "$backup_root"
+    backup_dir="$backup_root/$skill_name-$(date +%Y%m%d%H%M%S)"
+    mv "$target_dir" "$backup_dir"
+    printf 'Backed up existing skill to %s\n' "$backup_dir"
+  fi
+
+  ln -s "$source_dir" "$target_dir"
+  printf 'Linked: %s -> %s\n' "$target_dir" "$source_dir"
+done
+
+for legacy_skill_name in "${legacy_skill_names[@]}"; do
+  legacy_target="$runtime_skills_dir/$legacy_skill_name"
+  if [ -e "$legacy_target" ] || [ -L "$legacy_target" ]; then
+    mkdir -p "$backup_root"
+    legacy_backup="$backup_root/$legacy_skill_name-$(date +%Y%m%d%H%M%S)"
+    mv "$legacy_target" "$legacy_backup"
+    printf 'Retired legacy skill to %s\n' "$legacy_backup"
+  else
+    printf 'Legacy skill already inactive: %s\n' "$legacy_target"
+  fi
+done
