@@ -14,7 +14,9 @@ publishing workflow. GitHub Actions cannot publish to Maven Local.
 5. Confirm the selected branch already contains the required configuration.
    Do not commit or push it as part of this skill.
 6. Confirm required repository Secrets exist by name without reading or
-   printing their values.
+   printing their values. Central `project` mode needs repository credentials
+   plus GPG signing secrets; Central `prebuilt` mode needs repository
+   credentials only because its manifest must already contain signatures.
 
 If the workflow is absent or its inputs do not match the requested release,
 stop and hand off to `$enter-publish-config`. Do not patch the

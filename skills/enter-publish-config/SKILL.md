@@ -34,6 +34,8 @@ skill stops after configuration and hands execution to
    that configuration write; never trigger the workflow afterward.
 6. Configure `project` or `prebuilt` artifact-source inputs. For `prebuilt`,
    create or validate `publish-artifacts.json` without uploading its files.
+   Treat a Maven Local directory or `Publish*LocalTask` output as project output,
+   not as a prebuilt bundle.
 7. Run non-publishing checks, such as inspecting `tasks --all`, parsing YAML,
    checking ignored/untracked files, or running configuration-focused tests.
 8. Report the files changed, missing user-supplied values, and the exact task or

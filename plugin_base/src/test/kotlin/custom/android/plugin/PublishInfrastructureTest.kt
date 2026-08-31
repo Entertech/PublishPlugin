@@ -101,4 +101,12 @@ class PublishInfrastructureTest {
         assertTrue(evidence.provenance.getValue("artifactBundleSha256").matches(Regex("[0-9a-f]{64}")))
         assertTrue(evidence.gates.any { it.name == "dependency_policy" && it.status == "passed" })
     }
+
+    @Test
+    fun `all requires Central bundle roles only when Central provider is enabled`() {
+        assertTrue(requiresCentralBundle(ExplicitPublishTarget.CENTRAL, centralEnabled = false))
+        assertTrue(requiresCentralBundle(ExplicitPublishTarget.ALL, centralEnabled = true))
+        assertEquals(false, requiresCentralBundle(ExplicitPublishTarget.ALL, centralEnabled = false))
+        assertEquals(false, requiresCentralBundle(ExplicitPublishTarget.GITHUB_PACKAGES, centralEnabled = true))
+    }
 }

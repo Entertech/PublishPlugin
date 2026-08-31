@@ -127,6 +127,8 @@ All 任务按 provider 原子写入 `not_started`、`running`、`succeeded`、`f
 - `artifact_source` 仅支持 `project`、`prebuilt`；
 - `publish_mode=ci` 仅用于 Central snapshot；
 - secret 只进入发布 step，不放在 job 级环境；
+- prebuilt check-only 会把 bundle path 传给 `checkPublish` 并实际校验 manifest；
+- Central project 在 CI 中签名并需要 GPG secret，Central prebuilt 消费已有签名且不再次注入私钥；
 - README 同步在独立 `contents: write` job 中执行；
 - manifest 作为 Actions artifact 上传。
 

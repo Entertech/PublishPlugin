@@ -36,7 +36,7 @@ Keep coordinates and component metadata in `PublishInfo`:
 PublishInfo {
     groupId = "cn.entertech.android"
     artifactId = "demo-lib"
-    version = "2.0.0"
+    version = "2.0.1"
 }
 ```
 
@@ -46,7 +46,7 @@ Gradle Plugin modules additionally require `pluginId` and
 Keep non-sensitive provider selection in tracked DSL:
 
 ```kotlin
-PublishRepositories {
+configure<custom.android.plugin.PublishRepositories> {
     githubPackages {
         enabled.set(true)
         repository.set("Entertech/demo-lib")
@@ -58,6 +58,11 @@ PublishRepositories {
     }
 }
 ```
+
+Use the explicit `configure<custom.android.plugin.PublishRepositories>` form
+for Kotlin DSL so the configuration also compiles when a convention plugin
+applies `cn.entertech.publish` dynamically. The short generated accessor is
+safe only when the publish plugin is applied directly in the same script.
 
 A dedicated remote task requires its provider to be enabled. `all` requires at
 least one enabled provider.
@@ -130,7 +135,7 @@ jobs:
       publish_target: "central"
       artifact_source: "project"
       publish_mode: "release"
-      version: "2.0.0"
+      version: "2.0.1"
 ```
 
 Identify the repository Secrets required by the selected provider. Secret
@@ -144,10 +149,29 @@ For `artifact_source=prebuilt`, configure a project-relative
 must contain `publish-artifacts.json`, which declares publication coordinates,
 packaging, file roles, relative paths, sizes, and SHA-256 values.
 
+Before selecting `prebuilt`, distinguish a standard bundle from Maven Local
+output. `Publish*LocalTask` and `publishToMavenLocal` normally create a
+`-local` version under the developer's Maven repository, do not create
+`publish-artifacts.json`, and do not make those files visible to GitHub
+Actions. Do not infer a manifest from that directory or silently rewrite its
+coordinates. If CI should rebuild the checked-out source, configure
+`artifact_source: project`. If CI should consume a bundle, require the exact
+remote version plus the manifest and all destination-specific roles first.
+
+An `artifact_bundle_artifact` must be uploaded by an earlier job in the same
+workflow run before the reusable publish job starts. A file that exists only
+on the developer machine, or an artifact from an unrelated historical run, is
+not available through this input.
+
 Allowed roles are `main`, `pom`, `gradle_module`, `sources`, `javadoc`,
 `signature`, `checksum`, and `plugin_marker`. Validate schema, paths, files,
 sizes, checksums, and target requirements without uploading anything. Do not
 infer coordinates from filenames.
+
+For Central, `project` mode requires the CI GPG private-key secrets because it
+builds and signs there. A valid Central `prebuilt` bundle already contains its
+detached signatures, so the publish job requires Central repository
+credentials but must not require the GPG private key again.
 
 ## Safe validation
 

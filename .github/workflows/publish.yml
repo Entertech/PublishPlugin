@@ -269,20 +269,27 @@ jobs:
           CENTRAL_PASSWORD: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
           MAVEN_CENTRAL_USERNAME: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_USERNAME || '' }}
           MAVEN_CENTRAL_PASSWORD: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.MAVEN_CENTRAL_PASSWORD || '' }}
-          GPG_KEY_CONTENTS: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
-          SIGNING_KEY_ID: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
-          SIGNING_PASSWORD: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ !inputs.check_only && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
+          GPG_KEY_CONTENTS: ${{ !inputs.check_only && inputs.artifact_source == 'project' && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
+          SIGNING_KEY_ID: ${{ !inputs.check_only && inputs.artifact_source == 'project' && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
+          SIGNING_PASSWORD: ${{ !inputs.check_only && inputs.artifact_source == 'project' && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ !inputs.check_only && inputs.artifact_source == 'project' && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.GPG_KEY_CONTENTS || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ !inputs.check_only && inputs.artifact_source == 'project' && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_KEY_ID || '' }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ !inputs.check_only && inputs.artifact_source == 'project' && (inputs.publish_target == 'central' || inputs.publish_target == 'all') && secrets.SIGNING_PASSWORD || '' }}
         run: |
           set -euo pipefail
           if [[ "${{ inputs.check_only }}" == "true" ]]; then
-            ./gradlew "${MODULE_PATH}:checkPublish" "-PcheckPublishTarget=${PUBLISH_TARGET}" "-PpublishValidationLevel=structure" "-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}" --no-daemon --stacktrace
+            check_args=("${MODULE_PATH}:checkPublish" "-PcheckPublishTarget=${PUBLISH_TARGET}" "-PpublishValidationLevel=structure" "-PpublishVersion=${EFFECTIVE_PUBLISH_VERSION}" "-PartifactSource=${ARTIFACT_SOURCE}" --no-daemon --stacktrace)
+            if [[ "$ARTIFACT_SOURCE" == "prebuilt" ]]; then
+              check_args+=("-PartifactBundlePath=${ARTIFACT_BUNDLE_PATH}")
+            fi
+            ./gradlew "${check_args[@]}"
             exit 0
           fi
           if [[ "$PUBLISH_TARGET" == "central" || "$PUBLISH_TARGET" == "all" ]]; then
-            required_central_env=(CENTRAL_USERNAME CENTRAL_PASSWORD GPG_KEY_CONTENTS SIGNING_PASSWORD)
+            required_central_env=(CENTRAL_USERNAME CENTRAL_PASSWORD)
+            if [[ "$ARTIFACT_SOURCE" == "project" ]]; then
+              required_central_env+=(GPG_KEY_CONTENTS SIGNING_PASSWORD)
+            fi
             for name in "${required_central_env[@]}"; do
               if [[ -z "${!name:-}" ]]; then
                 echo "::error::$name is required when publish_target is $PUBLISH_TARGET"

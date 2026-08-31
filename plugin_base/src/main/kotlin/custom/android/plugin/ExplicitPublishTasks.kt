@@ -107,8 +107,7 @@ open class ExplicitPublishTask : DefaultTask() {
     private fun preparePrebuilt(publishInfo: PublishInfo, version: String): PreparedArtifactBundle {
         val centralEnabled = project.extensions.findByType(PublishRepositories::class.java)
             ?.isCentralEnabled() == true
-        val requireCentral = target == ExplicitPublishTarget.CENTRAL ||
-            (target == ExplicitPublishTarget.ALL && centralEnabled)
+        val requireCentral = requiresCentralBundle(target, centralEnabled)
         val path = project.findProperty("artifactBundlePath")?.toString()
             ?: System.getenv("PUBLISH_ARTIFACT_BUNDLE_PATH").orEmpty()
         val bundle = PrebuiltArtifactBundleProducer.prepare(project, path, version, requireCentral)

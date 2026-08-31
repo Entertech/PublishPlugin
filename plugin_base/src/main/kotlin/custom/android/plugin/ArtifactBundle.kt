@@ -24,6 +24,12 @@ data class PreparedArtifactBundle(
     val publications: List<ArtifactBundlePublication>
 )
 
+internal fun requiresCentralBundle(
+    target: ExplicitPublishTarget,
+    centralEnabled: Boolean
+): Boolean = target == ExplicitPublishTarget.CENTRAL ||
+    (target == ExplicitPublishTarget.ALL && centralEnabled)
+
 enum class ArtifactSource {
     PROJECT,
     PREBUILT;
