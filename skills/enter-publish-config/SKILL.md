@@ -8,6 +8,24 @@ description: Configure an Android project to use Enter/Flowtime PublishPlugin fo
 Configure a project so that a developer or a separate release workflow can
 publish it later. This skill prepares and validates configuration only.
 
+## PublishPlugin version
+
+Keep the PublishPlugin dependency version separate from the component version
+in `PublishInfo` or a publishing workflow.
+
+- If the user explicitly names a PublishPlugin dependency version, use it.
+- Otherwise resolve the current documented version by walking two directories
+  up from this `SKILL.md` to the PublishPlugin repository root and running
+  `python3 scripts/resolve-publish-plugin-version.py` there.
+- Apply or update `cn.entertech.android:publish` or
+  `id("cn.entertech.publish")` to the resolved version and report it. Do not
+  query remote Maven metadata to choose another default.
+
+The resolver reads the dependency declaration in the repository `README.md`,
+so synchronizing README version information changes this skill's default
+without a hardcoded skill edit. A user-supplied component publication version
+does not override the PublishPlugin dependency version.
+
 ## Hard boundary
 
 Never perform the release itself while using this skill:

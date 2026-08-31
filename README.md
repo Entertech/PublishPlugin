@@ -431,6 +431,14 @@ provider state 和门禁结果。完整契约见
 | `$enter-publish-config` | 配置/校验 `PublishInfo`、`PublishRepositories`、本机模板、caller workflow 和 manifest。 | 否 |
 | `$enter-publish-run` | 消费已有配置，在本机执行发布或触发 GitHub Actions。 | 是，必须有明确发布指令 |
 
+两个 Skill 将“PublishPlugin 依赖版本”和“业务组件发布版本”分开处理。用户明确指定
+PublishPlugin 版本时使用指定值；未指定时运行
+`python3 scripts/resolve-publish-plugin-version.py`，从本 README 快速开始中的
+PublishPlugin classpath 依赖声明读取当前默认版本。因此发布流程同步 README 版本后，
+两个 Skill 会自动使用新版本，无需再修改 Skill 中的硬编码值。
+`PublishInfo.version`、workflow `version` 和 `-PpublishVersion` 始终表示业务组件版本，
+不会覆盖 PublishPlugin 依赖版本。
+
 推荐先配置、再单独发起发布请求。配置 Skill 不会运行发布任务、上传制品或触发
 workflow；发布 Skill 发现配置缺失时会停止并交回配置 Skill。详细输入、交接模型
 和示例见 [PublishPlugin Codex Skills 使用说明](doc/skills/publish-skills.md)。

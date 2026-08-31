@@ -36,7 +36,7 @@ Keep coordinates and component metadata in `PublishInfo`:
 PublishInfo {
     groupId = "cn.entertech.android"
     artifactId = "demo-lib"
-    version = "2.0.1"
+    version = "1.0.0"
 }
 ```
 
@@ -135,7 +135,7 @@ jobs:
       publish_target: "central"
       artifact_source: "project"
       publish_mode: "release"
-      version: "2.0.1"
+      version: "1.0.0"
 ```
 
 Identify the repository Secrets required by the selected provider. Secret
