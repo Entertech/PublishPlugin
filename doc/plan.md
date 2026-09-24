@@ -11,6 +11,7 @@ PublishPlugin 当前公开能力包括：
 - 显式发布成功后生成 JSON/Markdown manifest。
 - `artifactSource=project|prebuilt`、Central release/snapshot、GitHub Packages 和 Maven Local 已可用。
 - Android variant 支持 build type 选择、include/exclude predicate 和 artifactId 模板。
+- Android Library 可通过 `publishVariants(...)` 发布指定变种，或通过 `publishAllVariants()` 发布全部通过过滤的变种。未配置时仍默认只发布一个 `release`。配置后 `customplugin` 组为每个变种显示 Local、RemoteAll、GitHub Packages、Central 任务；单独执行某个变种任务只发布该变种。
 - reusable workflow 支持 `check_only`、预制 bundle 和 manifest artifact。
 - 配置入口已经迁移到 `skills/enter-publish-config/`、`skills/enter-publish-run/` 与离线脚本；旧配置 task 不再注册。
 - `centralUploadMode=portalApi` 已覆盖 project/prebuilt bundle 的 upload、status polling、publish/drop；snapshot 继续使用 Maven snapshot repository。
@@ -51,4 +52,11 @@ PublishPlugin 当前公开能力包括：
 ```bash
 ./gradlew :demo-lib:publishToMavenLocal --stacktrace
 ./gradlew :demo-plugin:publishToMavenLocal --stacktrace
+```
+
+涉及 Android 变种任务列表或单变种发布时：
+
+```bash
+./gradlew :demo-lib:tasks --group=customPlugin
+./gradlew :demo-lib:PublishLibrarySdkAuthReleaseLocalTask
 ```
