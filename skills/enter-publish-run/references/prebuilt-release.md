@@ -32,6 +32,12 @@ generate missing files, sign artifacts, or upload files absent from the
 manifest. A validation failure ends the release attempt and should be handed
 back to configuration/artifact preparation.
 
+Do not treat a Maven Local version directory as a prebuilt bundle. Output from
+`Publish*LocalTask` or `publishToMavenLocal` normally has a `-local` coordinate,
+has no `publish-artifacts.json`, and remains on the developer machine. Those
+facts are a configuration mismatch, not permission to create a manifest or
+rewrite the version during release execution.
+
 ## Local Gradle arguments
 
 Append only:
@@ -48,6 +54,12 @@ other project packaging tasks.
 
 Verify the caller workflow already declares `artifact_source: prebuilt` and the
 correct `artifact_bundle_path`. If `artifact_bundle_artifact` is configured,
-the artifact must be available to that workflow; different jobs do not share a
-filesystem. Do not upload or create that Actions artifact as an implicit part
-of release execution.
+the artifact must have been uploaded by an earlier job in the same workflow
+run; different jobs do not share a filesystem, and the reusable workflow does
+not implicitly read artifacts from historical runs. Do not upload or create
+that Actions artifact as an implicit part of release execution.
+
+For Central, the validated bundle already contains detached signatures. Require
+Central repository credentials, but do not require or inject a GPG private key
+for the prebuilt publish job. GPG secrets remain required for `project` mode,
+where CI creates and signs the artifacts.

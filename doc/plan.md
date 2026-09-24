@@ -11,6 +11,7 @@ PublishPlugin 当前公开能力包括：
 - 显式发布成功后生成 JSON/Markdown manifest。
 - `artifactSource=project|prebuilt`、Central release/snapshot、GitHub Packages 和 Maven Local 已可用。
 - Android variant 支持 build type 选择、include/exclude predicate 和 artifactId 模板。
+- Android Library 可通过 `publishVariants(...)` 发布指定变种，或通过 `publishAllVariants()` 发布全部通过过滤的变种。未配置时仍默认只发布一个 `release`。配置后 `customplugin` 组为每个变种显示 Local、RemoteAll、GitHub Packages、Central 任务；单独执行某个变种任务只发布该变种。
 - reusable workflow 支持 `check_only`、预制 bundle 和 manifest artifact。
 - 配置入口已经迁移到 `skills/enter-publish-config/`、`skills/enter-publish-run/` 与离线脚本；旧配置 task 不再注册。
 - `centralUploadMode=portalApi` 已覆盖 project/prebuilt bundle 的 upload、status polling、publish/drop；snapshot 继续使用 Maven snapshot repository。
@@ -26,7 +27,20 @@ PublishPlugin 当前公开能力包括：
 
 ## 当前缺口
 
-上述实施路线已完成，当前没有待修复的已知发布缺口。实现契约和支持边界已迁移到对应主题技术文档；本文件不保留已完成 checklist。
+对照 [vanniktech/gradle-maven-publish-plugin](https://github.com/vanniktech/gradle-maven-publish-plugin) 与 Android 官方 `multipleVariants()` 后，当前发布编排不缺目标仓库和校验，缺的是多变种坐标安全和更广的组件类型。按收益排序：
+
+1. **多变种坐标会碰撞。** `publishAllVariants()` 默认复用同一个 `artifactId`。`demo-lib` 的四个 release 变种都会发布为 `publish-demo-lib`。多变种发布必须由 `artifactIdPattern` 或 `artifactIdForVariant` 区分坐标；`{flavor.<dimension>}` 缺失时当前替换成空字符串，可能生成 `lib--release`。配置阶段应在坐标重复或模板替换为空时失败。
+2. **只有 `singleVariant()`，没有 `multipleVariants()`。** 现在每个变种是独立 Maven 坐标。官方还支持把多个变种放进同一份 module metadata，由消费方用 `missingDimensionStrategy` 选择。内部 SDK 若需要「一个依赖、按 flavor 解析」，当前做不到。
+3. **不支持 KMP 与 `com.android.kotlin.multiplatform.library`。** 同类插件已覆盖，本文档当前明确排除。KMP 侧对应能力是 `androidVariantsToPublish`，默认只发布 `release`。
+
+可后做：
+
+- 开源库的 Javadoc 只有空 jar。闭源可保持空 jar；开源应能接入标准 Javadoc 或 Dokka。
+- 根工程没有统一的 `VERSION` / `POM_*`。多模块各自写 `PublishInfo`，同时发布时版本容易不一致。
+- 发布路径依赖 `afterEvaluate` 和 AGP 反射，尚未把 `--configuration-cache` 作为验收条件。
+- `publishApiBaseline` 已能对比 public API，但没有默认生成并提交 `.api` 基线。
+
+不跟进：不再包一层面向旧 Nexus staging API 的 `gradle-nexus-publish-plugin`；也不新增根工程 `publishAllPublicationsToMavenCentralRepository` 这类聚合任务。每个模块、每个目标保持一个明确任务。
 
 ## 候选能力
 
@@ -51,4 +65,11 @@ PublishPlugin 当前公开能力包括：
 ```bash
 ./gradlew :demo-lib:publishToMavenLocal --stacktrace
 ./gradlew :demo-plugin:publishToMavenLocal --stacktrace
+```
+
+涉及 Android 变种任务列表或单变种发布时：
+
+```bash
+./gradlew :demo-lib:tasks --group=customPlugin
+./gradlew :demo-lib:PublishLibrarySdkAuthReleaseLocalTask
 ```

@@ -26,11 +26,13 @@ open class PublishCheckTask : DefaultTask() {
         if (source == ArtifactSource.PREBUILT) {
             val path = project.findProperty("artifactBundlePath")?.toString()
                 ?: System.getenv("PUBLISH_ARTIFACT_BUNDLE_PATH").orEmpty()
+            val centralEnabled = project.extensions.findByType(PublishRepositories::class.java)
+                ?.isCentralEnabled() == true
             val bundle = PrebuiltArtifactBundleProducer.prepare(
                 project,
                 path,
                 PublishConfigResolver.resolveVersion(project, publishInfo),
-                resolvedTarget == ExplicitPublishTarget.CENTRAL || resolvedTarget == ExplicitPublishTarget.ALL
+                requiresCentralBundle(resolvedTarget, centralEnabled)
             )
             result = result.copy(
                 publications = bundle.publications.map {

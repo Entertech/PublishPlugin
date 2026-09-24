@@ -10,7 +10,8 @@ object ProjectArtifactBundleProducer {
     fun prepare(
         project: Project,
         publications: List<PublishValidationPublication>,
-        requireCentral: Boolean
+        requireCentral: Boolean,
+        selectedVariant: String? = null
     ): PreparedArtifactBundle {
         if (publications.isEmpty()) throw GradleException("Project bundle requires at least one publication")
         val root = File(project.buildDir, "reports/publish/project-bundle").canonicalFile
@@ -18,7 +19,7 @@ object ProjectArtifactBundleProducer {
             throw GradleException("Unable to clean project bundle directory: ${root.path}")
         }
         root.mkdirs()
-        runPreparationBuild(project, root, requireCentral)
+        runPreparationBuild(project, root, requireCentral, selectedVariant)
         val prepared = PreparedArtifactBundle(
             schemaVersion = 1,
             rootDirectory = root,
@@ -29,7 +30,12 @@ object ProjectArtifactBundleProducer {
         return prepared
     }
 
-    private fun runPreparationBuild(project: Project, repository: File, requireCentral: Boolean) {
+    private fun runPreparationBuild(
+        project: Project,
+        repository: File,
+        requireCentral: Boolean,
+        selectedVariant: String?
+    ) {
         val executable = if (System.getProperty("os.name").contains("Windows", ignoreCase = true)) {
             "gradlew.bat"
         } else {
@@ -43,6 +49,10 @@ object ProjectArtifactBundleProducer {
             .toMutableMap()
             .apply {
                 this["publishPreparation"] = "true"
+                if (!selectedVariant.isNullOrBlank()) {
+                    this["publishSelectedVariant"] = selectedVariant
+                    this["publishSelectedVariantProject"] = project.path
+                }
                 if (requireCentral) {
                     this["centralPublish"] = "true"
                     this["publishTarget"] = "central"

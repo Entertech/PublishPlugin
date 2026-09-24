@@ -3,6 +3,7 @@ package custom.android.plugin
 import com.sun.net.httpserver.HttpServer
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -100,5 +101,110 @@ class PublishInfrastructureTest {
         assertTrue(project.file("build/reports/publish/publish-sbom.cdx.json").isFile)
         assertTrue(evidence.provenance.getValue("artifactBundleSha256").matches(Regex("[0-9a-f]{64}")))
         assertTrue(evidence.gates.any { it.name == "dependency_policy" && it.status == "passed" })
+    }
+
+    @Test
+    fun `named variants publish only the requested release combinations`() {
+        val info = PublishInfo().apply {
+            publishVariants("sdkAuthRelease", "breathNoAuthRelease")
+        }
+        val candidates = listOf(
+            variant("sdkAuthRelease", "project" to "sdk", "authentication" to "auth"),
+            variant("sdkNoAuthRelease", "project" to "sdk", "authentication" to "noAuth"),
+            variant("breathAuthRelease", "project" to "breath", "authentication" to "auth"),
+            variant("breathNoAuthRelease", "project" to "breath", "authentication" to "noAuth")
+        )
+
+        val selected = candidates.filter { info.shouldPublishVariant(it) }.map { it.name }
+
+        assertEquals(listOf("sdkAuthRelease", "breathNoAuthRelease"), selected)
+        assertTrue(info.hasExplicitVariantSelection())
+        assertFalse(info.publishAllVariantsEnabled())
+    }
+
+    @Test
+    fun `publish all variants keeps every candidate that survives filters`() {
+        val info = PublishInfo().apply {
+            publishAllVariants()
+            skipVariantIf { variant -> variant.flavor("authentication") == "noAuth" }
+        }
+        val candidates = listOf(
+            variant("sdkAuthRelease", "project" to "sdk", "authentication" to "auth"),
+            variant("sdkNoAuthRelease", "project" to "sdk", "authentication" to "noAuth"),
+            variant("breathAuthRelease", "project" to "breath", "authentication" to "auth")
+        )
+
+        val selected = candidates.filter { info.shouldPublishVariant(it) }.map { it.name }
+
+        assertEquals(listOf("sdkAuthRelease", "breathAuthRelease"), selected)
+        assertTrue(info.publishAllVariantsEnabled())
+        assertTrue(info.hasExplicitVariantSelection())
+    }
+
+    @Test
+    fun `activating a variant does not expand the configured allow list`() {
+        val info = PublishInfo().apply {
+            publishVariants("breathAuthRelease")
+        }
+
+        try {
+            info.activatePublishVariant("sdkAuthRelease")
+            throw AssertionError("variant outside publishVariants must fail")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("sdkAuthRelease"))
+        }
+        assertEquals(setOf("breathAuthRelease"), info.publishVariantNames())
+        assertTrue(info.shouldPublishVariant(variant("breathAuthRelease")))
+    }
+
+    @Test
+    fun `active variant publishes only that candidate`() {
+        val info = PublishInfo().apply {
+            publishAllVariants()
+            activatePublishVariant("sdkAuthRelease")
+        }
+        val candidates = listOf(
+            variant("sdkAuthRelease"),
+            variant("breathAuthRelease")
+        )
+
+        assertEquals(listOf("sdkAuthRelease"), candidates.filter { info.shouldPublishVariant(it) }.map { it.name })
+        assertEquals("sdkAuthRelease", info.activePublishVariantName())
+    }
+
+    @Test
+    fun `variant task names do not depend on the first character of the variant`() {
+        assertEquals(
+            "PublishLibraryFlowtimeNoAuthReleaseLocalTask",
+            PublishTaskNames.variantLocal(PublishComponentKind.LIBRARY, "flowtimeNoAuthRelease")
+        )
+        assertTrue(PublishTaskNames.isVariantLocalTask("PublishLibraryFlowtimeNoAuthReleaseLocalTask"))
+        assertTrue(PublishTaskNames.isVariantLocalTask("PublishLibrary2faReleaseLocalTask"))
+        assertFalse(PublishTaskNames.isVariantLocalTask("PublishLibraryLocalTask"))
+    }
+
+    @Test
+    fun `default variant selection stays inactive until explicitly configured`() {
+        val info = PublishInfo()
+
+        assertFalse(info.hasExplicitVariantSelection())
+        assertTrue(info.publishVariantNames().isEmpty())
+        assertTrue(info.shouldPublishVariant(variant("release")))
+    }
+
+    private fun variant(name: String, vararg flavors: Pair<String, String>): PublishVariantInfo {
+        return PublishVariantInfo(
+            name = name,
+            buildType = "release",
+            flavors = flavors.toMap()
+        )
+    }
+
+    @Test
+    fun `all requires Central bundle roles only when Central provider is enabled`() {
+        assertTrue(requiresCentralBundle(ExplicitPublishTarget.CENTRAL, centralEnabled = false))
+        assertTrue(requiresCentralBundle(ExplicitPublishTarget.ALL, centralEnabled = true))
+        assertEquals(false, requiresCentralBundle(ExplicitPublishTarget.ALL, centralEnabled = false))
+        assertEquals(false, requiresCentralBundle(ExplicitPublishTarget.GITHUB_PACKAGES, centralEnabled = true))
     }
 }

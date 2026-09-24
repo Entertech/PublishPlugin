@@ -77,6 +77,8 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("artifactSource=prebuilt", publish)
         self.assertIn('"${{ inputs.check_only }}" == "true"', publish)
         self.assertIn("-PpublishValidationLevel=structure", publish)
+        self.assertIn("-PartifactSource=${ARTIFACT_SOURCE}", publish)
+        self.assertIn("-PartifactBundlePath=${ARTIFACT_BUNDLE_PATH}", publish)
 
     def test_release_publish_can_sync_readme(self):
         text = workflow_text()
@@ -115,6 +117,25 @@ class ReusablePublishWorkflowTest(unittest.TestCase):
         self.assertIn("PUBLISH_TARGET\" == \"all\"", publish)
         self.assertIn("CENTRAL_USERNAME", publish)
         self.assertIn("SIGNING_PASSWORD", publish)
+        self.assertIn('required_central_env=(CENTRAL_USERNAME CENTRAL_PASSWORD)', publish)
+        self.assertIn('if [[ "$ARTIFACT_SOURCE" == "project" ]]', publish)
+        self.assertIn('required_central_env+=(GPG_KEY_CONTENTS SIGNING_PASSWORD)', publish)
+
+    def test_prebuilt_central_uses_bundle_signatures_without_ci_private_key(self):
+        publish = step_block("Publish prepared or project artifacts")
+
+        for name in (
+            "GPG_KEY_CONTENTS",
+            "SIGNING_KEY_ID",
+            "SIGNING_PASSWORD",
+            "ORG_GRADLE_PROJECT_signingInMemoryKey",
+            "ORG_GRADLE_PROJECT_signingInMemoryKeyId",
+            "ORG_GRADLE_PROJECT_signingInMemoryKeyPassword",
+        ):
+            self.assertRegex(
+                publish,
+                rf"{name}: \$\{{\{{ !inputs\.check_only && inputs\.artifact_source == 'project'",
+            )
 
     def test_publish_permissions_and_secret_scope_are_minimal(self):
         text = workflow_text()

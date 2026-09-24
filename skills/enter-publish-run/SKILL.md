@@ -10,6 +10,27 @@ operation. This skill consumes configuration prepared by
 `$enter-publish-config`; it does not create or repair that
 configuration.
 
+## PublishPlugin version
+
+Keep the PublishPlugin dependency version separate from the component version
+being published.
+
+- If the user explicitly names a PublishPlugin dependency version, verify that
+  exact version.
+- Otherwise resolve the current documented version by walking two directories
+  up from this `SKILL.md` to the PublishPlugin repository root and running
+  `python3 scripts/resolve-publish-plugin-version.py` there.
+- Verify the target project resolves `cn.entertech.publish` from that version,
+  including version catalogs or convention plugins when applicable. Do not
+  edit the dependency during release execution. A mismatch is configuration
+  work and must be handed back to `$enter-publish-config`.
+
+The resolver reads the dependency declaration in the repository `README.md`,
+so synchronizing README version information changes this skill's default
+without a hardcoded skill edit. `PublishInfo.version`, workflow `version`, and
+`-PpublishVersion` are component versions and do not override the plugin
+dependency version.
+
 ## Authorization boundary
 
 Requests to configure, prepare, inspect, validate, explain, or generate a

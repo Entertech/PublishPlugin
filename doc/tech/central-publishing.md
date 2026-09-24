@@ -25,7 +25,7 @@ Central 当前包含三条路径：
 ## 配置
 
 ```kotlin
-PublishRepositories {
+configure<custom.android.plugin.PublishRepositories> {
     central {
         enabled.set(true)
         namespace.set("cn.entertech")
