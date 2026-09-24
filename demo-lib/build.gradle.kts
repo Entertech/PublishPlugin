@@ -51,6 +51,8 @@ PublishInfo {
     pomName = "Entertech Publish Demo Library"
     pomDescription = "Android Library demo for cn.entertech.publish with multiple release variants."
     pomUrl = "https://github.com/Entertech/PublishPlugin"
+
+    publishAllVariants()
 }
 
 PublishRepositories {

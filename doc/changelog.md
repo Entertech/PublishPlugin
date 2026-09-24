@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Android Library 可以按 variant 名发布指定组合：`publishVariants("sdkAuthRelease")`。
+- `publishAllVariants()` 发布全部通过 build type 与 include/exclude 过滤的变种。
+- 未配置这两项时，行为与之前一致：默认只考虑 `release`，且没有变种坐标规则时只发布一个变种。
+- 指定了不存在的 variant 名时，配置阶段失败并列出候选名称。
+- 配置了指定变种或全部变种后，Gradle `customplugin` 组会显示每个变种的 Local / RemoteAll / GitHub Packages / Central 任务。单独运行某个变种任务时只发布该变种。
+
 ## 1.2.3
 
 ### 升级必读

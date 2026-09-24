@@ -22,6 +22,10 @@ open class ExplicitPublishTask : DefaultTask() {
     @get:Input
     var componentKind: PublishComponentKind = PublishComponentKind.LIBRARY
 
+    /** When set, this task publishes only the named Android variant. */
+    @get:Input
+    var publishVariantName: String = ""
+
     private val providerResults = mutableListOf<PublishProviderResult>()
 
     init {

@@ -187,14 +187,19 @@ configure<custom.android.plugin.PublishRepositories> {
 的远程 provider。Central 的 `groupId`（以及预制 manifest 中的 publication）
 必须位于配置的 namespace 下。
 
-Android Library 默认只发布 `release` build type。需要发布其他 build type 或按
-variant 过滤时，可在 `PublishInfo` 中配置：
+Android Library 默认只发布 `release` build type，且在没有变种坐标规则时只发布一个变种。需要指定变种、发布全部变种，或按条件过滤时，可在 `PublishInfo` 中配置：
 
 ```kotlin
 PublishInfo {
     publishBuildTypes("release", "staging")
+    publishVariants("sdkAuthRelease", "breathRelease")
     publishVariantIf { variant -> variant.flavor("channel") != "internal" }
     artifactIdPattern = "{artifactId}-{flavor.channel}-{buildType}"
+}
+
+// 或者发布全部通过过滤的变种
+PublishInfo {
+    publishAllVariants()
 }
 ```
 
