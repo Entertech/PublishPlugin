@@ -17,6 +17,9 @@ object PublishTaskNames {
 
     fun variantRemoteCentral(kind: PublishComponentKind, variantName: String) =
         "Publish${kind.taskNamePart}${variantName.capitalizeAscii()}RemoteCentralTask"
+
+    fun isVariantLocalTask(taskName: String): Boolean =
+        Regex("^PublishLibrary[A-Za-z0-9]+LocalTask$").matches(taskName)
 }
 
 internal fun String.capitalizeAscii(): String {

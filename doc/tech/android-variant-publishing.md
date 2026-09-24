@@ -78,7 +78,10 @@ publishBuildTypes candidates
 - 多 publication 使用 `<VariantName>EnterPublish`。
 - 标准 Maven Publish task 根据 publication 与 repository name 生成。
 - 显式 PublishPlugin task 在单 publication 时调用单 publication task，多 publication 时调用 `publishAllPublicationsTo...Repository`。
-- 配置了 `publishVariants` 或 `publishAllVariants()` 后，`customplugin` 任务组会为每个可发布变种再注册四个任务：`PublishLibrary<Variant>LocalTask`、`PublishLibrary<Variant>RemoteAllTask`、`PublishLibrary<Variant>RemoteGithubPackagesTask`、`PublishLibrary<Variant>RemoteCentralTask`。单独执行其中一个任务时，只注册并发布该变种。
+- 配置了 `publishVariants` 或 `publishAllVariants()` 后，`customplugin` 任务组会为每个可发布变种再注册四个任务：`PublishLibrary<Variant>LocalTask`、`PublishLibrary<Variant>RemoteAllTask`、`PublishLibrary<Variant>RemoteGithubPackagesTask`、`PublishLibrary<Variant>RemoteCentralTask`。
+- 单独执行其中一个任务时，只注册并发布该变种，且不能超出 `publishVariants` 允许的范围。一次请求多个变种任务会失败。
+- 两个及以上变种同时发布时，`groupId:artifactId:version` 必须互不相同。未配置 `artifactIdPattern` 或 `artifactIdForVariant` 导致坐标重复时，配置阶段失败。
+- 从项目构建的变种本地任务与 `PublishLibraryLocalTask` 一样，给版本追加 `-local`，并在子构建中保持选中的变种。
 
 ## 坐标解析优先级
 

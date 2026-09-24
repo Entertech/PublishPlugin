@@ -222,6 +222,7 @@ open class PublishInfo {
     private val explicitFields = mutableSetOf<String>()
     private val publishBuildTypeNames = linkedSetOf<String>()
     private val publishVariantNames = linkedSetOf<String>()
+    private var activePublishVariantName: String? = null
     private var publishAllVariantsEnabled = false
     private var pluginDeclarationChanged: ((String, String) -> Unit)? = null
 
@@ -263,8 +264,29 @@ open class PublishInfo {
     internal fun publishAllVariantsEnabled(): Boolean = publishAllVariantsEnabled
 
     internal fun hasExplicitVariantSelection(): Boolean {
-        return publishAllVariantsEnabled || publishVariantNames.isNotEmpty()
+        return publishAllVariantsEnabled || publishVariantNames.isNotEmpty() || activePublishVariantName != null
     }
+
+    /**
+     * Restrict this invocation to one already-allowed variant.
+     * Does not add the name to the configured allow-list.
+     */
+    internal fun activatePublishVariant(name: String) {
+        val requested = name.trim()
+        if (requested.isBlank()) {
+            return
+        }
+        if (publishVariantNames.isNotEmpty() &&
+            publishVariantNames.none { it.equals(requested, ignoreCase = true) }
+        ) {
+            throw IllegalArgumentException(
+                "Android variant $requested is not in publishVariants(${publishVariantNames.joinToString()})"
+            )
+        }
+        activePublishVariantName = requested
+    }
+
+    internal fun activePublishVariantName(): String? = activePublishVariantName
 
     internal fun isExplicit(fieldName: String): Boolean {
         return fieldName in explicitFields
@@ -366,6 +388,10 @@ open class PublishInfo {
     }
 
     internal fun shouldPublishVariant(variant: PublishVariantInfo): Boolean {
+        val active = activePublishVariantName
+        if (active != null && !variant.name.equals(active, ignoreCase = true)) {
+            return false
+        }
         if (publishVariantNames.isNotEmpty() &&
             publishVariantNames.none { it.equals(variant.name, ignoreCase = true) }
         ) {

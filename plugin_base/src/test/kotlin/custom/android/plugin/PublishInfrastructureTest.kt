@@ -142,6 +142,48 @@ class PublishInfrastructureTest {
     }
 
     @Test
+    fun `activating a variant does not expand the configured allow list`() {
+        val info = PublishInfo().apply {
+            publishVariants("breathAuthRelease")
+        }
+
+        try {
+            info.activatePublishVariant("sdkAuthRelease")
+            throw AssertionError("variant outside publishVariants must fail")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("sdkAuthRelease"))
+        }
+        assertEquals(setOf("breathAuthRelease"), info.publishVariantNames())
+        assertTrue(info.shouldPublishVariant(variant("breathAuthRelease")))
+    }
+
+    @Test
+    fun `active variant publishes only that candidate`() {
+        val info = PublishInfo().apply {
+            publishAllVariants()
+            activatePublishVariant("sdkAuthRelease")
+        }
+        val candidates = listOf(
+            variant("sdkAuthRelease"),
+            variant("breathAuthRelease")
+        )
+
+        assertEquals(listOf("sdkAuthRelease"), candidates.filter { info.shouldPublishVariant(it) }.map { it.name })
+        assertEquals("sdkAuthRelease", info.activePublishVariantName())
+    }
+
+    @Test
+    fun `variant task names do not depend on the first character of the variant`() {
+        assertEquals(
+            "PublishLibraryFlowtimeNoAuthReleaseLocalTask",
+            PublishTaskNames.variantLocal(PublishComponentKind.LIBRARY, "flowtimeNoAuthRelease")
+        )
+        assertTrue(PublishTaskNames.isVariantLocalTask("PublishLibraryFlowtimeNoAuthReleaseLocalTask"))
+        assertTrue(PublishTaskNames.isVariantLocalTask("PublishLibrary2faReleaseLocalTask"))
+        assertFalse(PublishTaskNames.isVariantLocalTask("PublishLibraryLocalTask"))
+    }
+
+    @Test
     fun `default variant selection stays inactive until explicitly configured`() {
         val info = PublishInfo()
 

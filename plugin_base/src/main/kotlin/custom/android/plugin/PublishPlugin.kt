@@ -188,41 +188,53 @@ open class PublishPlugin : Plugin<Project> {
     }
 
     private fun applyRequestedPublishVariant(project: Project) {
-        val requestedTasks = project.gradle.startParameter.taskNames
-        if (requestedTasks.any { taskName ->
-                val shortName = taskName.substringAfterLast(":")
-                shortName == "tasks" || shortName.startsWith("tasks") || shortName == "help" || shortName == "projects"
-            }
-        ) {
-            return
-        }
-        val requested = requestedTasks
-            .map { it.substringAfterLast(":") }
-            .mapNotNull { taskName -> requestedVariantFromTaskName(taskName) }
-            .distinct()
-        if (requested.size != 1 || requestedTasks.size != 1) {
-            return
-        }
+        if (!supportLibraryModule(project.plugins)) return
         val publishInfo = project.extensions.getByType(PublishInfo::class.java)
-        val variantName = requested.single()
-        val configured = publishInfo.publishVariantNames()
-        if (configured.size == 1 && configured.single().equals(variantName, ignoreCase = true)) {
-            return
+        val candidates = createAndroidVariantInfos(project, publishInfo.publishBuildTypes())
+        val requested = project.gradle.startParameter.taskNames.mapNotNull { request ->
+            if (!taskBelongsToProject(project, request)) return@mapNotNull null
+            val taskName = request.substringAfterLast(":")
+            candidates.firstOrNull { variant ->
+                taskName == PublishTaskNames.variantLocal(PublishComponentKind.LIBRARY, variant.name) ||
+                    taskName == PublishTaskNames.variantRemoteAll(PublishComponentKind.LIBRARY, variant.name) ||
+                    taskName == PublishTaskNames.variantRemoteGithubPackages(PublishComponentKind.LIBRARY, variant.name) ||
+                    taskName == PublishTaskNames.variantRemoteCentral(PublishComponentKind.LIBRARY, variant.name)
+            }?.name
         }
-        publishInfo.publishVariants(variantName)
+        val inherited = if (project.findProperty("publishSelectedVariantProject")?.toString() == project.path) {
+            project.findProperty("publishSelectedVariant")?.toString()?.trim().orEmpty()
+        } else {
+            ""
+        }
+        if (requested.isEmpty() && inherited.isEmpty()) return
+        if (requested.size > 1 || requested.distinct().size > 1) {
+            throw GradleException("Publish only one Android variant task per invocation: ${requested.joinToString()}")
+        }
+        if (!publishInfo.publishAllVariantsEnabled() && publishInfo.publishVariantNames().isEmpty()) {
+            throw GradleException(
+                "Android variant tasks require publishVariants(...) or publishAllVariants()"
+            )
+        }
+        val selected = requested.singleOrNull() ?: inherited
+        val canonical = candidates.singleOrNull { it.name.equals(selected, ignoreCase = true) }?.name
+            ?: throw GradleException(
+                "Unknown Android publish variant $selected. Candidates: ${candidates.joinToString { it.name }}"
+            )
+        if (inherited.isNotEmpty() && !canonical.equals(inherited, ignoreCase = true)) {
+            throw GradleException("Requested variant $canonical conflicts with publishSelectedVariant=$inherited")
+        }
+        try {
+            publishInfo.activatePublishVariant(canonical)
+        } catch (error: IllegalArgumentException) {
+            throw GradleException(error.message ?: "Android variant $canonical is not publishable")
+        }
     }
 
-    private fun requestedVariantFromTaskName(taskName: String): String? {
-        val match = Regex(
-            "^PublishLibrary([A-Z][A-Za-z0-9]*)(?:Local|RemoteAll|RemoteGithubPackages|RemoteCentral)Task$"
-        ).matchEntire(taskName) ?: return null
-        val variantPart = match.groupValues[1]
-        if (variantPart == "Remote" || variantPart.isBlank()) {
-            return null
-        }
-        return variantPart.replaceFirstChar { char ->
-            if (char in 'A'..'Z') (char + 32).toString() else char.toString()
-        }
+    private fun taskBelongsToProject(project: Project, request: String): Boolean {
+        if (!request.contains(":")) return true
+        val projectPath = request.substringBeforeLast(":")
+        val normalized = if (projectPath.startsWith(":")) projectPath else ":$projectPath"
+        return project.path == normalized
     }
 
     private fun registerAndroidVariantPublishTasks(project: Project, kind: PublishComponentKind) {
@@ -399,10 +411,14 @@ open class PublishPlugin : Plugin<Project> {
     }
 
     private fun isLocalPublishRequested(project: Project): Boolean {
+        if (project.findProperty("publishLocalVersion")?.toString()?.toBooleanLenientLocal() == true) {
+            return true
+        }
         return project.gradle.startParameter.taskNames.any { taskName ->
             val shortTaskName = taskName.substringAfterLast(":")
             shortTaskName == PublishTaskNames.local(PublishComponentKind.LIBRARY) ||
                 shortTaskName == PublishTaskNames.local(PublishComponentKind.PLUGIN) ||
+                PublishTaskNames.isVariantLocalTask(shortTaskName) ||
                 shortTaskName == "publishToMavenLocal" ||
                 (shortTaskName.startsWith("publish") && shortTaskName.endsWith("PublicationToMavenLocal"))
         }
@@ -547,7 +563,7 @@ open class PublishPlugin : Plugin<Project> {
             buildTypeComponents.filter { it.name in publishableVariantNames }
         }
 
-        return publishableComponents.map { component ->
+        val targets = publishableComponents.map { component ->
             val publicationName = if (useBasePublicationName) {
                 MAVEN_PUBLICATION_NAME
             } else {
@@ -563,6 +579,19 @@ open class PublishPlugin : Plugin<Project> {
             val version = publishInfo.resolveVersion(variantInfo)
             PublishTarget(component, publicationName, groupId, artifactId, version)
         }
+        val duplicateCoordinates = targets.groupBy { target ->
+            Triple(target.groupId, target.artifactId, PublishConfigResolver.resolveVersion(project, publishInfo, target.version))
+        }.filterValues { it.size > 1 }
+        if (duplicateCoordinates.isNotEmpty()) {
+            throw GradleException(
+                "Android variants must publish distinct Maven coordinates. " +
+                    "Configure artifactIdPattern or artifactIdForVariant. Duplicates: " +
+                    duplicateCoordinates.entries.joinToString { (coordinate, duplicates) ->
+                        "${coordinate.first}:${coordinate.second}:${coordinate.third} (${duplicates.joinToString { it.component.name }})"
+                    }
+            )
+        }
+        return targets
     }
 
     private fun selectAndroidPublishVariants(
