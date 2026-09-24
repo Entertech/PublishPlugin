@@ -22,6 +22,10 @@ open class ExplicitPublishTask : DefaultTask() {
     @get:Input
     var componentKind: PublishComponentKind = PublishComponentKind.LIBRARY
 
+    /** When set, this task publishes only the named Android variant. */
+    @get:Input
+    var publishVariantName: String = ""
+
     private val providerResults = mutableListOf<PublishProviderResult>()
 
     init {
@@ -36,6 +40,14 @@ open class ExplicitPublishTask : DefaultTask() {
         )
         val publishInfo = project.extensions.findByType(PublishInfo::class.java)
             ?: throw GradleException("PublishInfo is required for ${componentKind.taskNamePart} publishing")
+        if (publishVariantName.isNotBlank() &&
+            !publishVariantName.equals(publishInfo.activePublishVariantName(), ignoreCase = true)
+        ) {
+            throw GradleException(
+                "Task $name publishes $publishVariantName, but the active variant is " +
+                    (publishInfo.activePublishVariantName() ?: "<none>")
+            )
+        }
         val version = PublishConfigResolver.resolveVersion(project, publishInfo)
         var validation = PublishValidation.validateRemote(project, publishInfo, target, source)
         validation.warnings.forEach { PluginLogUtil.printlnInfoInScreen("WARNING: $it") }
@@ -46,13 +58,17 @@ open class ExplicitPublishTask : DefaultTask() {
         var bundle: PreparedArtifactBundle? = null
         try {
             bundle = when {
-                source == ArtifactSource.PREBUILT -> preparePrebuilt(publishInfo, version)
+                source == ArtifactSource.PREBUILT -> selectPrebuiltVariant(
+                    preparePrebuilt(publishInfo, version),
+                    validation.publications
+                )
                 shouldPrepareProjectBundle() -> ProjectArtifactBundleProducer.prepare(
                     project,
                     validation.publications,
                     requireCentral = target == ExplicitPublishTarget.CENTRAL ||
                         (target == ExplicitPublishTarget.ALL &&
-                            project.extensions.findByType(PublishRepositories::class.java)?.isCentralEnabled() == true)
+                            project.extensions.findByType(PublishRepositories::class.java)?.isCentralEnabled() == true),
+                    selectedVariant = publishVariantName.takeIf { it.isNotBlank() }
                 )
                 else -> null
             }
@@ -107,13 +123,38 @@ open class ExplicitPublishTask : DefaultTask() {
     private fun preparePrebuilt(publishInfo: PublishInfo, version: String): PreparedArtifactBundle {
         val centralEnabled = project.extensions.findByType(PublishRepositories::class.java)
             ?.isCentralEnabled() == true
-        val requireCentral = target == ExplicitPublishTarget.CENTRAL ||
-            (target == ExplicitPublishTarget.ALL && centralEnabled)
+        val requireCentral = requiresCentralBundle(target, centralEnabled)
         val path = project.findProperty("artifactBundlePath")?.toString()
             ?: System.getenv("PUBLISH_ARTIFACT_BUNDLE_PATH").orEmpty()
         val bundle = PrebuiltArtifactBundleProducer.prepare(project, path, version, requireCentral)
         if (requireCentral) validateCentralBundleNamespace(bundle, publishInfo)
         return bundle
+    }
+
+    private fun selectPrebuiltVariant(
+        bundle: PreparedArtifactBundle,
+        expected: List<PublishValidationPublication>
+    ): PreparedArtifactBundle {
+        if (publishVariantName.isBlank()) return bundle
+        val publication = expected.singleOrNull()
+            ?: throw GradleException("Variant task $name requires exactly one configured publication")
+        val expectedVersion = if (target == ExplicitPublishTarget.LOCAL) {
+            publication.version.removeSuffix("-local")
+        } else {
+            publication.version
+        }
+        val matching = bundle.publications.filter { candidate ->
+            candidate.groupId == publication.groupId &&
+                candidate.artifactId == publication.artifactId &&
+                candidate.version == expectedVersion
+        }
+        if (matching.size != 1) {
+            throw GradleException(
+                "Prebuilt bundle must contain exactly one publication for $publishVariantName " +
+                    "at ${publication.groupId}:${publication.artifactId}:$expectedVersion; found ${matching.size}"
+            )
+        }
+        return bundle.copy(publications = matching)
     }
 
     private fun publishPrebuilt(bundle: PreparedArtifactBundle, publishInfo: PublishInfo): PreparedArtifactBundle {
@@ -176,10 +217,18 @@ open class ExplicitPublishTask : DefaultTask() {
         fun targetProperties(): Map<String, String> =
             project.gradle.startParameter.projectProperties
                 .filterValues { it.isNotBlank() }
-                .toMap()
+                .toMutableMap()
+                .apply {
+                    if (publishVariantName.isNotBlank()) {
+                        this["publishSelectedVariant"] = publishVariantName
+                        this["publishSelectedVariantProject"] = project.path
+                    }
+                }
         return when (target) {
-            ExplicitPublishTarget.LOCAL -> runNested("publishToMavenLocal", targetProperties())
-                .let { null }
+            ExplicitPublishTarget.LOCAL -> runNested(
+                "publishToMavenLocal",
+                targetProperties() + mapOf("publishLocalVersion" to "true")
+            ).let { null }
             ExplicitPublishTarget.GITHUB_PACKAGES -> requireNotNull(preparedBundle) {
                 "Project remote bundle was not prepared"
             }.also { publishPrebuiltGithub(it, publishInfo) }

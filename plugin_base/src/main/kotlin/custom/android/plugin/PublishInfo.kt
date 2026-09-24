@@ -221,6 +221,9 @@ open class PublishInfo {
     private val publishVariantActions = mutableListOf<(PublishVariantInfo) -> Boolean>()
     private val explicitFields = mutableSetOf<String>()
     private val publishBuildTypeNames = linkedSetOf<String>()
+    private val publishVariantNames = linkedSetOf<String>()
+    private var activePublishVariantName: String? = null
+    private var publishAllVariantsEnabled = false
     private var pluginDeclarationChanged: ((String, String) -> Unit)? = null
 
     /** Build types to publish; release remains the default when this is not configured. */
@@ -228,6 +231,22 @@ open class PublishInfo {
 
     fun publishBuildTypes(vararg names: String) {
         publishBuildTypeNames += names.map { it.trim() }.filter { it.isNotBlank() }
+    }
+
+    /**
+     * Publish only the named Android variants, for example `sdkAuthRelease`.
+     * Names are matched case-insensitively against the AGP variant name.
+     */
+    fun publishVariants(vararg names: String) {
+        publishVariantNames += names.map { it.trim() }.filter { it.isNotBlank() }
+    }
+
+    /**
+     * Publish every variant that survives build-type and include/exclude filters.
+     * Without this, a single release variant is published when no per-variant coordinates are configured.
+     */
+    fun publishAllVariants() {
+        publishAllVariantsEnabled = true
     }
 
     fun publishVariantIf(action: (PublishVariantInfo) -> Boolean) {
@@ -239,6 +258,35 @@ open class PublishInfo {
     }
 
     internal fun publishBuildTypes(): Set<String> = publishBuildTypeNames.ifEmpty { setOf("release") }
+
+    internal fun publishVariantNames(): Set<String> = publishVariantNames.toSet()
+
+    internal fun publishAllVariantsEnabled(): Boolean = publishAllVariantsEnabled
+
+    internal fun hasExplicitVariantSelection(): Boolean {
+        return publishAllVariantsEnabled || publishVariantNames.isNotEmpty() || activePublishVariantName != null
+    }
+
+    /**
+     * Restrict this invocation to one already-allowed variant.
+     * Does not add the name to the configured allow-list.
+     */
+    internal fun activatePublishVariant(name: String) {
+        val requested = name.trim()
+        if (requested.isBlank()) {
+            return
+        }
+        if (publishVariantNames.isNotEmpty() &&
+            publishVariantNames.none { it.equals(requested, ignoreCase = true) }
+        ) {
+            throw IllegalArgumentException(
+                "Android variant $requested is not in publishVariants(${publishVariantNames.joinToString()})"
+            )
+        }
+        activePublishVariantName = requested
+    }
+
+    internal fun activePublishVariantName(): String? = activePublishVariantName
 
     internal fun isExplicit(fieldName: String): Boolean {
         return fieldName in explicitFields
@@ -340,6 +388,15 @@ open class PublishInfo {
     }
 
     internal fun shouldPublishVariant(variant: PublishVariantInfo): Boolean {
+        val active = activePublishVariantName
+        if (active != null && !variant.name.equals(active, ignoreCase = true)) {
+            return false
+        }
+        if (publishVariantNames.isNotEmpty() &&
+            publishVariantNames.none { it.equals(variant.name, ignoreCase = true) }
+        ) {
+            return false
+        }
         return publishVariantActions.all { action -> action(variant) } &&
             skipVariantActions.none { action -> action(variant) }
     }

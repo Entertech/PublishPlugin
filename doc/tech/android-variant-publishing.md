@@ -26,13 +26,22 @@ PublishInfo {
     version = "1.0.0"
 
     publishBuildTypes("release", "staging")
+    publishVariants("sdkAuthRelease", "breathRelease")
     publishVariantIf { variant -> variant.flavor("channel") != "internal" }
     skipVariantIf { variant -> variant.flavor("authentication") == "legacy" }
     artifactIdPattern = "{artifactId}-{flavor.channel}-{buildType}"
 }
 ```
 
-未配置 `publishBuildTypes` 时默认只考虑 `release`。
+发布全部通过过滤的变种：
+
+```kotlin
+PublishInfo {
+    publishAllVariants()
+}
+```
+
+未配置 `publishBuildTypes` 时默认只考虑 `release`。未配置 `publishVariants` 或 `publishAllVariants()` 时，单 `release` 仍只发布一个变种。`publishVariants` 按 AGP variant 名匹配，大小写不敏感；名字不在候选列表中时配置阶段失败。
 
 ## Variant 模型
 
@@ -52,8 +61,10 @@ class PublishVariantInfo(
 
 ```text
 publishBuildTypes candidates
+  -> publishVariants (exact names, when configured)
   -> publishVariantIf (all predicates must pass)
   -> skipVariantIf (no predicate may match)
+  -> publishAllVariants, otherwise keep the first candidate when no per-variant coordinates exist
   -> register singleVariant
   -> match SoftwareComponent
   -> create MavenPublication
@@ -67,6 +78,10 @@ publishBuildTypes candidates
 - 多 publication 使用 `<VariantName>EnterPublish`。
 - 标准 Maven Publish task 根据 publication 与 repository name 生成。
 - 显式 PublishPlugin task 在单 publication 时调用单 publication task，多 publication 时调用 `publishAllPublicationsTo...Repository`。
+- 配置了 `publishVariants` 或 `publishAllVariants()` 后，`customplugin` 任务组会为每个可发布变种再注册四个任务：`PublishLibrary<Variant>LocalTask`、`PublishLibrary<Variant>RemoteAllTask`、`PublishLibrary<Variant>RemoteGithubPackagesTask`、`PublishLibrary<Variant>RemoteCentralTask`。
+- 单独执行其中一个任务时，只注册并发布该变种，且不能超出 `publishVariants` 允许的范围。一次请求多个变种任务会失败。
+- 两个及以上变种同时发布时，`groupId:artifactId:version` 必须互不相同。未配置 `artifactIdPattern` 或 `artifactIdForVariant` 导致坐标重复时，配置阶段失败。
+- 从项目构建的变种本地任务与 `PublishLibraryLocalTask` 一样，给版本追加 `-local`，并在子构建中保持选中的变种。
 
 ## 坐标解析优先级
 

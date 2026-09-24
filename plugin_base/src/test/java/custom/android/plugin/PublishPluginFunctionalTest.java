@@ -877,6 +877,7 @@ public class PublishPluginFunctionalTest {
     public void androidLibraryCanPublishDebugAndStagingBuildTypes() throws IOException {
         File projectDir = createAndroidLibraryProjectWithPublishFlavors(
                 "    publishBuildTypes('debug', 'staging')\n"
+                        + "    versionForVariant { variant -> \"1.0.0-${variant.buildType}-variant\" }\n"
         );
 
         gradleRunner(projectDir)
@@ -900,6 +901,35 @@ public class PublishPluginFunctionalTest {
         assertFalse(Files.exists(projectDir.toPath().resolve(
                 "fixture/build/publications/BreathAuthReleaseEnterPublish/pom-default.xml"
         )));
+    }
+
+    @Test
+    public void androidLibraryRejectsDuplicateCoordinatesWhenPublishingAllVariants() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    publishAllVariants()\n", "", false
+        );
+
+        String output = gradleRunner(projectDir)
+                .withArguments(":fixture:tasks", "--stacktrace")
+                .buildAndFail()
+                .getOutput();
+
+        assertTrue(output.contains("Android variants must publish distinct Maven coordinates"));
+        assertTrue(output.contains("com.example:affective-offline-sdk:1.0.0"));
+    }
+
+    @Test
+    public void androidVariantTaskCannotExpandConfiguredVariantList() throws IOException {
+        File projectDir = createAndroidLibraryProjectWithPublishFlavors(
+                "    publishVariants('breathAuthRelease')\n"
+        );
+
+        String output = gradleRunner(projectDir)
+                .withArguments(":fixture:PublishLibrarySdkAuthReleaseLocalTask", "--dry-run", "--stacktrace")
+                .buildAndFail()
+                .getOutput();
+
+        assertTrue(output.contains("sdkAuthRelease is not in publishVariants(breathAuthRelease)"));
     }
 
     @Test

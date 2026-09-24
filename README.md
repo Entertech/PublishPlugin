@@ -62,7 +62,7 @@ buildscript {
     }
 
     dependencies {
-        classpath("cn.entertech.android:publish:2.0.0")
+        classpath("cn.entertech.android:publish:2.0.1")
     }
 }
 ```
@@ -78,7 +78,7 @@ plugins {
 PublishInfo {
     groupId = "cn.example.android"
     artifactId = "example-library"
-    version = "2.0.0"
+    version = "2.0.1"
 
     // 开源组件需要发布真实源码；闭源组件可保持默认 false。
     hasSource = true
@@ -96,7 +96,7 @@ plugins {
 PublishInfo {
     groupId = "cn.example.gradle"
     artifactId = "example-plugin"
-    version = "2.0.0"
+    version = "2.0.1"
     pluginId = "cn.example.plugin"
     implementationClass = "cn.example.plugin.ExamplePlugin"
 }
@@ -115,7 +115,7 @@ Library 和 Gradle Plugin 使用不同的任务名：
 ```
 
 工程模式下，本地发布版本会追加 `-local`，例如：
-`cn.example.android:example-library:2.0.0-local`。
+`cn.example.android:example-library:2.0.1-local`。
 执行 `PublishLibraryLocalTask` 或 `PublishPluginLocalTask` 后，终端会输出 Maven Local
 仓库根地址、publication 坐标和对应版本目录地址，并附带可直接复制的 Gradle/Maven
 依赖片段。
@@ -168,7 +168,7 @@ Gradle、Android Gradle Plugin、`maven-publish` 和 `signing` 自身生成的�
 选择写在可提交的 `PublishRepositories` DSL：
 
 ```kotlin
-PublishRepositories {
+configure<custom.android.plugin.PublishRepositories> {
     githubPackages {
         enabled.set(true)
         repository.set("OWNER/example-library")
@@ -187,14 +187,19 @@ PublishRepositories {
 的远程 provider。Central 的 `groupId`（以及预制 manifest 中的 publication）
 必须位于配置的 namespace 下。
 
-Android Library 默认只发布 `release` build type。需要发布其他 build type 或按
-variant 过滤时，可在 `PublishInfo` 中配置：
+Android Library 默认只发布 `release` build type，且在没有变种坐标规则时只发布一个变种。需要指定变种、发布全部变种，或按条件过滤时，可在 `PublishInfo` 中配置：
 
 ```kotlin
 PublishInfo {
     publishBuildTypes("release", "staging")
+    publishVariants("sdkAuthRelease", "breathRelease")
     publishVariantIf { variant -> variant.flavor("channel") != "internal" }
     artifactIdPattern = "{artifactId}-{flavor.channel}-{buildType}"
+}
+
+// 或者发布全部通过过滤的变种
+PublishInfo {
+    publishAllVariants()
 }
 ```
 
@@ -341,6 +346,11 @@ provider 成功、后一个失败，任务会报告部分成功状态，后续�
 对每个非 POM publication 至少需要 main、POM、sources、javadoc 和签名文件；POM
 publication 需要 POM（或 plugin marker）和签名。
 
+`Publish*LocalTask` 和 `publishToMavenLocal` 的输出不是 prebuilt bundle：其版本通常带
+`-local`，目录中没有 `publish-artifacts.json`，并且本机 Maven 仓库不会自动传入 CI。
+需要 CI 从当前提交重新构建时使用 `artifact_source: project`；只有已经具备 manifest、
+目标版本和完整伴生文件的标准目录才使用 `prebuilt`。
+
 预制产物格式和生成示例见
 [发布架构中的 Prebuilt 产物章节](doc/tech/publish-architecture.md#prebuilt-产物)。
 
@@ -370,7 +380,7 @@ jobs:
       component_type: "library"
       publish_target: "github_packages"
       publish_mode: "release"
-      version: "2.0.0"
+      version: "2.0.1"
 ```
 
 使用预制产物时增加：
@@ -383,6 +393,8 @@ jobs:
 
 如果产物来自 workflow 的前置 job，必须先用
 `actions/download-artifact` 下载到 `artifact_bundle_path`；不同 job 不共享文件系统。
+`artifact_bundle_artifact` 只能引用当前 workflow run 中已上传的 Actions artifact，
+不能直接引用开发机文件或默认读取其他历史 run 的 artifact。
 workflow 会校验组件类型、目标、版本和产物路径，并只映射到上表中的明确任务。
 `publish_mode=ci` 仅支持 Central，并会为非 snapshot 版本自动追加 `-SNAPSHOT`；
 `publish_mode=release` 拒绝 `-SNAPSHOT` 版本。
@@ -396,6 +408,10 @@ workflow 会校验组件类型、目标、版本和产物路径，并只映射�
 workflow 的 check-only 使用 `structure` 级别，不需要注入任何 secret。本机
 `checkPublish` 默认使用 `credentials`；可通过
 `-PpublishValidationLevel=structure|credentials|remote` 明确选择。
+
+Central 的 `project` 模式在 CI 构建时需要 GPG 私钥与口令；`prebuilt` 模式要求
+manifest 已声明并携带 detached signatures，因此发布 job 只需要 Central 仓库凭据，
+不会再次读取 GPG 私钥。
 
 PR 必跑支持组合为 JDK 17 / Gradle 8.7 / AGP 8.1.3 和 JDK 21 / Gradle 8.10 /
 AGP 8.5.2。`.github/workflows/compatibility-matrix.yml` 每周和手动运行完整 2×2×2
@@ -419,6 +435,14 @@ provider state 和门禁结果。完整契约见
 | --- | --- | --- |
 | `$enter-publish-config` | 配置/校验 `PublishInfo`、`PublishRepositories`、本机模板、caller workflow 和 manifest。 | 否 |
 | `$enter-publish-run` | 消费已有配置，在本机执行发布或触发 GitHub Actions。 | 是，必须有明确发布指令 |
+
+两个 Skill 将“PublishPlugin 依赖版本”和“业务组件发布版本”分开处理。用户明确指定
+PublishPlugin 版本时使用指定值；未指定时运行
+`python3 scripts/resolve-publish-plugin-version.py`，从本 README 快速开始中的
+PublishPlugin classpath 依赖声明读取当前默认版本。因此发布流程同步 README 版本后，
+两个 Skill 会自动使用新版本，无需再修改 Skill 中的硬编码值。
+`PublishInfo.version`、workflow `version` 和 `-PpublishVersion` 始终表示业务组件版本，
+不会覆盖 PublishPlugin 依赖版本。
 
 推荐先配置、再单独发起发布请求。配置 Skill 不会运行发布任务、上传制品或触发
 workflow；发布 Skill 发现配置缺失时会停止并交回配置 Skill。详细输入、交接模型

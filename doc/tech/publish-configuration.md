@@ -63,7 +63,7 @@ PublishInfo {
     pomUrl = "https://github.com/Entertech/example"
 }
 
-PublishRepositories {
+configure<custom.android.plugin.PublishRepositories> {
     githubPackages {
         enabled.set(true)
         repository.set("Entertech/example")

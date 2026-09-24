@@ -51,6 +51,14 @@ PublishInfo {
     pomName = "Entertech Publish Demo Library"
     pomDescription = "Android Library demo for cn.entertech.publish with multiple release variants."
     pomUrl = "https://github.com/Entertech/PublishPlugin"
+
+    publishAllVariants()
+    artifactIdForVariant { variant ->
+        val projectFlavor = variant.flavor("project").ifBlank { "sdk" }
+        val authentication = variant.flavor("authentication")
+        val authSuffix = if (authentication == "auth") "-authentication" else ""
+        "$projectFlavor-$baseArtifactId$authSuffix"
+    }
 }
 
 PublishRepositories {
